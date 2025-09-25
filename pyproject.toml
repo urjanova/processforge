@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+
+name = "processforge"
+version = "0.1.0"
+description = "A Python-based process simulation framework for chemical engineering applications."
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.12"
+authors = [
+    {name = "Process Forge Team", email = "team@processforge.dev"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: Other/Proprietary License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering",
+]
+keywords = ["process", "simulation", "chemical", "engineering", "flowsheet"]
+dependencies = [
+	"numpy==2.3.3",
+	"scipy==1.16.2",
+	"coolprop==7.1.0",
+	"networkx==3.5",
+	"h5py==3.14.0",
+	"casadi==3.7.2",
+	"matplotlib>=3.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black",
+    "flake8",
+]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme",
+]
+
+[project.scripts]
+processforge = "processforge.simulate:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["processforge*"]
+
+[tool.setuptools.package-dir]
+"" = "."

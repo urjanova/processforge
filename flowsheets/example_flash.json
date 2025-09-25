@@ -1,0 +1,25 @@
+{
+  "streams": {
+    "feed": {
+      "T": 300,
+      "P": 101325,
+      "z": {"Methane": 0.5, "Ethane": 0.5}
+    }
+  },
+  "units": {
+    "heater": {
+      "type": "Heater",
+      "in": "feed",
+      "out": "hot",
+      "duty": 20000,
+      "flowrate": 1.0
+    },
+    "flash": {
+      "type": "Flash",
+      "in": "hot",
+      "out_vap": "vap",
+      "out_liq": "liq",
+      "P": 101325
+    }
+  }
+}
