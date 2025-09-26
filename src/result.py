@@ -1,8 +1,8 @@
-import json
 import csv
+import json
+import os
+
 import matplotlib.pyplot as plt
-import argparse
-from processforge.flowsheet import Flowsheet
 
 def save_results_csv(results, fname="results.csv"):
     """Save steady-state results to a CSV file."""
@@ -11,7 +11,8 @@ def save_results_csv(results, fname="results.csv"):
         comps.update(s.get("z", {}).keys())
     comps = sorted(comps)
 
-    with open(fname, "w", newline="") as f:
+    os.makedirs("outputs", exist_ok=True)
+    with open(os.path.join("outputs", fname), "w", encoding="utf-8",newline="") as f:
         writer = csv.writer(f)
         header = ["Stream", "T [K]", "P [Pa]", "Phase", "VaporFrac"] + comps
         writer.writerow(header)
@@ -21,11 +22,12 @@ def save_results_csv(results, fname="results.csv"):
                 s.get("T", ""),
                 s.get("P", ""),
                 s.get("phase", ""),
-                s.get("beta", "")
+                s.get("beta", ""),
             ]
             for c in comps:
                 row.append(s.get("z", {}).get(c, 0.0))
             writer.writerow(row)
+
 
 def save_timeseries_csv(results, fname="results_timeseries.csv"):
     """
@@ -43,7 +45,8 @@ def save_timeseries_csv(results, fname="results_timeseries.csv"):
     streams = sorted(streams)
     comps = sorted(comps)
 
-    with open(fname, "w", newline="") as f:
+    os.makedirs("outputs", exist_ok=True)
+    with open(os.path.join("outputs", fname), "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         header = ["time", "stream", "T [K]", "P [Pa]", "Phase", "VaporFrac"] + comps
         writer.writerow(header)
@@ -56,11 +59,30 @@ def save_timeseries_csv(results, fname="results_timeseries.csv"):
                     s.get("T", ""),
                     s.get("P", ""),
                     s.get("phase", ""),
-                    s.get("beta", "")
+                    s.get("beta", ""),
                 ]
                 for c in comps:
                     row.append(s.get("z", {}).get(c, 0.0))
                 writer.writerow(row)
+
+
+def save_results_json(results, fname="results.json"):
+    """Save steady-state results to a JSON file."""
+    os.makedirs("outputs", exist_ok=True)
+    with open(os.path.join("outputs", fname), "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=4)
+
+
+def save_timeseries_json(results, fname="results_timeseries.json"):
+    """
+    Save dynamic results (time series) to a JSON file.
+    results: dict {time: {stream: {...}}}
+    """
+    os.makedirs("outputs", exist_ok=True)
+    with open(os.path.join("outputs", fname), "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=4)
+
+
 
 def plot_results(results, fname="results.png"):
     """Generate steady-state charts."""
@@ -73,7 +95,7 @@ def plot_results(results, fname="results.png"):
     plt.ylabel("Temperature [K]")
     plt.title("Stream Temperatures (Steady State)")
     plt.tight_layout()
-    plt.savefig("temps_" + fname)
+    plt.savefig(os.path.join("outputs", "temps_" + fname))
     plt.close()
 
     # Composition stacked bar chart
@@ -92,8 +114,9 @@ def plot_results(results, fname="results.png"):
     plt.title("Stream Compositions (Steady State)")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("comps_" + fname)
+    plt.savefig(os.path.join("outputs", "comps_" + fname))
     plt.close()
+
 
 def plot_timeseries(results, fname="timeseries.png"):
     """Generate time-series plots for dynamic simulations."""
@@ -110,7 +133,7 @@ def plot_timeseries(results, fname="timeseries.png"):
     plt.title("Stream Temperatures vs Time")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("temps_" + fname)
+    plt.savefig(os.path.join("outputs", "temps_" + fname))
     plt.close()
 
     # Composition vs time (line chart for each component of each stream)
@@ -130,44 +153,5 @@ def plot_timeseries(results, fname="timeseries.png"):
         plt.title(f"Compositions vs Time ({sname})")
         plt.legend()
         plt.tight_layout()
-        plt.savefig(f"comps_{sname}_" + fname)
+        plt.savefig(os.path.join("outputs", f"comps_{sname}_" + fname))
         plt.close()
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Process Forge - Chemical Process Simulation",
-        prog="processforge"
-    )
-    parser.add_argument(
-        "flowsheet",
-        help="Path to the flowsheet JSON file"
-    )
-
-    args = parser.parse_args()
-
-    fname = args.flowsheet
-    with open(fname) as f:
-        data = json.load(f)
-    fs = Flowsheet(data)
-    results = fs.run()
-
-    # Detect steady vs dynamic (placeholder: if dict-of-dicts keyed by time, it's dynamic)
-    if isinstance(next(iter(results.values())), dict) and "T" in next(iter(results.values())).keys():
-        # Steady state
-        print("=== Steady-State Results ===")
-        for sname, sdata in results.items():
-            print(sname, sdata)
-        save_results_csv(results, "results.csv")
-        plot_results(results, "results.png")
-        print("Saved results.csv, temps_results.png, comps_results.png")
-    else:
-        # Dynamic
-        print("=== Dynamic Results ===")
-        for t, streams in results.items():
-            print(f"t={t}: {streams}")
-        save_timeseries_csv(results, "results_timeseries.csv")
-        plot_timeseries(results, "timeseries.png")
-        print("Saved results_timeseries.csv + time series plots")
-
-if __name__ == "__main__":
-    main()

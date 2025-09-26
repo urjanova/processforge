@@ -1,0 +1,41 @@
+{
+  "streams": {
+    "feed": {
+      "T": 300,
+      "P": 101325,
+      "z": {"Methane": 0.7, "Ethane": 0.3},
+      "flowrate": 2.0
+    }
+  },
+  "units": {
+    "tank1": {
+      "type": "Tank",
+      "inlet": "feed",
+      "outlet_flow": 1.5,
+      "initial_n": {"Methane": 1.0, "Ethane": 1.0},
+      "initial_T": 300,
+      "P": 101325,
+      "duty": 100.0
+    },
+    "heater": {
+      "type": "Heater",
+      "in": "tank1",
+      "out": "hot",
+      "duty": 5000.0,
+      "flowrate": 1.5
+    },
+    "flash": {
+      "type": "Flash",
+      "in": "hot",
+      "out_vap": "vap",
+      "out_liq": "liq",
+      "P": 101325
+    }
+  },
+  "simulation": {
+    "mode": "dynamic",
+    "t0": 0.0,
+    "tf": 20.0,
+    "dt": 1.0
+  }
+}

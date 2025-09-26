@@ -32,6 +32,7 @@ dependencies = [
 	"h5py==3.14.0",
 	"casadi==3.7.2",
 	"matplotlib>=3.5.0",
+	"loguru",
 ]
 
 [project.optional-dependencies]
