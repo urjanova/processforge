@@ -8,6 +8,8 @@ from src.result import (
     save_timeseries_csv,
     plot_results,
     plot_timeseries,
+    save_results_json,
+    save_timeseries_json,
 )
 from loguru import logger
 
@@ -30,24 +32,25 @@ def main():
     results = fs.run()
 
     # Detect steady vs dynamic (placeholder: if dict-of-dicts keyed by time, it's dynamic)
-    if (
-        isinstance(next(iter(results.values())), dict)
-        and "T" in next(iter(results.values())).keys()
-    ):
-        # Steady state
-        logger.info("=== Steady-State Results ===")
+    # Detect steady vs dynamic: if keys are numeric (times), it's dynamic
+    is_dynamic = all(isinstance(k, (int, float)) for k in results.keys())
+    
+    base_name = os.path.splitext(os.path.basename(fname))[0]
 
-        save_results_csv(results, "results.csv")
-        plot_results(results, "results.png")
-        logger.info("Saved results.csv, temps_results.png, comps_results.png")
-    else:
-        # Dynamic
+    if is_dynamic:
         logger.info("=== Dynamic Results ===")
-
-        save_timeseries_csv(results, "results_timeseries.csv")
-        plot_timeseries(results, "timeseries.png")
-        logger.info("Saved results_timeseries.csv + time series plots")
-
+        save_timeseries_json(results, f"{base_name}_timeseries.json")
+        save_results_json(results, f"{base_name}_results.json")  # Assuming this saves summary or something
+        save_timeseries_csv(results, f"{base_name}_timeseries.csv")
+        plot_timeseries(results, f"{base_name}_timeseries.png")
+        logger.info(f"Saved {base_name}_timeseries.csv and {base_name}_timeseries.png")
+    else:
+        logger.info("=== Steady-State Results ===")
+        save_results_json(results, f"{base_name}_results.json")
+        save_results_csv(results, f"{base_name}_results.csv")
+        save_timeseries_json(results, f"{base_name}_timeseries.json")  # If applicable for steady state
+        plot_results(results, f"{base_name}_results.png")
+        logger.info(f"Saved {base_name}_results.csv and {base_name}_results.png")
 
 if __name__ == "__main__":
     main()

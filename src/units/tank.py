@@ -1,6 +1,16 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 from ..thermo import get_enthalpy_molar, get_Cp_molar
+from dataclasses import dataclass
+
+
+@dataclass
+class TankState:
+    T: float
+    P: float
+    z: dict
+    n_total: float
+
 
 class Tank:
     """
@@ -13,8 +23,9 @@ class Tank:
       - initial_T: initial temperature [K]
       - P: pressure in Pa (assumed constant)
       - duty: heat duty [W] applied to tank (positive heats)
-      - flow_in: molar inlet flowrate [mol/s] (used if inlet stream not providing flowrate)
+      - flow_in: molar inlet flowrate [mol/s] (used if inlet stream not providing flowrate) 
     """
+
     def __init__(self, name, params):
         self.name = name
         self.params = params
@@ -36,7 +47,7 @@ class Tank:
         T = y[-1]
         comps = list(inlet_stream["z"].keys())
         n_tot = max(1e-12, sum(n))
-        x = {comps[i]: max(0.0, n[i]/n_tot) for i in range(len(comps))}
+        x = {comps[i]: max(0.0, n[i] / n_tot) for i in range(len(comps))}
 
         # inlet properties
         Fin = inlet_stream.get("flowrate", self.flow_in)  # mol/s
@@ -76,7 +87,9 @@ class Tank:
         Returns: dict time -> streams snapshot (each snapshot is dict of stream->data)
         """
         if self.inlet not in streams:
-            raise ValueError(f"Inlet stream {self.inlet} not found in flowsheet streams")
+            raise ValueError(
+                f"Inlet stream {self.inlet} not found in flowsheet streams"
+            )
 
         inlet = streams[self.inlet]
         comps = list(inlet["z"].keys())
@@ -85,7 +98,15 @@ class Tank:
         y0 = np.array(n0 + [self.initial_T])
 
         # integrate
-        sol = solve_ivp(self._ode_rhs, t_span, y0, t_eval=t_eval, args=(inlet,), rtol=1e-6, atol=1e-8)
+        sol = solve_ivp(
+            self._ode_rhs,
+            t_span,
+            y0,
+            t_eval=t_eval,
+            args=(inlet,),
+            rtol=1e-6,
+            atol=1e-8,
+        )
 
         results = {}
         for idx, t in enumerate(sol.t):
@@ -93,14 +114,9 @@ class Tank:
             n = y[:-1]
             T = y[-1]
             n_tot = max(1e-12, sum(n))
-            x = {comps[i]: max(0.0, n[i]/n_tot) for i in range(len(comps))}
+            x = {comps[i]: max(0.0, n[i] / n_tot) for i in range(len(comps))}
             # assemble tank stream state
             results[t] = {
-                self.name: {
-                    "T": float(T),
-                    "P": self.P,
-                    "z": x,
-                    "n_total": float(n_tot)
-                }
+                self.name: {"T": float(T), "P": self.P, "z": x, "n_total": float(n_tot)}
             }
         return results
