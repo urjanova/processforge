@@ -1,6 +1,6 @@
-import json
-import csv
 import argparse
+
+from utils.validate_flowsheet import validate_flowsheet
 from src.flowsheet import Flowsheet
 import os
 from src.result import (
@@ -26,21 +26,24 @@ def main():
     if not os.path.exists(fname):
         logger.error(f"Error: Flowsheet file '{fname}' not found.")
         exit(1)
-    with open(fname) as f:
-        data = json.load(f)
-    fs = Flowsheet(data)
+
+    config = validate_flowsheet(fname)  # schema validation here
+
+    fs = Flowsheet(config)
     results = fs.run()
 
     # Detect steady vs dynamic (placeholder: if dict-of-dicts keyed by time, it's dynamic)
     # Detect steady vs dynamic: if keys are numeric (times), it's dynamic
     is_dynamic = all(isinstance(k, (int, float)) for k in results.keys())
-    
+
     base_name = os.path.splitext(os.path.basename(fname))[0]
 
     if is_dynamic:
         logger.info("=== Dynamic Results ===")
         save_timeseries_json(results, f"{base_name}_timeseries.json")
-        save_results_json(results, f"{base_name}_results.json")  # Assuming this saves summary or something
+        save_results_json(
+            results, f"{base_name}_results.json"
+        )  # Assuming this saves summary or something
         save_timeseries_csv(results, f"{base_name}_timeseries.csv")
         plot_timeseries(results, f"{base_name}_timeseries.png")
         logger.info(f"Saved {base_name}_timeseries.csv and {base_name}_timeseries.png")
@@ -48,9 +51,12 @@ def main():
         logger.info("=== Steady-State Results ===")
         save_results_json(results, f"{base_name}_results.json")
         save_results_csv(results, f"{base_name}_results.csv")
-        save_timeseries_json(results, f"{base_name}_timeseries.json")  # If applicable for steady state
+        save_timeseries_json(
+            results, f"{base_name}_timeseries.json"
+        )  # If applicable for steady state
         plot_results(results, f"{base_name}_results.png")
         logger.info(f"Saved {base_name}_results.csv and {base_name}_results.png")
+
 
 if __name__ == "__main__":
     main()

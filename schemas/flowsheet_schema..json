@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hydraulic Flowsheet Configuration Schema",
+  "type": "object",
+  "required": ["streams", "units", "simulation"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "version": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "streams": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-zA-Z0-9_]+$": {
+          "type": "object",
+          "required": ["P", "T", "flowrate"],
+          "properties": {
+            "P": {"type": "number", "minimum": 100.0},
+            "T": {"type": "number", "minimum": 0.0},
+            "flowrate": {"type": "number", "minimum": 0.0},
+            "z": {"type": "object"}
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "units": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-zA-Z0-9_]+$": {
+          "type": "object",
+          "required": ["type", "in", "out"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["Pump", "Valve", "Strainer", "Tank"]
+            },
+            "in": {"type": "string"},
+            "out": {"type": "string"},
+            "deltaP": {"type": "number"},
+            "efficiency": {"type": "number"},
+            "pressure_ratio": {"type": "number"},
+            "volume": {"type": "number"},
+            "initial_level": {"type": "number"}
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "simulation": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": {"type": "string", "enum": ["steady", "dynamic"]},
+        "timestep": {"type": "number"},
+        "duration": {"type": "number"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
