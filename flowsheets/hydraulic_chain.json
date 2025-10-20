@@ -9,7 +9,8 @@
       "T": 298.15,
       "P": 101325,
       "z": {
-        "Water": 1.0
+      "Water": 0.9,
+      "Toluene": 0.1
       },
       "flowrate": 1.0
     }
@@ -47,7 +48,8 @@
       "out": "product",
       "outlet_flow": 1.0,
       "initial_n": {
-        "Water": 10.0
+        "Water": 9.0,
+        "Toluene": 1.0
       },
       "initial_T": 298.15,
       "P": 101325,

@@ -40,9 +40,36 @@ class Tank:
 
     def _ode_rhs(self, t, y, inlet_stream):
         """
-        y: [n1, n2, ..., T]
-        inlet_stream: dict with keys T, P, z (mole fractions) and flowrate optional
+        Computes the right-hand side of the ordinary differential equations (ODEs) for the tank unit.
+        This method calculates the time derivatives of the molar amounts of species and the temperature
+        based on inlet and outlet flows, enthalpy balances, and heat duty. It is used in numerical
+        integration of the tank's dynamic behavior.
+        Parameters
+        ----------
+        t : float
+            Current time (in seconds). Not used in calculations but required for ODE solver interface.
+        y : array-like
+            State vector containing molar amounts of species (n) followed by temperature (T).
+            Shape: (len(comps) + 1,), where comps are the components from inlet_stream.
+        inlet_stream : dict
+            Dictionary containing inlet stream properties:
+            - "z": dict of mole fractions for each component.
+            - "flowrate": inlet molar flowrate (mol/s), defaults to self.flow_in if not provided.
+            - "T": inlet temperature (K).
+            - "P": inlet pressure (Pa), defaults to self.P if not provided.
+        Returns
+        -------
+        np.ndarray
+            Array of time derivatives: [dn_dt[0], dn_dt[1], ..., dn_dt[N], dT_dt],
+            where N is the number of components. Shape: (len(comps) + 1,).
+        Notes
+        -----
+        - Molar balances are computed for each species based on inlet and outlet flows.
+        - Energy balance accounts for enthalpy differences and heat duty (self.duty).
+        - Cp_mix is the molar heat capacity of the mixture; a small positive value is enforced if zero or negative.
+        - Assumes constant outlet flowrate (self.outflow) and tank pressure (self.P).
         """
+        
         n = y[:-1]
         T = y[-1]
         comps = list(inlet_stream["z"].keys())

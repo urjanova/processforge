@@ -1,4 +1,6 @@
 import CoolProp.CoolProp as CP
+from loguru import logger
+
 
 def get_enthalpy_molar(mixture, T, P):
     """
@@ -8,8 +10,16 @@ def get_enthalpy_molar(mixture, T, P):
     H = 0.0
     for comp, frac in mixture.items():
         # HMOLAR returns J/mol
-        H += frac * CP.PropsSI("HMOLAR", "T", T, "P", P, comp)
+        try:
+            H += frac * CP.PropsSI("HMOLAR", "T", T, "P", P, comp)
+        except ValueError:
+            # If component not in CoolProp, its contribution is 0.
+            logger.warning(
+                f"Component '{comp}' not found in CoolProp. Enthalpy contribution is 0."
+            )
+            pass
     return H
+
 
 def get_Cp_molar(mixture, T, P):
     """
@@ -19,8 +29,16 @@ def get_Cp_molar(mixture, T, P):
     Cp = 0.0
     for comp, frac in mixture.items():
         # Cpmolar returns J/mol/K
-        Cp += frac * CP.PropsSI("Cpmolar", "T", T, "P", P, comp)
+        try:
+            Cp += frac * CP.PropsSI("Cpmolar", "T", T, "P", P, comp)
+        except ValueError:
+            # If component not in CoolProp, its contribution is 0.
+            logger.warning(
+                f"Component '{comp}' not found in CoolProp. Cp contribution is 0."
+            )
+            pass
     return Cp
+
 
 def get_K_values(components, T, P):
     """Return K-values for each component at (T,P)."""
@@ -32,18 +50,22 @@ def get_K_values(components, T, P):
             Ks[comp] = fugL / fugV if fugV != 0 else 1.0
         except Exception:
             # Fallback: Wilson approximation or just set K=1
+            logger.warning(
+                f"Could not calculate K-value for '{comp}'. Using fallback K=1.0."
+            )
             Ks[comp] = 1.0
     return Ks
+
 
 def rachford_rice(z, K, tol=1e-8, max_iter=100):
     """Solve Rachford-Rice for vapor fraction β."""
     beta = 0.5  # initial guess
     for _ in range(max_iter):
-        f = sum(z[i]*(K[i]-1)/(1 + beta*(K[i]-1)) for i in z)
-        df = -sum(z[i]*(K[i]-1)**2 / (1 + beta*(K[i]-1))**2 for i in z)
+        f = sum(z[i] * (K[i] - 1) / (1 + beta * (K[i] - 1)) for i in z)
+        df = -sum(z[i] * (K[i] - 1) ** 2 / (1 + beta * (K[i] - 1)) ** 2 for i in z)
         if df == 0:
             break
-        beta_new = beta - f/df
+        beta_new = beta - f / df
         if abs(beta_new - beta) < tol:
             beta = beta_new
             break
