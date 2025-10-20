@@ -4,7 +4,10 @@ from jsonschema import validate, ValidationError
 
 def validate_flowsheet(config_path):
     """Validate a flowsheet JSON file against the schema."""
-    schema_path = os.path.join(os.path.dirname(__file__), "..", "schemas", "flowsheet_schema..json")
+    pwd = os.path.dirname(os.path.abspath(__file__))
+    # go one level up 
+    schema_directory = os.path.dirname(pwd)
+    schema_path = os.path.join(schema_directory, "schemas", "flowsheet_schema.json")
 
     with open(schema_path, "r") as f:
         schema = json.load(f)

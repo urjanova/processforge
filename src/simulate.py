@@ -1,9 +1,8 @@
 import argparse
-
 from utils.validate_flowsheet import validate_flowsheet
 from src.flowsheet import Flowsheet
 import os
-from src.result import (
+from .result import (
     save_results_csv,
     save_timeseries_csv,
     plot_results,
@@ -27,14 +26,17 @@ def main():
         logger.error(f"Error: Flowsheet file '{fname}' not found.")
         exit(1)
 
-    config = validate_flowsheet(fname)  # schema validation here
+    try:
+        config = validate_flowsheet(fname)  # schema validation here
+    except Exception as e:
+        logger.error(f"Error: Failed to validate flowsheet file '{fname}': {e}")
+        exit(1)
 
     fs = Flowsheet(config)
     results = fs.run()
 
-    # Detect steady vs dynamic (placeholder: if dict-of-dicts keyed by time, it's dynamic)
-    # Detect steady vs dynamic: if keys are numeric (times), it's dynamic
-    is_dynamic = all(isinstance(k, (int, float)) for k in results.keys())
+    # Detect steady vs dynamic: check simulation mode
+    is_dynamic = config.get("simulation", {}).get("mode") == "dynamic"
 
     base_name = os.path.splitext(os.path.basename(fname))[0]
 
@@ -43,7 +45,8 @@ def main():
         save_timeseries_json(results, f"{base_name}_timeseries.json")
         save_results_json(
             results, f"{base_name}_results.json"
-        )  # Assuming this saves summary or something
+        )
+        
         save_timeseries_csv(results, f"{base_name}_timeseries.csv")
         plot_timeseries(results, f"{base_name}_timeseries.png")
         logger.info(f"Saved {base_name}_timeseries.csv and {base_name}_timeseries.png")

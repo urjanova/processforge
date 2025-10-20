@@ -8,7 +8,9 @@
     "feed": {
       "T": 298.15,
       "P": 101325,
-      "z": {"Water": 1.0},
+      "z": {
+        "Water": 1.0
+      },
       "flowrate": 1.0
     }
   },
@@ -35,12 +37,27 @@
     "pump_2": {
       "type": "Pump",
       "in": "after_strainer_1",
-      "out": "product",
+      "out": "after_pump_2",
       "deltaP": 300000.0,
       "efficiency": 0.8
+    },
+    "tank_1": {
+      "type": "Tank",
+      "in": "after_pump_2",
+      "out": "product",
+      "outlet_flow": 1.0,
+      "initial_n": {
+        "Water": 10.0
+      },
+      "initial_T": 298.15,
+      "P": 101325,
+      "duty": 0.0
     }
   },
   "simulation": {
-    "mode": "steady"
+    "mode": "dynamic",
+    "t0": 0.0,
+    "tf": 20.0,
+    "dt": 1.0
   }
 }

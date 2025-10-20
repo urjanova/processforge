@@ -51,8 +51,5 @@ docs = [
 processforge = "processforge.simulate:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["processforge*"]
-
-[tool.setuptools.package-dir]
-"" = "."
+where = ["src"]
+include = ["*"]

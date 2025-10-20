@@ -29,40 +29,48 @@ def save_results_csv(results, fname="results.csv"):
             writer.writerow(row)
 
 
+
+
 def save_timeseries_csv(results, fname="results_timeseries.csv"):
     """
     Save dynamic results (time series).
-    results: dict {time: {stream: {...}}}
+    results: dict {stream: {prop: [values]}}
     """
-    # Collect unique components
-    times = sorted(results.keys())
-    streams = set()
+    # Collect all streams, components, and the time array
+    streams = sorted(results.keys())
+    if not streams:
+        return
+    
+    # Assume all streams have the same time array
+    times = results[streams[0]].get("time", [])
+    
     comps = set()
-    for t in times:
-        for sname, sdata in results[t].items():
-            streams.add(sname)
-            comps.update(sdata.get("z", {}).keys())
-    streams = sorted(streams)
-    comps = sorted(comps)
+    for s_data in results.values():
+        # The 'z' value can be a dict of lists
+        if 'z' in s_data and isinstance(s_data['z'], dict):
+            comps.update(s_data['z'].keys())
+    comps = sorted(list(comps))
 
     os.makedirs("outputs", exist_ok=True)
     with open(os.path.join("outputs", fname), "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        header = ["time", "stream", "T [K]", "P [Pa]", "Phase", "VaporFrac"] + comps
+        header = ["time", "stream", "T [K]", "P [Pa]", "flowrate"] + comps
         writer.writerow(header)
-        for t in times:
-            for sname in streams:
-                s = results[t].get(sname, {})
+
+        for i, t in enumerate(times):
+            for s_name in streams:
+                s_data = results[s_name]
                 row = [
                     t,
-                    sname,
-                    s.get("T", ""),
-                    s.get("P", ""),
-                    s.get("phase", ""),
-                    s.get("beta", ""),
+                    s_name,
+                    s_data.get("T", [])[i] if len(s_data.get("T", [])) > i else "",
+                    s_data.get("P", [])[i] if len(s_data.get("P", [])) > i else "",
+                    s_data.get("flowrate", [])[i] if len(s_data.get("flowrate", [])) > i else "",
                 ]
                 for c in comps:
-                    row.append(s.get("z", {}).get(c, 0.0))
+                    # Access the i-th value of the component's timeseries
+                    comp_val = s_data.get("z", {}).get(c, [])[i] if len(s_data.get("z", {}).get(c, [])) > i else 0.0
+                    row.append(comp_val)
                 writer.writerow(row)
 
 
@@ -118,16 +126,23 @@ def plot_results(results, fname="results.png"):
     plt.close()
 
 
+
 def plot_timeseries(results, fname="timeseries.png"):
     """Generate time-series plots for dynamic simulations."""
-    times = sorted(results.keys())
-    streams = list(next(iter(results.values())).keys())
+    streams = sorted(results.keys())
+    if not streams:
+        return
+    
+    # Assume all streams have the same time array from the first stream
+    times = results[streams[0]].get("time", [])
+    if not times:
+        return
 
     # Temperature vs time
     plt.figure(figsize=(8, 5))
-    for sname in streams:
-        T_series = [results[t][sname].get("T", None) for t in times]
-        plt.plot(times, T_series, label=sname)
+    for s_name in streams:
+        if "T" in results[s_name]:
+            plt.plot(times, results[s_name]["T"], label=s_name)
     plt.xlabel("Time [s]")
     plt.ylabel("Temperature [K]")
     plt.title("Stream Temperatures vs Time")
@@ -136,22 +151,24 @@ def plot_timeseries(results, fname="timeseries.png"):
     plt.savefig(os.path.join("outputs", "temps_" + fname))
     plt.close()
 
-    # Composition vs time (line chart for each component of each stream)
+    # Composition vs time (one plot per stream)
     comps = set()
-    for t in times:
-        for s in results[t].values():
-            comps.update(s.get("z", {}).keys())
-    comps = sorted(comps)
+    for s_data in results.values():
+        if 'z' in s_data and isinstance(s_data['z'], dict):
+            comps.update(s_data['z'].keys())
+    comps = sorted(list(comps))
 
-    for sname in streams:
+    for s_name in streams:
+        if "z" not in results[s_name]:
+            continue
         plt.figure(figsize=(8, 5))
         for comp in comps:
-            comp_series = [results[t][sname].get("z", {}).get(comp, 0.0) for t in times]
-            plt.plot(times, comp_series, label=comp)
+            if comp in results[s_name]["z"]:
+                plt.plot(times, results[s_name]["z"][comp], label=comp)
         plt.xlabel("Time [s]")
         plt.ylabel("Mole Fraction")
-        plt.title(f"Compositions vs Time ({sname})")
+        plt.title(f"Compositions vs Time ({s_name})")
         plt.legend()
         plt.tight_layout()
-        plt.savefig(os.path.join("outputs", f"comps_{sname}_" + fname))
+        plt.savefig(os.path.join("outputs", f"comps_{s_name}_" + fname))
         plt.close()

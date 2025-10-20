@@ -26,7 +26,7 @@ class Tank:
       - flow_in: molar inlet flowrate [mol/s] (used if inlet stream not providing flowrate) 
     """
 
-    def __init__(self, name, params):
+    def __init__(self, name, **params):
         self.name = name
         self.params = params
         self.inlet = params.get("inlet")
@@ -79,20 +79,30 @@ class Tank:
 
         return np.concatenate([dn_dt, [dT_dt]])
 
-    def run_dynamic(self, streams, t_span, t_eval):
+    def run_dynamic(self, inlet_stream_ts, t_span, t_eval, solver):
         """
-        streams: dict of current streams (must include inlet stream)
+        inlet_stream_ts: dict of timeseries data for the inlet stream
         t_span: (t0, tf)
         t_eval: list or array of times
-        Returns: dict time -> streams snapshot (each snapshot is dict of stream->data)
+        solver: solver object (currently unused but good for future)
+        Returns: dict of timeseries data for the outlet stream
         """
-        if self.inlet not in streams:
-            raise ValueError(
-                f"Inlet stream {self.inlet} not found in flowsheet streams"
-            )
+        # For a dynamic tank, the inlet conditions are assumed constant for now.
+        # We take the initial value of the inlet timeseries.
+        # A more complex model could use a time-varying inlet.
+        inlet_snapshot = {}
+        for prop, values in inlet_stream_ts.items():
+            if prop == "time":
+                continue
+            if prop == "z":
+                # 'z' is a dict of lists, so we build a dict of the first values
+                inlet_snapshot['z'] = {comp: ts[0] for comp, ts in values.items()}
+            else:
+                # Other properties are lists of values
+                inlet_snapshot[prop] = values[0]
 
-        inlet = streams[self.inlet]
-        comps = list(inlet["z"].keys())
+        comps = list(inlet_snapshot["z"].keys())
+
         # initial state vector
         n0 = [self.initial_n.get(c, 0.0) for c in comps]
         y0 = np.array(n0 + [self.initial_T])
@@ -103,20 +113,25 @@ class Tank:
             t_span,
             y0,
             t_eval=t_eval,
-            args=(inlet,),
+            args=(inlet_snapshot,),
             rtol=1e-6,
             atol=1e-8,
         )
 
-        results = {}
-        for idx, t in enumerate(sol.t):
-            y = sol.y[:, idx]
-            n = y[:-1]
-            T = y[-1]
-            n_tot = max(1e-12, sum(n))
-            x = {comps[i]: max(0.0, n[i] / n_tot) for i in range(len(comps))}
-            # assemble tank stream state
-            results[t] = {
-                self.name: {"T": float(T), "P": self.P, "z": x, "n_total": float(n_tot)}
-            }
-        return results
+        # Reformat results into a timeseries dictionary for the outlet stream
+        outlet_ts = {
+            "time": sol.t.tolist(),
+            "T": sol.y[-1, :].tolist(),
+            "P": [self.P] * len(sol.t),
+            "flowrate": [self.outflow] * len(sol.t),
+        }
+        # Add composition timeseries
+        z_ts = {c: [] for c in comps}
+        for i in range(len(sol.t)):
+            n_vec = sol.y[:-1, i]
+            n_tot = max(1e-12, sum(n_vec))
+            for j, comp in enumerate(comps):
+                z_ts[comp].append(n_vec[j] / n_tot)
+        outlet_ts["z"] = z_ts
+
+        return outlet_ts
