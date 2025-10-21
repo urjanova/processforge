@@ -5,6 +5,7 @@ from .units.pump import Pump
 from .units.valve import Valve
 from .units.strainer import Strainer
 from .units.tank import Tank  # optional
+from .units.pipes import Pipes
 from .solver import Solver
 
 
@@ -73,6 +74,7 @@ class Flowsheet:
             "Valve": Valve,
             "Strainer": Strainer,
             "Tank": Tank,  # optional dynamic element
+            "Pipes": Pipes,
         }
         for unit_name, unit_config in self.config["units"].items():
             unit_type = unit_config["type"]

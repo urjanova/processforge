@@ -1,7 +1,0 @@
-numpy==2.3.3
-scipy==1.16.2
-coolprop==7.1.0
-networkx==3.5
-h5py==3.14.0
-casadi==3.7.2
-loguru

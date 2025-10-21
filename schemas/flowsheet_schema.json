@@ -71,7 +71,8 @@
                 "Pump",
                 "Valve",
                 "Strainer",
-                "Tank"
+                "Tank",
+                "Pipes"
               ]
             },
             "in": {
@@ -87,6 +88,12 @@
               "type": "number"
             },
             "pressure_ratio": {
+              "type": "number"
+            },
+            "delta_p": {
+              "type": "number"
+            },
+            "diameter": {
               "type": "number"
             },
             "volume": {
