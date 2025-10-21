@@ -322,7 +322,7 @@ class Flowsheet:
             if hasattr(unit, "run_dynamic"):
                 logger.info(f"Simulating dynamic unit {unit_name}")
                 sol = unit.run_dynamic(
-                    inlet_stream_ts, (t_start, t_end), t_eval, solver
+                    inlet_stream_ts, (start_time, end_time), t_eval, solver
                 )
                 results[outlet_name] = sol
             else:

@@ -33,7 +33,8 @@ dependencies = [
 	"casadi==3.7.2",
 	"matplotlib>=3.5.0",
 	"loguru==0.7.3",
-    "jsonschema==4.25.1"
+    "jsonschema==4.25.1", 
+    "graphviz==0.21",
 ]
 
 [project.optional-dependencies]
