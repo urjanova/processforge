@@ -14,7 +14,7 @@ class Pipes:
         self.delta_p = delta_p
         self.diameter = diameter
 
-    def run(self, inlet):
+    def run(self, inlet_stream_ts):
         """
         Processes the inlet stream through a pipe unit, calculating outlet properties including pressure drop and flow rate.
         This method assumes laminar flow and uses a simplified Hagen-Poiseuille equation for flow calculation.
@@ -32,32 +32,33 @@ class Pipes:
             - Uses copy.deepcopy to ensure outlet is independent of inlet.
         """
 
-        outlet = copy.deepcopy(inlet)
-        inlet_p = inlet.get("P", 101325.0)
-        outlet["P"] = max(inlet_p - self.delta_p, 1000.0)
-        outlet["T"] = inlet["T"]
+        outlet = copy.deepcopy(inlet_stream_ts)
+        inlet_p = inlet_stream_ts.get("P", [101325.0])  # Assume list, default to list with single value
+        outlet["P"] = [max(p - self.delta_p, 1000.0) for p in inlet_p]
+        outlet["T"] = inlet_stream_ts["T"]
         outlet["unit"] = "Pipes"
         # Calculate flow assuming laminar flow, mu = 0.001 Pa.s, L = 1 m
         mu = 0.001
         L = 1.0
-        delta_p_used = inlet_p - outlet["P"]
-        outlet["flow"] = (
-            math.pi * self.diameter**4 * delta_p_used / (128 * mu * L)
-            if self.diameter > 0
-            else 0
-        )
+        delta_p_used = [inlet_p[i] - outlet["P"][i] for i in range(len(inlet_p))]
+        outlet["flow"] = [
+            math.pi * self.diameter**4 * dp / (128 * mu * L) if self.diameter > 0 else 0
+            for dp in delta_p_used
+        ]
         return outlet
 
-    def run_dynamic(self, inlet, dt=1.0):
+    def run_dynamic(self, inlet_stream_ts, time_range, t_eval, solver):
         """
         Simulates dynamic operation of the pipes unit over a time step dt.
         For this simple model, assumes no accumulation and behaves like steady-state.
 
         Parameters:
         inlet (dict): Inlet stream dictionary.
-        dt (float): Time step for dynamic simulation (not used in this simple model).
+        time_range (tuple): Time range for simulation (not used in this simple model).
+        t_eval (array-like): Time points for evaluation (not used in this simple model).
+        solver (object): Solver object (not used in this simple model).
 
         Returns:
         dict: Outlet stream dictionary, same as run method.
         """
-        return self.run(inlet)
+        return self.run(inlet_stream_ts)

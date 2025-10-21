@@ -94,7 +94,7 @@ class Flowsheet:
 
     def run(self):
         """
-        In steady-state mode, the simulation models the system at equilibrium, where process variables (such as flows, pressures, and temperatures) are assumed to be constant over time, focusing on the long-term behavior without considering transients or time-dependent changes. 
+        In steady-state mode, the simulation models the system at equilibrium, where process variables (such as flows, pressures, and temperatures) are assumed to be constant over time, focusing on the long-term behavior without considering transients or time-dependent changes.
         In dynamic mode, the simulation accounts for time-dependent changes, modeling how the system evolves over time, including transients, start-ups, shut-downs, and responses to disturbances, providing a more comprehensive view of process dynamics.
         Runs the simulation based on the configured mode. This method initializes the simulation by building the units, determines the simulation mode from the configuration (defaulting to 'steady' if not specified), and executes either a dynamic or steady-state simulation accordingly.
         Returns:
@@ -103,9 +103,9 @@ class Flowsheet:
             - For steady mode: the output of self.run_steady().
 
         Example of difference between modes:
-        
 
-        Consider a tank filling with liquid from a pump and discharging through an outlet. In steady-state mode, the simulation calculates the final equilibrium level and flow rates once the system stabilizes, ignoring the time it takes to fill and the transients. In dynamic mode, it simulates the level rising and falling over time, showing how the tank level changes gradually in response to inflow and outflow until it reaches a steady value, capturing transients like initial surges or responses to flow changes. 
+
+        Consider a tank filling with liquid from a pump and discharging through an outlet. In steady-state mode, the simulation calculates the final equilibrium level and flow rates once the system stabilizes, ignoring the time it takes to fill and the transients. In dynamic mode, it simulates the level rising and falling over time, showing how the tank level changes gradually in response to inflow and outflow until it reaches a steady value, capturing transients like initial surges or responses to flow changes.
         """
 
         logger.info("Starting simulation")
@@ -152,7 +152,7 @@ class Flowsheet:
             ValueError: If a cycle is detected in the flowsheet graph, preventing
                 determination of a valid processing order.
         """
-        
+
         stream_producers = {
             unit_config["out"]: unit_name
             for unit_name, unit_config in self.config["units"].items()
@@ -188,6 +188,70 @@ class Flowsheet:
 
         logger.info(f"Processing order: {order}")
         return order
+
+    def _process_static_unit(self, unit, inlet_stream_ts, t_eval, num_steps):
+        """
+        Helper method to process a static unit in dynamic simulation.
+        Builds timeseries for the outlet stream by applying the unit's logic at each time step.
+        Returns:
+            dict: Timeseries dictionary for the outlet stream.
+        """
+        outlet_stream_ts = {prop: [] for prop in inlet_stream_ts if prop != "z"}
+        outlet_stream_ts["time"] = t_eval.tolist()
+        if "z" in inlet_stream_ts:
+            outlet_stream_ts["z"] = {comp: [] for comp in inlet_stream_ts["z"].keys()}
+
+        for i in range(num_steps):
+            inlet_snapshot = {}
+            for prop, values in inlet_stream_ts.items():
+
+                if prop == "time":
+                    continue
+                if prop == "z":
+                    inlet_snapshot["z"] = {
+                        comp: comp_ts[i] for comp, comp_ts in values.items()
+                    }
+                    logger.debug(
+                        f"Inlet snapshot for {prop} at step {i}: {inlet_snapshot['z']}"
+                    )
+                else:
+                    if isinstance(values, list) and i < len(values):
+                        logger.debug(
+                            f"Inlet snapshot for {prop} at step {i}: {values[i]}"
+                        )
+                        inlet_snapshot[prop] = values[i]
+                    else:
+                        # For non-list properties, pass them as is.
+                        inlet_snapshot[prop] = values
+
+            outlet_snapshot = unit.run(inlet_snapshot)
+
+            for prop, value in outlet_snapshot.items():
+                logger.info(f"Outlet snapshot for {prop}: {value}")
+                if prop == "z":
+                    for comp, comp_val in value.items():
+                        if comp not in outlet_stream_ts["z"]:
+                            outlet_stream_ts["z"][comp] = [0.0] * i
+                        outlet_stream_ts["z"][comp].append(comp_val)
+                else:
+                    if prop not in outlet_stream_ts:
+                        outlet_stream_ts[prop] = []
+                    outlet_stream_ts[prop].append(value)
+
+        for prop, values in outlet_stream_ts.items():
+            if prop == "time":
+                continue
+            if prop == "z":
+                for comp, comp_values in values.items():
+                    if len(comp_values) < num_steps:
+                        inlet_comp_ts = inlet_stream_ts.get("z", {}).get(
+                            comp, [0.0] * num_steps
+                        )
+                        outlet_stream_ts["z"][comp] = inlet_comp_ts
+            elif len(values) < num_steps:
+                outlet_stream_ts[prop] = inlet_stream_ts.get(prop, [0.0] * num_steps)
+
+        return outlet_stream_ts
 
     def run_dynamic(self, solver):
         """
@@ -225,12 +289,23 @@ class Flowsheet:
         for stream_name, stream_data in self.config["streams"].items():
             stream_ts = {"time": t_eval.tolist()}
             for k, v in stream_data.items():
-                if k == 'z' and isinstance(v, dict):
-                    # Create {'comp': [val, val, ...]}
-                    stream_ts[k] = {comp: [comp_val] * num_steps for comp, comp_val in v.items()}
+                if k == "z":
+                    if isinstance(v, dict):
+                        stream_ts[k] = {
+                            comp: [float(comp_val)] * num_steps
+                            for comp, comp_val in v.items()
+                        }
+                    else:
+                        raise ValueError(
+                            f"Stream '{stream_name}' property 'z' must be a dict of compositions."
+                        )
                 else:
-                    # Create {'prop': [val, val, ...]}
-                    stream_ts[k] = [v] * num_steps
+                    try:
+                        stream_ts[k] = [float(v)] * num_steps
+                    except (ValueError, TypeError):
+                        raise ValueError(
+                            f"Stream '{stream_name}' property '{k}' must be numeric."
+                        )
             results[stream_name] = stream_ts
 
         processing_order = self._get_processing_order()
@@ -243,70 +318,17 @@ class Flowsheet:
             outlet_name = cfg["out"]
             inlet_stream_ts = results[inlet_name]
 
-            # Check if the unit has a specialized dynamic method
             if hasattr(unit, "run_dynamic"):
                 logger.info(f"Simulating dynamic unit {unit_name}")
-                # Dynamic units handle their own timeseries output
-                sol = unit.run_dynamic(inlet_stream_ts, (t_start, t_end), t_eval, solver)
-                # This part may need adjustment based on what `run_dynamic` returns
-               # Assuming it returns a full timeseries dictionary for the outlet stream
+                sol = unit.run_dynamic(
+                    inlet_stream_ts, (t_start, t_end), t_eval, solver
+                )
                 results[outlet_name] = sol
             else:
-                logger.debug(f"Processing static unit {unit_name} dynamically")        
-                # For static units, apply their logic at each time step
-                
-                # Initialize outlet timeseries structure
-                outlet_stream_ts = {prop: [] for prop in inlet_stream_ts if prop != 'z'}
-                outlet_stream_ts["time"] = t_eval.tolist()
-                
-                # Specifically initialize 'z' as a dictionary of lists
-                if 'z' in inlet_stream_ts:
-                    # Get component names from the keys of the 'z' dictionary
-                    outlet_stream_ts['z'] = {comp: [] for comp in inlet_stream_ts['z'].keys()}
-
-                for i in range(num_steps):
-                    # Create a snapshot of the inlet stream at time t
-                    inlet_snapshot = {}
-                    for prop, values in inlet_stream_ts.items():
-                        if prop == 'time':
-                            continue
-                        if prop == 'z':
-                            inlet_snapshot['z'] = {comp: comp_ts[i] for comp, comp_ts in values.items()}
-                        else:
-                            inlet_snapshot[prop] = values[i]
-                    
-                    outlet_snapshot = unit.run(inlet_snapshot)
-
-                    # Append results to the outlet timeseries
-                    for prop, value in outlet_snapshot.items():
-                        if prop == 'z':
-                            for comp, comp_val in value.items():
-                                # Ensure component exists in the structure before appending
-                                if comp not in outlet_stream_ts['z']:
-                                    outlet_stream_ts['z'][comp] = [0.0] * i # pad with zeros
-                                outlet_stream_ts['z'][comp].append(comp_val)
-                        else:
-                            if prop not in outlet_stream_ts:
-                                outlet_stream_ts[prop] = []
-                            outlet_stream_ts[prop].append(value)
-                
-                # Ensure all properties are fully populated. If a static unit didn't
-                # modify a property, carry over the value from the inlet.
-                for prop, values in outlet_stream_ts.items():
-                    if prop == 'time':
-                        continue
-                    if prop == 'z':
-                        for comp, comp_values in values.items():
-                            if len(comp_values) < num_steps:
-                                # Pad with inlet values if missing
-                                inlet_comp_ts = inlet_stream_ts.get('z', {}).get(comp, [0.0] * num_steps)
-                                outlet_stream_ts['z'][comp] = inlet_comp_ts
-                    elif len(values) < num_steps:
-                        # Pad with inlet values if missing
-                        outlet_stream_ts[prop] = inlet_stream_ts.get(prop, [0.0] * num_steps)
-
-
-                results[outlet_name] = outlet_stream_ts
+                logger.debug(f"Processing static unit {unit_name} dynamically")
+                results[outlet_name] = self._process_static_unit(
+                    unit, inlet_stream_ts, t_eval, num_steps
+                )
 
         self.results = results
         logger.info("Dynamic simulation completed")
