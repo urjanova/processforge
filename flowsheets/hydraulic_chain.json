@@ -9,8 +9,8 @@
       "T": 298.15,
       "P": 101325,
       "z": {
-      "Water": 0.9,
-      "Toluene": 0.1
+        "Water": 0.9,
+        "Toluene": 0.1
       },
       "flowrate": 1.0
     }

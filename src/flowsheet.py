@@ -73,7 +73,7 @@ class Flowsheet:
             "Pump": Pump,
             "Valve": Valve,
             "Strainer": Strainer,
-            "Tank": Tank,  # optional dynamic element
+            "Tank": Tank,
             "Pipes": Pipes,
         }
         for unit_name, unit_config in self.config["units"].items():
@@ -160,7 +160,7 @@ class Flowsheet:
 
         # Create adjacency list (unit -> downstream units)
         adj = {unit_name: [] for unit_name in self.units}
-        in_degree = {unit_name: 0 for unit_name in self.units}
+        in_degree = dict.fromkeys(self.units, 0)
 
         for unit_name, unit_config in self.config["units"].items():
             inlet_stream = unit_config.get("in")
@@ -227,7 +227,7 @@ class Flowsheet:
             outlet_snapshot = unit.run(inlet_snapshot)
 
             for prop, value in outlet_snapshot.items():
-                logger.info(f"Outlet snapshot for {prop}: {value}")
+                logger.debug(f"Outlet snapshot for {prop}: {value}")
                 if prop == "z":
                     for comp, comp_val in value.items():
                         if comp not in outlet_stream_ts["z"]:
@@ -276,12 +276,13 @@ class Flowsheet:
 
         logger.info("Running dynamic simulation")
         sim_config = self.config.get("simulation", {})
-        t_start, t_end, dt = (
+        start_time, end_time, time_step = (
             sim_config.get("t0", 0),
             sim_config.get("tf", 100),
             sim_config.get("dt", 1),
         )
-        t_eval = np.arange(t_start, t_end + dt, dt)
+        # Generate time evaluation points from start to end with given step size
+        t_eval = np.arange(start_time, end_time + time_step, time_step)
         num_steps = len(t_eval)
 
         # Initialize results with timeseries structure for all streams
@@ -302,10 +303,10 @@ class Flowsheet:
                 else:
                     try:
                         stream_ts[k] = [float(v)] * num_steps
-                    except (ValueError, TypeError):
+                    except (ValueError, TypeError) as exc:
                         raise ValueError(
                             f"Stream '{stream_name}' property '{k}' must be numeric."
-                        )
+                        ) from exc
             results[stream_name] = stream_ts
 
         processing_order = self._get_processing_order()
