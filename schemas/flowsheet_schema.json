@@ -54,6 +54,42 @@
         }
       }
     },
+    "recycle_streams": {
+      "type": "object",
+      "description": "Initial guesses for recycle/tear streams in closed-loop flowsheets",
+      "patternProperties": {
+        "^[a-zA-Z0-9_]+$": {
+          "type": "object",
+          "required": [
+            "P",
+            "T",
+            "flowrate"
+          ],
+          "properties": {
+            "P": {
+              "type": "number",
+              "minimum": 100.0,
+              "description": "Pressure in Pa"
+            },
+            "T": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Temperature in K"
+            },
+            "flowrate": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Molar flowrate in mol/s"
+            },
+            "z": {
+              "type": "object",
+              "description": "Mole fractions of components"
+            }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
     "units": {
       "type": "object",
       "patternProperties": {
@@ -76,7 +112,19 @@
               ]
             },
             "in": {
-              "type": "string"
+              "oneOf": [
+                {
+                  "type": "string",
+                  "description": "Single inlet stream name"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Multiple inlet stream names (e.g., for Tank with feed + recycle)"
+                }
+              ]
             },
             "out": {
               "type": "string"
@@ -121,13 +169,49 @@
           ]
         },
         "t0": {
-          "type": "number"
+          "type": "number",
+          "description": "Start time for dynamic simulation"
         },
         "tf": {
-          "type": "number"
+          "type": "number",
+          "description": "End time for dynamic simulation"
         },
         "dt": {
-          "type": "number"
+          "type": "number",
+          "description": "Time step for dynamic simulation"
+        },
+        "recycle": {
+          "type": "object",
+          "description": "Configuration for recycle loop convergence",
+          "properties": {
+            "max_iterations": {
+              "type": "integer",
+              "default": 100,
+              "description": "Maximum iterations for steady-state recycle convergence"
+            },
+            "tolerance": {
+              "type": "number",
+              "default": 1e-6,
+              "description": "Convergence tolerance (relative error)"
+            },
+            "tear_streams": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Optional: manually specify tear stream names. If not provided, auto-detected."
+            },
+            "acceleration_method": {
+              "type": "string",
+              "enum": [
+                "direct",
+                "wegstein"
+              ],
+              "default": "wegstein",
+              "description": "Acceleration method for steady-state convergence"
+            }
+          },
+          "additionalProperties": true
         }
       },
       "additionalProperties": true

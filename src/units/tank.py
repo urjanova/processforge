@@ -38,6 +38,41 @@ class Tank:
         self.initial_T = params.get("initial_T", 300.0)
         self.flow_in = params.get("flow_in", 1.0)  # mol/s if inlet doesn't specify
 
+    def run(self, inlet):
+        """
+        Steady-state tank operation.
+        For steady-state, the tank acts as a well-mixed vessel at equilibrium.
+        The outlet composition equals the tank composition (assumed same as inlet for steady-state),
+        outlet flow rate is fixed by the tank parameter, and temperature/pressure are from the tank.
+        
+        Args:
+            inlet (dict): Inlet stream with T, P, z, flowrate
+            
+        Returns:
+            dict: Outlet stream with tank's outlet flow rate and mixed conditions
+        """
+        import copy
+        outlet = copy.deepcopy(inlet)
+        
+        # Tank outlet conditions
+        outlet["flowrate"] = self.outflow
+        outlet["P"] = self.P
+        
+        # For steady-state with no duty, temperature stays approximately the same
+        # With duty, we'd need energy balance - simplified here
+        if self.duty != 0:
+            # Simplified: assume Cp ~ 75 J/mol/K for water-like mixture
+            Cp_approx = 75.0
+            F_in = inlet.get("flowrate", self.flow_in)
+            if F_in > 1e-10:
+                dT = self.duty / (F_in * Cp_approx)
+                outlet["T"] = inlet.get("T", self.initial_T) + dT
+            else:
+                outlet["T"] = inlet.get("T", self.initial_T)
+        
+        outlet["unit"] = "Tank"
+        return outlet
+
     def _ode_rhs(self, t, y, inlet_stream):
         """
         Computes the right-hand side of the ordinary differential equations (ODEs) for the tank unit.

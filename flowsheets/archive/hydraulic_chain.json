@@ -6,11 +6,11 @@
   },
   "streams": {
     "feed": {
-      "T": 298.15,
+      "T": 198.15,
       "P": 101325,
       "z": {
-        "Water": 0.9,
-        "Toluene": 0.1
+        "Water": 0.8,
+        "Toluene": 0.2
       },
       "flowrate": 1.0
     }
@@ -88,6 +88,6 @@
     "mode": "dynamic",
     "t0": 0.0,
     "tf": 20.0,
-    "dt": 1.0
+    "dt": 
   }
 }

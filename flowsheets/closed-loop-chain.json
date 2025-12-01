@@ -1,0 +1,113 @@
+{
+  "metadata": {
+    "name": "Closed Loop Recycle Example",
+    "description": "A closed-loop hydraulic system with recycle stream back to tank.",
+    "version": "1.0"
+  },
+  "streams": {
+    "feed": {
+      "T": 298.15,
+      "P": 101325,
+      "z": {
+        "Water": 0.8,
+        "Toluene": 0.2
+      },
+      "flowrate": 0.1
+    }
+  },
+  "recycle_streams": {
+    "recycle_to_tank": {
+      "T": 298.15,
+      "P": 101325,
+      "z": {
+        "Water": 0.8,
+        "Toluene": 0.2
+      },
+      "flowrate": 0.9
+    }
+  },
+  "units": {
+    "tank_1": {
+      "type": "Tank",
+      "in": ["feed", "recycle_to_tank"],
+      "out": "after_tank_1",
+      "outlet_flow": 1.0,
+      "initial_n": {
+        "Water": 9.0,
+        "Toluene": 1.0
+      },
+      "initial_T": 298.15,
+      "P": 101325,
+      "duty": 0.0
+    },
+    "pipe_1": {
+      "type": "Pipes",
+      "in": "after_tank_1",
+      "out": "after_pipe_1",
+      "delta_p": 1000.0,
+      "diameter": 0.065
+    },
+    "valve_1": {
+      "type": "Valve",
+      "in": "after_pipe_1",
+      "out": "after_valve_1",
+      "pressure_ratio": 0.5
+    },
+    "pipe_2": {
+      "type": "Pipes",
+      "in": "after_valve_1",
+      "out": "after_pipe_2",
+      "delta_p": 1000.0,
+      "diameter": 0.08
+    },
+    "valve_2": {
+      "type": "Valve",
+      "in": "after_pipe_2",
+      "out": "after_valve_2",
+      "pressure_ratio": 0.5
+    },
+    "pump_1": {
+      "type": "Pump",
+      "in": "after_valve_2",
+      "out": "after_pump_1",
+      "deltaP": 200000.0,
+      "efficiency": 0.75
+    },
+    "valve_3": {
+      "type": "Valve",
+      "in": "after_pump_1",
+      "out": "after_valve_3",
+      "pressure_ratio": 0.5
+    },
+    "pipe_3": {
+      "type": "Pipes",
+      "in": "after_valve_3",
+      "out": "after_pipe_3",
+      "delta_p": 1000.0,
+      "diameter": 0.08
+    },
+    "valve_4": {
+      "type": "Valve",
+      "in": "after_pipe_3",
+      "out": "after_valve_4",
+      "pressure_ratio": 0.5
+    },
+    "pipe_4": {
+      "type": "Pipes",
+      "in": "after_valve_4",
+      "out": "recycle_to_tank",
+      "delta_p": 1000.0,
+      "diameter": 0.08
+    }
+  },
+  "simulation": {
+    "mode": "dynamic",
+    "t0": 0.0,
+    "tf": 20.0,
+    "dt": 1.0,
+    "recycle": {
+      "max_iterations": 100,
+      "tolerance": 1e-4
+    }
+  }
+}
