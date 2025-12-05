@@ -38,8 +38,13 @@ def draw_flowsheet(
 
 
     dot = graphviz.Digraph(comment="Process Flowsheet")
-    dot.attr(rankdir="LR", splines="ortho")  # Left-to-Right layout
-    dot.attr("node", shape="box", style="rounded")
+    dot.attr(
+        rankdir="LR",
+        splines="ortho",
+        nodesep="0.3",
+        ranksep="0.4"
+    )  # Left-to-Right layout with tight spacing
+    dot.attr("node", shape="box", style="rounded", margin="0.1,0.05")
 
     units = schema.get("units", {})
     streams = schema.get("streams", {})
@@ -57,17 +62,30 @@ def draw_flowsheet(
         dot.node(unit_id, label=label)
 
     # Build edges by matching unit 'out' to another unit 'in'
+    # First, create a mapping from output stream to unit
     unit_out_to_in = {}
     for unit_id, unit in units.items():
         out_stream = unit.get("out")
         if out_stream:
-            unit_out_to_in[out_stream] = unit_id
+            # Handle both single output (string) and multiple outputs (list)
+            if isinstance(out_stream, list):
+                for stream in out_stream:
+                    unit_out_to_in[stream] = unit_id
+            else:
+                unit_out_to_in[out_stream] = unit_id
 
     for unit_id, unit in units.items():
         in_stream = unit.get("in")
-        if in_stream and in_stream in unit_out_to_in:
-            source_unit = unit_out_to_in[in_stream]
-            dot.edge(source_unit, unit_id)
+        if in_stream:
+            # Handle both single input (string) and multiple inputs (list)
+            if isinstance(in_stream, list):
+                for stream in in_stream:
+                    if stream in unit_out_to_in:
+                        source_unit = unit_out_to_in[stream]
+                        dot.edge(source_unit, unit_id)
+            elif in_stream in unit_out_to_in:
+                source_unit = unit_out_to_in[in_stream]
+                dot.edge(source_unit, unit_id)
 
     # Ensure output directory exists
     os.makedirs(output_directory, exist_ok=True)

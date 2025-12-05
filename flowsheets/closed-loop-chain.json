@@ -66,16 +66,30 @@
       "out": "after_valve_2",
       "pressure_ratio": 0.5
     },
+    "pipe_2a": {
+      "type": "Pipes",
+      "in": "after_valve_2",
+      "out": "before_pump_1",
+      "delta_p": 1000.0,
+      "diameter": 0.08
+    },
     "pump_1": {
       "type": "Pump",
-      "in": "after_valve_2",
+      "in": "before_pump_1",
       "out": "after_pump_1",
       "deltaP": 200000.0,
       "efficiency": 0.75
     },
+    "pipe_2b": {
+      "type": "Pipes",
+      "in": "after_pump_1",
+      "out": "before_valve_3",
+      "delta_p": 1000.0,
+      "diameter": 0.08
+    },
     "valve_3": {
       "type": "Valve",
-      "in": "after_pump_1",
+      "in": "before_valve_3",
       "out": "after_valve_3",
       "pressure_ratio": 0.5
     },

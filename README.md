@@ -7,7 +7,8 @@ A Python-based process simulation framework for chemical engineering application
 - Steady-state and dynamic process simulations
 - Thermodynamic property calculations
 - Unit operations: Flash, Heater, etc.
-- Flowsheet modeling and solving
+- Flowsheet modeling and solving with closed-loop (recycle) support
+- Automatic tear stream detection and convergence for recycle loops
 - Results export to CSV and visualization
 
 ## Installation
@@ -47,7 +48,7 @@ Example flowsheet files are available in the `flowsheets/` directory.
 ## Project Structure
 
 - `processforge/`: Core source code
-  - `flowsheet.py`: Flowsheet modeling
+  - `flowsheet.py`: Flowsheet modeling with closed-loop handling
   - `thermo.py`: Thermodynamic calculations
   - `units/`: Unit operations (flash, heater, solver)
   - `simulate.py`: Main simulation script
