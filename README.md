@@ -1,6 +1,6 @@
 # Process Forge
 
-A Python-based process simulation framework for chemical engineering applications.
+A Python-based process simulation framework for chemical process engineering applications.
 
 ## Features
 
