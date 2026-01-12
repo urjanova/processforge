@@ -67,4 +67,4 @@ Example flowsheet files are available in the `flowsheets/` directory.
 
 This project is proprietary software. See the [LICENSE](LICENSE) file for details.
 
-For licensing inquiries, please contact the development team.
+For licensing inquiries, please [contact the development](https://forms.gle/wUweVnoSqA9VeD7m9) team.
