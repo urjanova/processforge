@@ -9,6 +9,7 @@ from .result import (
     plot_timeseries,
     save_results_json,
     save_timeseries_json,
+    generate_validation_excel
 )
 from loguru import logger
 
@@ -48,8 +49,12 @@ def main():
         )
         
         save_timeseries_csv(results, f"{base_name}_timeseries.csv")
-        plot_timeseries(results, f"{base_name}_timeseries.png")
-        logger.info(f"Saved {base_name}_timeseries.csv and {base_name}_timeseries.png")
+        generate_validation_excel(
+            data_source= os.path.join("outputs", f"{base_name}_timeseries.csv"),
+            output_filename=os.path.join("outputs", f"{base_name}_validation.xlsx"),
+        )
+        # plot_timeseries(results, f"{base_name}_timeseries.png")
+        # logger.info(f"Saved {base_name}_timeseries.csv and {base_name}_timeseries.png")
     else:
         logger.info("=== Steady-State Results ===")
         save_results_json(results, f"{base_name}_results.json")
@@ -57,8 +62,13 @@ def main():
         save_timeseries_json(
             results, f"{base_name}_timeseries.json"
         )  # If applicable for steady state
-        plot_results(results, f"{base_name}_results.png")
-        logger.info(f"Saved {base_name}_results.csv and {base_name}_results.png")
+        generate_validation_excel(
+            data_source= os.path.join("outputs", f"{base_name}_results.csv"),
+            output_filename= os.path.join("outputs", f"{base_name}_validation.xlsx"),
+        )
+        # plot_results(results, f"{base_name}_results.png")
+        logger.info(f"Saved {base_name}_results.csv and {base_name}_validation.xlsx")
+    
 
 
 if __name__ == "__main__":
