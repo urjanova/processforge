@@ -1,0 +1,4 @@
+include LICENSE
+include README.md
+recursive-include src/processforge/schemas *.json
+recursive-include flowsheets *.json

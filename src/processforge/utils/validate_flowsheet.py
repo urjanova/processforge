@@ -1,34 +1,21 @@
 import json
-import os
 from jsonschema import validate, ValidationError
 from loguru import logger
+
+from .._schema import load_flowsheet_schema
 
 
 def validate_flowsheet(config_path):
     """
     Validates a flowsheet configuration file against a predefined JSON schema and performs additional connectivity checks.
-    This function loads the flowsheet schema from a fixed path relative to the script's location, validates the provided
-    configuration file against it using the jsonschema library, and then runs custom connectivity checks on the streams.
-    If validation succeeds, it logs a success message and returns the loaded configuration dictionary. If validation fails,
-    it logs an error message with details and raises SystemExit to terminate the program.
     Args:
         config_path (str): The file path to the flowsheet configuration JSON file to be validated.
     Returns:
         dict: The loaded and validated configuration dictionary if validation and checks pass.
     Raises:
         SystemExit: If the configuration fails schema validation or connectivity checks, with an exit code of 1.
-    Note:
-        The schema file is expected to be located at '../schemas/flowsheet_schema.json' relative to the directory of this script.
-        Additional connectivity checks are performed via the check_stream_connectivity function.
     """
-
-    pwd = os.path.dirname(os.path.abspath(__file__))
-    # go one level up
-    schema_directory = os.path.dirname(pwd)
-    schema_path = os.path.join(schema_directory, "schemas", "flowsheet_schema.json")
-
-    with open(schema_path, "r") as f:
-        schema = json.load(f)
+    schema = load_flowsheet_schema()
 
     with open(config_path, "r") as f:
         config = json.load(f)

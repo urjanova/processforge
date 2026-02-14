@@ -3,15 +3,19 @@ import jsonschema
 from jsonschema import validate
 from loguru import logger
 
-def validate_flowsheet(config_path, schema_path="schemas/flowsheet_schema.json"):
+from ._schema import load_flowsheet_schema
+
+
+def validate_flowsheet(config_path, schema=None):
     """
     Validates a flowsheet JSON against the defined schema.
     Raises jsonschema.ValidationError if invalid.
     """
+    if schema is None:
+        schema = load_flowsheet_schema()
+
     with open(config_path, "r") as f:
         config = json.load(f)
-    with open(schema_path, "r") as f:
-        schema = json.load(f)
 
     try:
         validate(instance=config, schema=schema)

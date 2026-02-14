@@ -52,118 +52,137 @@ A Python-based process simulation framework for chemical process engineering app
 
 ## Installation
 
+### From PyPI
+
+```bash
+pip install processforge
+```
+
+### From source (development)
+
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/urjanova/processforge.git
    cd processforge
    ```
 
-2. Install the package using uv:
+2. Install the package:
+   ```bash
+   pip install -e ".[dev]"
+   ```
+
+   Or using uv:
    ```bash
    uv sync
    ```
 
-   This will create a virtual environment (`.venv`) and install all dependencies.
-
-   **Note:** uv is the recommended package manager for this project. If you prefer pip, you can use `pip install -r requirements.txt` for basic dependencies, but uv provides better dependency resolution and virtual environment management.
-
-3. Activate the virtual environment:
-   ```bash
-   source .venv/bin/activate  # On Unix/macOS
-   # or
-   .venv\Scripts\activate     # On Windows
-   ```
-
 ## Usage
 
-Run simulations using the `processforge` command:
+### Command Line Interface
+
+ProcessForge provides a CLI with three subcommands:
 
 ```bash
-processforge flowsheets/closed-loop-chain.json
+# Run a simulation
+processforge run flowsheets/closed-loop-chain.json
+
+# Validate a flowsheet configuration
+processforge validate flowsheets/closed-loop-chain.json
+
+# Generate a flowsheet diagram
+processforge diagram flowsheets/closed-loop-chain.json
+processforge diagram flowsheets/closed-loop-chain.json --format svg --output-dir diagrams/
 ```
 
-This will generate multiple output files in the `outputs/` directory:
+Running a simulation generates output files in the `outputs/` directory:
 - `*_results.json` - Simulation results in JSON format
 - `*_timeseries.json` - Time-series data for dynamic simulations
 - `*_timeseries.csv` - Tabular results with component compositions
-- `temps_*.png` - Temperature profile plots
-- `comps_*.png` - Composition charts for each stream
+- `*_validation.xlsx` - Validation report
 
-Example flowsheet files are available in the `flowsheets/` directory, including:
-- `closed-loop-chain.json` - Hydraulic system with recycle loop
-- `archive/example_flash.json` - Simple flash separator
-- `archive/example_dynamic_tank.json` - Dynamic tank simulation
+### As a Python Module
+
+```python
+from processforge import Flowsheet, Pump, Tank, Pipes, validate_flowsheet
+
+# Load and validate a flowsheet
+config = validate_flowsheet("flowsheets/closed-loop-chain.json")
+
+# Run simulation
+fs = Flowsheet(config)
+results = fs.run()
+
+# Use individual unit operations
+pump = Pump("my_pump", deltaP=1e5, efficiency=0.8)
+outlet = pump.run({"T": 300, "P": 101325, "flowrate": 10, "z": {"Water": 1.0}})
+```
 
 ## Quick Start Examples
 
 ### Run a simulation
 ```bash
-processforge flowsheets/closed-loop-chain.json
+processforge run flowsheets/closed-loop-chain.json
 ```
 
 ### Validate a flowsheet
 ```bash
-python utils/validate_flowsheet.py flowsheets/closed-loop-chain.json
+processforge validate flowsheets/closed-loop-chain.json
 ```
 
 ### Generate a flowsheet diagram
 ```bash
-python utils/flowsheet_diagram.py flowsheets/closed-loop-chain.json
+processforge diagram flowsheets/closed-loop-chain.json
 ```
-
-Diagrams are saved to `utils/diagrams/` as PNG and SVG files.
 
 ## Project Structure
 
 ```
 processforge/
-├── src/                          # Core source code
-│   ├── flowsheet.py             # Flowsheet modeling with closed-loop handling
-│   ├── thermo.py                # Thermodynamic calculations via CoolProp
-│   ├── result.py                # Results export (CSV, JSON, plotting)
-│   ├── simulate.py              # Main simulation CLI entry point
-│   ├── solver.py                # Solver interface
-│   └── units/                   # Unit operations
-│       ├── pump.py              # Pump with efficiency
-│       ├── valve.py             # Pressure-reducing valve
-│       ├── strainer.py          # Pressure drop element
-│       ├── pipes.py             # Pipe with friction losses
-│       ├── tank.py              # Well-mixed tank (steady & dynamic)
-│       ├── flash.py             # Isothermal flash separator
-│       └── heater.py            # Temperature control heater
-├── flowsheets/                   # Example flowsheet configurations
-│   ├── closed-loop-chain.json   # Main example with recycle
-│   └── archive/                 # Additional examples
-├── utils/                        # Utilities
-│   ├── validate_flowsheet.py    # JSON schema validation
-│   ├── flowsheet_diagram.py     # Graphviz visualization
-│   └── diagrams/                # Generated flowsheet diagrams
-├── schemas/                      # JSON schema definitions
-│   └── flowsheet_schema.json    # Flowsheet validation schema
-├── outputs/                      # Simulation results
-│   ├── *.json                   # Results data
-│   ├── *.csv                    # Tabular data
-│   └── *.png                    # Plots and charts
-└── pyproject.toml               # Project configuration
+├── src/processforge/              # Core package
+│   ├── __init__.py               # Public API
+│   ├── flowsheet.py              # Flowsheet modeling with closed-loop handling
+│   ├── thermo.py                 # Thermodynamic calculations via CoolProp
+│   ├── result.py                 # Results export (CSV, JSON, Excel, plotting)
+│   ├── simulate.py               # CLI entry point with subcommands
+│   ├── solver.py                 # Solver interface
+│   ├── validate.py               # Simple schema validation
+│   ├── _schema.py                # Schema loader (importlib.resources)
+│   ├── units/                    # Unit operations
+│   │   ├── pump.py               # Pump with efficiency
+│   │   ├── valve.py              # Pressure-reducing valve
+│   │   ├── strainer.py           # Pressure drop element
+│   │   ├── pipes.py              # Pipe with friction losses
+│   │   ├── tank.py               # Well-mixed tank (steady & dynamic)
+│   │   ├── flash.py              # Isothermal flash separator
+│   │   └── heater.py             # Temperature control heater
+│   ├── utils/                    # Utilities
+│   │   ├── validate_flowsheet.py # Schema + connectivity validation
+│   │   └── flowsheet_diagram.py  # Graphviz visualization
+│   └── schemas/                  # Bundled JSON schemas
+│       └── flowsheet_schema.json
+├── flowsheets/                    # Example flowsheet configurations
+│   ├── closed-loop-chain.json    # Main example with recycle
+│   └── archive/                  # Additional examples
+├── pyproject.toml                # Project configuration
+└── MANIFEST.in                   # Source distribution manifest
 ```
 
 ## Dependencies
 
-Core dependencies with their purposes:
+Core dependencies:
 
 - **numpy** - Numerical computing
 - **scipy** - Scientific computing and ODE solvers
 - **coolprop** - Thermodynamic property calculations
-- **networkx** - Graph analysis for recycle loop detection
-- **h5py** - Data storage
-- **casadi** - Dynamic simulation and optimization
 - **matplotlib** - Plotting and visualization
 - **loguru** - Logging
 - **jsonschema** - Configuration validation
 - **graphviz** - Flowsheet diagram generation
+- **pandas** - Data manipulation
+- **openpyxl** - Excel report generation
 
 ## License
 
-This project is proprietary software. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the BSD 3-Clause License. See the [LICENSE](LICENSE) file for details.
 
 For licensing inquiries, please [contact the development](https://forms.gle/wUweVnoSqA9VeD7m9) team.
