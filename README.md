@@ -1,5 +1,8 @@
 # Process Forge
 
+
+![processforge-logo](images/processforge-logo.jpg)
+
 A Python-based process simulation framework for chemical process engineering applications.
 
 ## Table of Contents
@@ -180,6 +183,10 @@ Core dependencies:
 - **graphviz** - Flowsheet diagram generation
 - **pandas** - Data manipulation
 - **openpyxl** - Excel report generation
+
+
+## Logo credit
+Google Gemini / Nano Banana
 
 ## License
 
