@@ -7,11 +7,10 @@ from loguru import logger
 from .utils.validate_flowsheet import validate_flowsheet
 from .flowsheet import Flowsheet
 from .result import (
-    save_results_csv,
-    save_timeseries_csv,
-    save_results_json,
-    save_timeseries_json,
     generate_validation_excel,
+    plot_results,
+    plot_timeseries,
+    save_results_zarr,
 )
 from .utils.flowsheet_diagram import draw_flowsheet
 
@@ -39,23 +38,20 @@ def _cmd_run(args):
 
     if is_dynamic:
         logger.info("=== Dynamic Results ===")
-        save_timeseries_json(results, f"{base_name}_timeseries.json")
-        save_results_json(results, f"{base_name}_results.json")
-        save_timeseries_csv(results, f"{base_name}_timeseries.csv")
-        generate_validation_excel(
-            data_source=os.path.join("outputs", f"{base_name}_timeseries.csv"),
-            output_filename=os.path.join("outputs", f"{base_name}_validation.xlsx"),
-        )
     else:
         logger.info("=== Steady-State Results ===")
-        save_results_json(results, f"{base_name}_results.json")
-        save_results_csv(results, f"{base_name}_results.csv")
-        save_timeseries_json(results, f"{base_name}_timeseries.json")
-        generate_validation_excel(
-            data_source=os.path.join("outputs", f"{base_name}_results.csv"),
-            output_filename=os.path.join("outputs", f"{base_name}_validation.xlsx"),
-        )
-        logger.info(f"Saved {base_name}_results.csv and {base_name}_validation.xlsx")
+    zarr_path = save_results_zarr(
+        results,
+        os.path.join("outputs", f"{base_name}_results.zarr"),
+    )
+    validation_path = os.path.join("outputs", f"{base_name}_validation.xlsx")
+    generate_validation_excel(
+        data_source=zarr_path,
+        output_filename=validation_path,
+    )
+    if args.export_images:
+        plot_results(results, fname=f"{base_name}_results.png")
+        plot_timeseries(results, fname=f"{base_name}_timeseries.png")
 
 
 def _cmd_validate(args):
@@ -109,6 +105,11 @@ def main():
     # processforge run
     run_parser = subparsers.add_parser("run", help="Run a process simulation")
     run_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
+    run_parser.add_argument(
+        "--export-images",
+        action="store_true",
+        help="Generate PNG plots for simulation outputs",
+    )
 
     # processforge validate
     validate_parser = subparsers.add_parser("validate", help="Validate a flowsheet JSON file")

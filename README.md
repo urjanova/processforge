@@ -31,8 +31,8 @@ A Python-based process simulation framework for chemical process engineering app
 - Configurable convergence tolerance and iteration limits
 
 ### Results & Visualization
-- Export formats: CSV and JSON for easy data analysis
-- Automatic plotting: temperature profiles and composition charts
+- Export formats: Zarr stores that contain both scalar and timeseries results for downstream analysis
+- Optional plotting (use `--export-images`) for temperature profiles and composition charts
 - Graphviz flowsheet diagrams (PNG and SVG)
 - Timeseries visualization for dynamic simulations
 
@@ -86,8 +86,8 @@ pip install processforge
 ProcessForge provides a CLI with three subcommands:
 
 ```bash
-# Run a simulation
-processforge run flowsheets/closed-loop-chain.json
+# Run a simulation (add --export-images to generate PNG plots)
+processforge run flowsheets/closed-loop-chain.json [--export-images]
 
 # Validate a flowsheet configuration
 processforge validate flowsheets/closed-loop-chain.json
@@ -98,10 +98,9 @@ processforge diagram flowsheets/closed-loop-chain.json --format svg --output-dir
 ```
 
 Running a simulation generates output files in the `outputs/` directory:
-- `*_results.json` - Simulation results in JSON format
-- `*_timeseries.json` - Time-series data for dynamic simulations
-- `*_timeseries.csv` - Tabular results with component compositions
-- `*_validation.xlsx` - Validation report
+- `*_results.zarr` - Simulation results (steady-state and dynamic) stored as a Zarr directory
+- `*_validation.xlsx` - Validation report derived directly from the Zarr store
+- PNG plots for temperatures and compositions when `--export-images` is supplied
 
 ### As a Python Module
 
@@ -124,7 +123,7 @@ outlet = pump.run({"T": 300, "P": 101325, "flowrate": 10, "z": {"Water": 1.0}})
 
 ### Run a simulation
 ```bash
-processforge run flowsheets/closed-loop-chain.json
+processforge run flowsheets/closed-loop-chain.json [--export-images]
 ```
 
 ### Validate a flowsheet
@@ -145,7 +144,7 @@ processforge/
 │   ├── __init__.py               # Public API
 │   ├── flowsheet.py              # Flowsheet modeling with closed-loop handling
 │   ├── thermo.py                 # Thermodynamic calculations via CoolProp
-│   ├── result.py                 # Results export (CSV, JSON, Excel, plotting)
+│   ├── result.py                 # Results export (Zarr, Excel, plotting)
 │   ├── simulate.py               # CLI entry point with subcommands
 │   ├── solver.py                 # Solver interface
 │   ├── validate.py               # Simple schema validation
@@ -183,6 +182,7 @@ Core dependencies:
 - **graphviz** - Flowsheet diagram generation
 - **pandas** - Data manipulation
 - **openpyxl** - Excel report generation
+- **zarr** - Chunked storage for simulation outputs
 
 
 ## Logo credit

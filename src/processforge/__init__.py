@@ -6,7 +6,7 @@ Provides steady-state and dynamic process simulation capabilities including:
 - Unit operations (Pump, Valve, Tank, Pipes, Strainer, Flash, Heater)
 - Thermodynamic property calculations via CoolProp
 - JSON-schema validated flowsheet configurations
-- Results export to CSV, JSON, and Excel validation reports
+- Results export to Zarr and Excel validation reports
 """
 
 from .flowsheet import Flowsheet
@@ -14,11 +14,10 @@ from .solver import Solver
 from .thermo import get_enthalpy_molar, get_Cp_molar, get_K_values, rachford_rice
 from .validate import validate_flowsheet
 from .result import (
-    save_results_csv,
-    save_timeseries_csv,
-    save_results_json,
-    save_timeseries_json,
     generate_validation_excel,
+    plot_results,
+    plot_timeseries,
+    save_results_zarr,
 )
 from .units.pump import Pump
 from .units.valve import Valve
@@ -38,11 +37,10 @@ __all__ = [
     "get_K_values",
     "rachford_rice",
     "validate_flowsheet",
-    "save_results_csv",
-    "save_timeseries_csv",
-    "save_results_json",
-    "save_timeseries_json",
     "generate_validation_excel",
+    "plot_results",
+    "plot_timeseries",
+    "save_results_zarr",
     "Pump",
     "Valve",
     "Strainer",
