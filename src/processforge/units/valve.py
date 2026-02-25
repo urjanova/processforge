@@ -1,6 +1,9 @@
 import copy
 
-class Valve:
+from ..eo.units.valve_eo import ValveEOMixin
+
+
+class Valve(ValveEOMixin):
     """
     Simple steady-state valve model.
     Reduces pressure according to a fixed ratio (P_out = ratio * P_in).

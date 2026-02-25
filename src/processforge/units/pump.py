@@ -1,6 +1,9 @@
 import copy
 
-class Pump:
+from ..eo.units.pump_eo import PumpEOMixin
+
+
+class Pump(PumpEOMixin):
     """
     Simple steady-state pump model.
     Adds a fixed pressure rise ΔP to the inlet stream.

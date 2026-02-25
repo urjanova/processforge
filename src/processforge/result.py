@@ -55,17 +55,14 @@ def save_results_zarr(results, fname="results.zarr"):
     for stream_name, stream_data in results.items():
         stream_group = root.create_group(stream_name)
         _store_stream(stream_group, stream_data)
-    logger.info("Saved Zarr results to %s", store_path)
+    logger.info(f"Saved Zarr results to {store_path}")
     return store_path
 
 
 def plot_results(results, fname="results.png"):
     os.makedirs("outputs", exist_ok=True)
     streams = list(results.keys())
-    temp_values = [
-        _scalar_from_sequence(results[s].get("T")) or 0.0
-        for s in streams
-    ]
+    temp_values = [_scalar_from_sequence(results[s].get("T")) or 0.0 for s in streams]
 
     plt.figure(figsize=(8, 4))
     plt.bar(streams, temp_values, color="skyblue")
@@ -242,7 +239,11 @@ def generate_validation_excel(data_source, output_filename):
         "flowrate",
     }
     comp_cols = [c for c in df.columns if c not in known_cols]
-    numeric_comp = df[comp_cols].apply(pd.to_numeric, errors="coerce") if comp_cols else pd.DataFrame()
+    numeric_comp = (
+        df[comp_cols].apply(pd.to_numeric, errors="coerce")
+        if comp_cols
+        else pd.DataFrame()
+    )
     if not numeric_comp.empty:
         df["Total_Fraction"] = numeric_comp.sum(axis=1)
         df["Composition_Alert"] = np.where(
@@ -322,4 +323,4 @@ def generate_validation_excel(data_source, output_filename):
             pump_check.to_excel(writer, sheet_name="2_PUMP_PERFORMANCE")
         df.to_excel(writer, sheet_name="3_RAW_DATA_CHECKED", index=False)
 
-    logger.info("Validation Report Generated: %s", output_filename)
+    logger.info(f"Validation Report Generated: {output_filename}")

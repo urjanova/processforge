@@ -1,8 +1,10 @@
 import numpy as np
 from scipy.optimize import brentq
 from ..thermo import get_enthalpy_molar
+from ..eo.units.heater_eo import HeaterEOMixin
 
-class Heater:
+
+class Heater(HeaterEOMixin):
     """
     Represents a simple heater unit in a process simulation.
     The Heater class models a unit that adds a specified amount of heat (duty)

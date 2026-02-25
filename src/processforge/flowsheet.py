@@ -69,8 +69,6 @@ class Flowsheet:
         self.streams = {}
         self.tear_streams = set()
         self.has_recycles = False
-        self.recycle_config = config.get("simulation", {}).get("recycle", {})
-        self.recycle_streams_config = config.get("recycle_streams", {})
 
     def build_units(self):
         logger.info("Building units")
@@ -119,14 +117,6 @@ class Flowsheet:
             out_stream = unit_config["out"]
             stream_producers[out_stream] = unit_name
         
-        # Also add recycle streams as "produced" by the units that output them
-        for stream_name in self.recycle_streams_config:
-            # Find which unit produces this recycle stream
-            for unit_name, unit_config in self.config["units"].items():
-                if unit_config["out"] == stream_name:
-                    stream_producers[stream_name] = unit_name
-                    break
-        
         # Build adjacency: unit -> list of downstream units
         adj = {unit_name: [] for unit_name in self.units}
         for unit_name, unit_config in self.config["units"].items():
@@ -174,34 +164,6 @@ class Flowsheet:
             logger.info(f"Identified tear stream: '{stream}' (from {from_unit} to {to_unit})")
         
         return True, tear_streams, cycles
-
-    def _validate_recycle_has_tank(self, cycles):
-        """
-        Validates that each cycle contains at least one Tank unit.
-        Tanks provide necessary holdup for recycle stability.
-        
-        Args:
-            cycles: List of cycles, where each cycle is a list of unit names.
-            
-        Raises:
-            ValueError: If any cycle does not contain a Tank unit.
-        """
-        for i, cycle in enumerate(cycles):
-            has_tank = False
-            for unit_name in cycle:
-                if unit_name in self.units:
-                    unit_type = self.config["units"][unit_name]["type"]
-                    if unit_type == "Tank":
-                        has_tank = True
-                        break
-            
-            if not has_tank:
-                cycle_str = " -> ".join(cycle)
-                logger.error(f"Cycle {i+1} has no Tank unit: {cycle_str}")
-                raise ValueError(
-                    f"Recycle loop must contain at least one Tank unit for stability. "
-                    f"Cycle without Tank: {cycle_str}"
-                )
 
     def run(self):
         """
@@ -306,16 +268,18 @@ class Flowsheet:
         """
         logger.info("Running steady-state simulation with recycle convergence")
         
-        max_iter = self.recycle_config.get("max_iterations", 100)
-        tolerance = self.recycle_config.get("tolerance", 1e-6)
-        
+        max_iter = 100
+        tolerance = 1e-6
+
         # Initialize results with feed streams
         results = {k: deepcopy(v) for k, v in self.config["streams"].items()}
-        
-        # Initialize tear streams with initial guesses from recycle_streams config
-        for stream_name, stream_data in self.recycle_streams_config.items():
-            results[stream_name] = deepcopy(stream_data)
-            logger.debug(f"Initialized tear stream '{stream_name}' with guess: {stream_data}")
+
+        # Auto-initialize tear streams from the first available feed stream
+        default_stream = deepcopy(next(iter(self.config["streams"].values())))
+        for stream_name in self.tear_streams:
+            if stream_name not in results:
+                results[stream_name] = deepcopy(default_stream)
+                logger.debug(f"Auto-initialized tear stream '{stream_name}' from feed values")
         
         # Wegstein acceleration storage
         wegstein_prev = {}  # Previous iteration values for each tear stream property
@@ -453,8 +417,6 @@ class Flowsheet:
         
         if has_cycles:
             logger.info(f"Detected {len(cycles)} recycle loop(s) with tear streams: {tear_streams}")
-            # Validate each cycle has a Tank
-            self._validate_recycle_has_tank(cycles)
 
         stream_producers = {
             unit_config["out"]: unit_name
@@ -601,11 +563,6 @@ class Flowsheet:
         for stream_name, stream_data in self.config["streams"].items():
             results[stream_name] = self._init_stream_timeseries(stream_name, stream_data, t_eval, num_steps)
 
-        # Initialize recycle streams with initial guesses
-        for stream_name, stream_data in self.recycle_streams_config.items():
-            results[stream_name] = self._init_stream_timeseries(stream_name, stream_data, t_eval, num_steps)
-            logger.debug(f"Initialized recycle stream '{stream_name}' timeseries")
-
         if self.has_recycles:
             # Timestep-by-timestep processing for recycle loops
             return self._run_dynamic_with_recycle(solver, processing_order, results, t_eval, num_steps, start_time, end_time)
@@ -697,9 +654,6 @@ class Flowsheet:
         for stream_data in self.config["streams"].values():
             if "z" in stream_data:
                 components.update(stream_data["z"].keys())
-        for stream_data in self.recycle_streams_config.values():
-            if "z" in stream_data:
-                components.update(stream_data["z"].keys())
         
         # Ensure all streams have composition timeseries
         for stream_name in results:
@@ -723,10 +677,26 @@ class Flowsheet:
         for step in range(num_steps):
             t = t_eval[step]
             dt = t_eval[1] - t_eval[0] if num_steps > 1 else 1.0
-            
+
             if step % 5 == 0:
                 logger.debug(f"Processing timestep {step}/{num_steps} (t={t:.2f})")
-            
+
+            # Propagate previous step's tear stream values so upstream units (e.g. tank_1)
+            # see the most recently computed recycle values, not the zero initialisation.
+            if step > 0:
+                for tear_stream in self.tear_streams:
+                    if tear_stream in results:
+                        prev = step - 1
+                        stream_ts = results[tear_stream]
+                        for prop, values in stream_ts.items():
+                            if prop == "time":
+                                continue
+                            if prop == "z":
+                                for comp_ts in values.values():
+                                    comp_ts[step] = comp_ts[prev]
+                            elif isinstance(values, list) and step < len(values):
+                                values[step] = values[prev]
+
             # Process each unit for this timestep
             for unit_name in processing_order:
                 unit = self.units[unit_name]

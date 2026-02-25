@@ -1,6 +1,8 @@
 from .. import thermo
+from ..eo.units.flash_eo import FlashEOMixin
 
-class Flash:
+
+class Flash(FlashEOMixin):
     """Represents an isothermal flash drum unit operation in a process flowsheet.
 
     This class models the separation of a multi-component feed stream into

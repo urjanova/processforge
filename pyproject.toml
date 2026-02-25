@@ -38,6 +38,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+eo = [
+    "pyomo>=6.7",
+]
+eo-casadi = [
+    "pyomo>=6.7",
+    "casadi>=3.6",
+]
 dev = [
     "pytest>=7.0",
     "black",

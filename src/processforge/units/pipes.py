@@ -1,8 +1,10 @@
 import copy
 import math
 
+from ..eo.units.pipes_eo import PipesEOMixin
 
-class Pipes:
+
+class Pipes(PipesEOMixin):
     """
     Simple steady-state pipes model.
     Represents pipes connecting units, with a fixed pressure drop due to friction.
