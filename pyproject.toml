@@ -38,6 +38,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+s3 = ["boto3>=1.26"]
 eo = [
     "pyomo>=6.7",
 ]

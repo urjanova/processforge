@@ -59,6 +59,65 @@ def save_results_zarr(results, fname="results.zarr"):
     return store_path
 
 
+def upload_zarr_to_s3(local_zarr_path):
+    """Upload a local Zarr directory store to a pre-configured S3 bucket.
+
+    Reads connection details from environment variables:
+        S3_BUCKET_NAME, S3_ENDPOINT_URL, S3_REGION_NAME,
+        S3_ACCESS_KEY, S3_SECRET_KEY
+
+    Deletes the local Zarr directory after a successful upload.
+    Returns the S3 URI of the uploaded store.
+    """
+    try:
+        import boto3
+    except ImportError:
+        raise ImportError(
+            "boto3 is required for S3 upload. "
+            "Install it with: pip install processforge[s3]"
+        )
+
+    bucket = os.environ.get("S3_BUCKET_NAME")
+    if not bucket:
+        logger.warning(
+            "S3_BUCKET_NAME is not set — skipping S3 upload. "
+            f"Zarr results remain at: {local_zarr_path}"
+        )
+        return None
+    endpoint_url = os.environ.get("S3_ENDPOINT_URL")
+    region_name = os.environ.get("S3_REGION_NAME")
+    access_key = os.environ.get("S3_ACCESS_KEY")
+    secret_key = os.environ.get("S3_SECRET_KEY")
+    missing = [v for v, k in [("S3_ACCESS_KEY", access_key), ("S3_SECRET_KEY", secret_key)] if not k]
+    if missing:
+        logger.warning(
+            f"Missing required S3 env var(s): {', '.join(missing)} — skipping S3 upload. "
+            f"Zarr results remain at: {local_zarr_path}"
+        )
+        return None
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        region_name=region_name,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+    )
+
+    store_name = os.path.basename(local_zarr_path)
+    for root_dir, _, files in os.walk(local_zarr_path):
+        for file in files:
+            local_file = os.path.join(root_dir, file)
+            relative_path = os.path.relpath(local_file, local_zarr_path)
+            s3_key = store_name + "/" + relative_path.replace("\\", "/")
+            s3.upload_file(local_file, bucket, s3_key)
+
+    shutil.rmtree(local_zarr_path)
+    s3_uri = f"s3://{bucket}/{store_name}"
+    logger.info(f"Uploaded Zarr store to {s3_uri} and removed local copy")
+    return s3_uri
+
+
 def plot_results(results, fname="results.png"):
     os.makedirs("outputs", exist_ok=True)
     streams = list(results.keys())

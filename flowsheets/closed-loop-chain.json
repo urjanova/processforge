@@ -9,8 +9,8 @@
       "T": 298.15,
       "P": 101325,
       "z": {
-        "Water": 0.8,
-        "Toluene": 0.2
+        "Benzene": 0.5,
+        "Toluene": 0.5
       },
       "flowrate": 0.1
     }
@@ -22,7 +22,7 @@
       "out": "after_tank_1",
       "outlet_flow": 1.0,
       "initial_n": {
-        "Water": 9.0,
+        "Benzene": 9.0,
         "Toluene": 1.0
       },
       "initial_T": 298.15,

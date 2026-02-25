@@ -12,6 +12,7 @@ from .result import (
     plot_results,
     plot_timeseries,
     save_results_zarr,
+    upload_zarr_to_s3,
 )
 from .utils.flowsheet_diagram import draw_flowsheet
 
@@ -54,6 +55,10 @@ def _cmd_run(args):
         data_source=zarr_path,
         output_filename=validation_path,
     )
+    if args.upload_to_s3:
+        s3_uri = upload_zarr_to_s3(zarr_path)
+        if s3_uri:
+            logger.info(f"Zarr results available at {s3_uri}")
     if args.export_images:
         plot_results(results, fname=f"{base_name}_results.png")
         plot_timeseries(results, fname=f"{base_name}_timeseries.png")
@@ -114,6 +119,15 @@ def main():
         "--export-images",
         action="store_true",
         help="Generate PNG plots for simulation outputs",
+    )
+    run_parser.add_argument(
+        "--upload-to-s3",
+        action="store_true",
+        help=(
+            "Upload Zarr results to S3 and remove the local copy. "
+            "Requires env vars: S3_BUCKET_NAME, S3_ACCESS_KEY, S3_SECRET_KEY. "
+            "Optional: S3_ENDPOINT_URL, S3_REGION_NAME."
+        ),
     )
 
     # processforge validate
