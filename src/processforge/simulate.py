@@ -6,6 +6,7 @@ from loguru import logger
 
 from .utils.validate_flowsheet import validate_flowsheet
 from .flowsheet import Flowsheet
+from .eo import EOFlowsheet
 from .result import (
     generate_validation_excel,
     plot_results,
@@ -30,16 +31,20 @@ def _cmd_run(args):
         logger.error(f"Failed to validate flowsheet file '{fname}': {e}")
         raise SystemExit(1)
 
-    fs = Flowsheet(config)
-    results = fs.run()
-
-    is_dynamic = config.get("simulation", {}).get("mode") == "dynamic"
-    base_name = os.path.splitext(os.path.basename(fname))[0]
+    sim_cfg = config.get("simulation", {})
+    mode = sim_cfg.get("mode", "steady")
+    is_dynamic = mode == "dynamic"
 
     if is_dynamic:
+        fs = Flowsheet(config)
         logger.info("=== Dynamic Results ===")
     else:
-        logger.info("=== Steady-State Results ===")
+        backend = sim_cfg.get("backend", "scipy")
+        fs = EOFlowsheet(config, backend=backend)
+        logger.info("=== Steady-State EO Results ===")
+
+    results = fs.run()
+    base_name = os.path.splitext(os.path.basename(fname))[0]
     zarr_path = save_results_zarr(
         results,
         os.path.join("outputs", f"{base_name}_results.zarr"),

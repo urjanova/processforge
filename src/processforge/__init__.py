@@ -7,6 +7,7 @@ Provides steady-state and dynamic process simulation capabilities including:
 - Thermodynamic property calculations via CoolProp
 - JSON-schema validated flowsheet configurations
 - Results export to Zarr and Excel validation reports
+- Equation-oriented (EO) steady-state solver via EOFlowsheet
 """
 
 from .flowsheet import Flowsheet
@@ -26,11 +27,14 @@ from .units.tank import Tank
 from .units.pipes import Pipes
 from .units.flash import Flash
 from .units.heater import Heater
+from .eo import EOFlowsheet, EOSolver
 
 __version__ = "0.1.0"
 
 __all__ = [
     "Flowsheet",
+    "EOFlowsheet",
+    "EOSolver",
     "Solver",
     "get_enthalpy_molar",
     "get_Cp_molar",

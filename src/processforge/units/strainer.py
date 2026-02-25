@@ -1,6 +1,9 @@
 import copy
 
-class Strainer:
+from ..eo.units.strainer_eo import StrainerEOMixin
+
+
+class Strainer(StrainerEOMixin):
     """
     Simplified pressure-drop element.
     Removes a fixed ΔP from the inlet pressure.
