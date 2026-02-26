@@ -49,7 +49,7 @@ class Pump(PumpEOMixin):
 
         # Approximate temperature rise (adiabatic inefficiency)
         Cp = 4180.0  # J/kg-K for water
-        dT = (power * (1 - self.efficiency)) / (mass_flow * Cp)
+        dT = (power * (1 - self.efficiency)) / (mass_flow * Cp) if mass_flow > 0 else 0.0
         outlet["T"] = inlet["T"] + dT
 
         outlet["power"] = power
