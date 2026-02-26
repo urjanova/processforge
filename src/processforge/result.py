@@ -118,6 +118,55 @@ def upload_zarr_to_s3(local_zarr_path):
     return s3_uri
 
 
+def upload_log_to_s3(local_log_path):
+    """Upload a log file to the pre-configured S3 bucket.
+
+    Reads connection details from the same env vars as upload_zarr_to_s3.
+    Deletes the local log file after a successful upload.
+    Returns the S3 URI of the uploaded file.
+    """
+    try:
+        import boto3
+    except ImportError:
+        raise ImportError(
+            "boto3 is required for S3 upload. "
+            "Install it with: pip install processforge[s3]"
+        )
+
+    bucket = os.environ.get("S3_BUCKET_NAME")
+    if not bucket:
+        logger.warning(
+            "S3_BUCKET_NAME is not set — skipping log upload. "
+            f"Log remains at: {local_log_path}"
+        )
+        return None
+
+    access_key = os.environ.get("S3_ACCESS_KEY")
+    secret_key = os.environ.get("S3_SECRET_KEY")
+    missing = [v for v, k in [("S3_ACCESS_KEY", access_key), ("S3_SECRET_KEY", secret_key)] if not k]
+    if missing:
+        logger.warning(
+            f"Missing required S3 env var(s): {', '.join(missing)} — skipping log upload. "
+            f"Log remains at: {local_log_path}"
+        )
+        return None
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ.get("S3_ENDPOINT_URL"),
+        region_name=os.environ.get("S3_REGION_NAME"),
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+    )
+
+    s3_key = os.path.basename(local_log_path)
+    s3.upload_file(local_log_path, bucket, s3_key)
+    os.remove(local_log_path)
+    s3_uri = f"s3://{bucket}/{s3_key}"
+    logger.info(f"Uploaded log to {s3_uri} and removed local copy")
+    return s3_uri
+
+
 def plot_results(results, fname="results.png"):
     os.makedirs("outputs", exist_ok=True)
     streams = list(results.keys())
