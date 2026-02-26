@@ -1,6 +1,6 @@
 #!/bin/bash
 
-rm -r dist/
+[ -d dist ] && rm -r dist/
 # install build tools if you haven't already
 pip install --upgrade build twine
 

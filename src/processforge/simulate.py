@@ -12,8 +12,6 @@ from .result import (
     plot_results,
     plot_timeseries,
     save_results_zarr,
-    upload_log_to_s3,
-    upload_zarr_to_s3,
 )
 from .utils.flowsheet_diagram import draw_flowsheet
 
@@ -34,12 +32,6 @@ def _cmd_run(args):
         raise SystemExit(1)
 
     base_name = os.path.splitext(os.path.basename(fname))[0]
-
-    log_sink_id = None
-    if args.upload_to_s3:
-        os.makedirs("outputs", exist_ok=True)
-        log_path = os.path.join("outputs", f"{base_name}_run.log")
-        log_sink_id = logger.add(log_path)
 
     sim_cfg = config.get("simulation", {})
     mode = sim_cfg.get("mode", "steady")
@@ -63,13 +55,6 @@ def _cmd_run(args):
         data_source=zarr_path,
         output_filename=validation_path,
     )
-    if args.upload_to_s3:
-        s3_uri = upload_zarr_to_s3(zarr_path)
-        if s3_uri:
-            logger.info(f"Zarr results available at {s3_uri}")
-        if log_sink_id is not None:
-            logger.remove(log_sink_id)
-            upload_log_to_s3(log_path)
     if args.export_images:
         plot_results(results, fname=f"{base_name}_results.png")
         plot_timeseries(results, fname=f"{base_name}_timeseries.png")
@@ -131,16 +116,6 @@ def main():
         action="store_true",
         help="Generate PNG plots for simulation outputs",
     )
-    run_parser.add_argument(
-        "--upload-to-s3",
-        action="store_true",
-        help=(
-            "Upload Zarr results to S3 and remove the local copy. "
-            "Requires env vars: S3_BUCKET_NAME, S3_ACCESS_KEY, S3_SECRET_KEY. "
-            "Optional: S3_ENDPOINT_URL, S3_REGION_NAME."
-        ),
-    )
-
     # processforge validate
     validate_parser = subparsers.add_parser("validate", help="Validate a flowsheet JSON file")
     validate_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
