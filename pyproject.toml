@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "processforge"
-version = "0.2.4"
+version = "0.2.5"
 description = "A Python-based process simulation framework for chemical engineering applications."
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -33,7 +33,6 @@ dependencies = [
     "jsonschema>=4.20",
     "graphviz>=0.20",
     "pandas>=2.2",
-    "openpyxl>=3.1",
     "zarr>=3.0",
 ]
 

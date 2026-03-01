@@ -8,7 +8,6 @@ from .utils.validate_flowsheet import validate_flowsheet
 from .flowsheet import Flowsheet
 from .eo import EOFlowsheet
 from .result import (
-    generate_validation_excel,
     plot_results,
     plot_timeseries,
     save_results_zarr,
@@ -49,11 +48,6 @@ def _cmd_run(args):
     zarr_path = save_results_zarr(
         results,
         os.path.join("outputs", f"{base_name}_results.zarr"),
-    )
-    validation_path = os.path.join("outputs", f"{base_name}_validation.xlsx")
-    generate_validation_excel(
-        data_source=zarr_path,
-        output_filename=validation_path,
     )
     if args.export_images:
         plot_results(results, fname=f"{base_name}_results.png")
