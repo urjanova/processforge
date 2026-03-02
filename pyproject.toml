@@ -33,7 +33,6 @@ dependencies = [
     "jsonschema>=4.20",
     "graphviz>=0.20",
     "pandas>=2.2",
-    "openpyxl>=3.1",
     "zarr>=3.0",
 ]
 

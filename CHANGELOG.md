@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A new metadata to the Zarr output to include the version of ProcessForge used for the simulation, aiding in reproducibility and tracking of results.
 
 
+
+## [0.2.5] - 2026-03-01
+
+### Removed
+
+- Removed validation to a new [processforge-validation](https://www.github.com/urjanova/processforge-validation) repository, updated dependencies
+
 ## [0.2.4] - 2026-02-25
 
 ### Fixed

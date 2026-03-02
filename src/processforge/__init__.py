@@ -16,7 +16,6 @@ from .solver import Solver
 from .thermo import get_enthalpy_molar, get_Cp_molar, get_K_values, rachford_rice
 from .validate import validate_flowsheet
 from .result import (
-    generate_validation_excel,
     plot_results,
     plot_timeseries,
     save_results_zarr,
@@ -42,7 +41,6 @@ __all__ = [
     "get_K_values",
     "rachford_rice",
     "validate_flowsheet",
-    "generate_validation_excel",
     "plot_results",
     "plot_timeseries",
     "save_results_zarr",

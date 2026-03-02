@@ -9,7 +9,6 @@ from .flowsheet import Flowsheet
 from .eo import EOFlowsheet
 from .provenance import build_dynamic_x0, build_run_info
 from .result import (
-    generate_validation_excel,
     plot_results,
     plot_timeseries,
     save_results_zarr,
@@ -55,11 +54,6 @@ def _cmd_run(args):
         results,
         os.path.join("outputs", f"{base_name}_results.zarr"),
         run_info=run_info,
-    )
-    validation_path = os.path.join("outputs", f"{base_name}_validation.xlsx")
-    generate_validation_excel(
-        data_source=zarr_path,
-        output_filename=validation_path,
     )
     if args.export_images:
         plot_results(results, fname=f"{base_name}_results.png")
