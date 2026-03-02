@@ -11,6 +11,7 @@ Provides steady-state and dynamic process simulation capabilities including:
 """
 
 from .flowsheet import Flowsheet
+from .provenance import build_run_info
 from .solver import Solver
 from .thermo import get_enthalpy_molar, get_Cp_molar, get_K_values, rachford_rice
 from .validate import validate_flowsheet
@@ -45,6 +46,7 @@ __all__ = [
     "plot_results",
     "plot_timeseries",
     "save_results_zarr",
+    "build_run_info",
     "Pump",
     "Valve",
     "Strainer",

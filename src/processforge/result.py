@@ -39,8 +39,63 @@ def _store_stream(stream_group, stream_data):
         stream_group.create_dataset(key, data=arr, shape=arr.shape)
 
 
-def save_results_zarr(results, fname="results.zarr"):
-    """Persist simulation results in a Zarr directory."""
+def _store_run_info(root, run_info: dict) -> None:
+    """Persist provenance metadata in a ``run_info`` Zarr sub-group.
+
+    Layout::
+
+        run_info/
+            .attrs  → git_hash, timestamp, python_version, platform,
+                       processforge_version, mode, backend
+            pkg_versions/
+                .attrs  → {package: version, ...}
+            initial_guess/
+                x0          – float64 array  (length = n_vars)
+                .attrs      → var_names  (JSON list of string labels)
+    """
+    ri_group = root.create_group("run_info")
+
+    scalar_keys = [
+        "git_hash",
+        "timestamp",
+        "python_version",
+        "platform",
+        "processforge_version",
+        "mode",
+        "backend",
+    ]
+    ri_group.attrs.update(
+        {k: str(run_info[k]) for k in scalar_keys if k in run_info}
+    )
+
+    pkg_versions = run_info.get("pkg_versions") or {}
+    if pkg_versions:
+        pkg_group = ri_group.create_group("pkg_versions")
+        pkg_group.attrs.update({k: str(v) for k, v in pkg_versions.items()})
+
+    x0 = run_info.get("x0")
+    if x0 is not None:
+        x0_arr = np.asarray(x0, dtype=float)
+        ig_group = ri_group.create_group("initial_guess")
+        ig_group.create_dataset("x0", data=x0_arr, shape=x0_arr.shape)
+        var_names = run_info.get("var_names")
+        if var_names:
+            ig_group.attrs["var_names"] = list(var_names)
+
+
+def save_results_zarr(results, fname="results.zarr", run_info=None):
+    """Persist simulation results in a Zarr directory.
+
+    Args:
+        results:  Stream result dict as returned by ``Flowsheet.run()``
+                  or ``EOFlowsheet.run()``.
+        fname:    Output path for the Zarr store directory.
+        run_info: Optional provenance dict from
+                  :func:`processforge.provenance.build_run_info`.  When
+                  supplied, a ``run_info`` sub-group is written inside the
+                  store containing the git hash, package versions, and
+                  initial-guess vector for full reproducibility.
+    """
     store_path = os.path.abspath(fname)
     if os.path.exists(store_path):
         if os.path.isdir(store_path):
@@ -55,6 +110,8 @@ def save_results_zarr(results, fname="results.zarr"):
     for stream_name, stream_data in results.items():
         stream_group = root.create_group(stream_name)
         _store_stream(stream_group, stream_data)
+    if run_info is not None:
+        _store_run_info(root, run_info)
     logger.info(f"Saved Zarr results to {store_path}")
     return store_path
 
@@ -190,7 +247,7 @@ def _build_dataframe_row(group, stream_name, idx, comp_names, include_time):
 def _load_dataframe_from_zarr(store_path):
     store = zarr.storage.LocalStore(store_path)
     root = zarr.open(store=store, mode="r")
-    streams = sorted(root.group_keys())
+    streams = sorted(k for k in root.group_keys() if k != "run_info")
     rows = []
     components = set()
     mode = root.attrs.get("mode", "steady")

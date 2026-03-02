@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import numpy as np
 from loguru import logger
 
 from .jacobian import GlobalJacobianManager
@@ -64,12 +65,19 @@ class EOFlowsheet:
         """
         Build and solve the EO system.
 
+        After this method returns, ``self.x0`` holds the initial-guess vector
+        and ``self.var_names`` holds a human-readable label for each element —
+        both can be passed directly to
+        :func:`processforge.provenance.build_run_info` for reproducibility.
+
         Returns:
             Stream result dict in the same format as ``Flowsheet.run()``:
             ``{stream_name: {"T": ..., "P": ..., "flowrate": ..., "z": {...}}}``
         """
         manager = self._build()
         x0 = self._warm_start(manager)
+        self.x0: "np.ndarray" = x0.copy()
+        self.var_names: list[str] = self._build_var_names(manager)
         solver = EOSolver(backend=self.backend)
         x_sol, converged, stats = solver.solve(manager, x0)
         if not converged:
@@ -171,6 +179,26 @@ class EOFlowsheet:
         for stream in self.config["streams"].values():
             comps.update(stream.get("z", {}).keys())
         return sorted(comps)
+
+    # ------------------------------------------------------------------
+    # Provenance helpers
+    # ------------------------------------------------------------------
+
+    def _build_var_names(self, manager: "GlobalJacobianManager") -> list[str]:
+        """Return a human-readable label for every scalar in the x vector.
+
+        Variable order mirrors ``GlobalJacobianManager`` layout:
+        ``T``, ``P``, ``flowrate``, then one entry per component ``z_<comp>``
+        for each registered stream in registration order.
+        """
+        suffixes = ["T", "P", "flowrate"] + [
+            f"z_{c}" for c in manager.components
+        ]
+        names: list[str] = []
+        for stream_name in manager._streams:
+            for suffix in suffixes:
+                names.append(f"{stream_name}/{suffix}")
+        return names
 
     # ------------------------------------------------------------------
     # Warm-start

@@ -7,6 +7,7 @@ from loguru import logger
 from .utils.validate_flowsheet import validate_flowsheet
 from .flowsheet import Flowsheet
 from .eo import EOFlowsheet
+from .provenance import build_dynamic_x0, build_run_info
 from .result import (
     generate_validation_excel,
     plot_results,
@@ -40,15 +41,20 @@ def _cmd_run(args):
     if is_dynamic:
         fs = Flowsheet(config)
         logger.info("=== Dynamic Results ===")
+        results = fs.run()
+        x0, var_names = build_dynamic_x0(config)
+        run_info = build_run_info(config, x0=x0, var_names=var_names)
     else:
         backend = sim_cfg.get("backend", "scipy")
         fs = EOFlowsheet(config, backend=backend)
         logger.info("=== Steady-State EO Results ===")
+        results = fs.run()
+        run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
 
-    results = fs.run()
     zarr_path = save_results_zarr(
         results,
         os.path.join("outputs", f"{base_name}_results.zarr"),
+        run_info=run_info,
     )
     validation_path = os.path.join("outputs", f"{base_name}_validation.xlsx")
     generate_validation_excel(
@@ -74,6 +80,26 @@ def _cmd_validate(args):
         raise
     except Exception as e:
         logger.error(f"Validation failed: {e}")
+        raise SystemExit(1)
+
+
+def _cmd_export_fmu(args):
+    """Export a flowsheet as an FMI 2.0 co-simulation FMU."""
+    fname = args.flowsheet
+    if not os.path.exists(fname):
+        logger.error(f"Flowsheet file '{fname}' not found.")
+        raise SystemExit(1)
+
+    from .fmu import build_fmu  # local import — pythonfmu is optional
+
+    output_dir = args.output_dir or "outputs"
+    backend = args.backend or "scipy"
+
+    try:
+        fmu_path = build_fmu(fname, output_dir=output_dir, backend=backend)
+        logger.info(f"FMU written to: {fmu_path}")
+    except Exception as e:
+        logger.error(f"FMU export failed: {e}")
         raise SystemExit(1)
 
 
@@ -126,6 +152,18 @@ def main():
     diagram_parser.add_argument("--output-dir", "-o", default=".", help="Output directory (default: current directory)")
     diagram_parser.add_argument("--format", "-f", default="png", choices=["png", "svg", "pdf"], help="Output format (default: png)")
 
+    # processforge export-fmu
+    fmu_parser = subparsers.add_parser("export-fmu", help="Export flowsheet as FMI 2.0 co-simulation FMU")
+    fmu_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
+    fmu_parser.add_argument(
+        "--output-dir", "-o", default="outputs",
+        help="Directory for the output FMU (default: outputs/)",
+    )
+    fmu_parser.add_argument(
+        "--backend", choices=["scipy", "pyomo", "casadi"], default="scipy",
+        help="EO solver backend for steady-state mode (default: scipy)",
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -136,6 +174,7 @@ def main():
         "run": _cmd_run,
         "validate": _cmd_validate,
         "diagram": _cmd_diagram,
+        "export-fmu": _cmd_export_fmu,
     }
     commands[args.command](args)
 
