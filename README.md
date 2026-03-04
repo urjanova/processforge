@@ -24,6 +24,7 @@ A Python-based process simulation framework for chemical process engineering app
 - Thermodynamic property calculations using CoolProp
 - Multiple unit operations for hydraulic and thermal systems
 - Flowsheet modeling with automatic recycle stream detection
+- Modelica/OMPython bridge: transpile flowsheets to native `.mo` source and compile to Model Exchange FMU via OpenModelica
 
 ### Steady-State EO Solver
 - All unit equations assembled into a global `F(x) = 0` system and solved simultaneously
@@ -85,6 +86,10 @@ uv add "processforge[eo]"
 # Pyomo + IPOPT + CasADi backend
 pip install "processforge[eo-casadi]"
 uv add "processforge[eo-casadi]"
+
+# Modelica transpiler + OMPython bridge (requires OpenModelica installed separately)
+pip install "processforge[modelica]"
+uv add "processforge[modelica]"
 ```
 
 ### From source (development)
@@ -121,6 +126,10 @@ processforge validate flowsheets/closed-loop-chain.json
 # Generate a flowsheet diagram
 processforge diagram flowsheets/closed-loop-chain.json
 processforge diagram flowsheets/closed-loop-chain.json --format svg --output-dir diagrams/
+
+# Export flowsheet as Modelica .mo and compile to Model Exchange FMU via OMPython
+processforge export-modelica flowsheets/my-flowsheet.json
+processforge export-modelica flowsheets/my-flowsheet.json --output-dir modelica/ --no-compile
 ```
 
 Running a simulation generates output files in the `outputs/` directory:
@@ -250,6 +259,11 @@ processforge/
 │   │   ├── tank.py               # Well-mixed tank (dynamic ODE)
 │   │   ├── flash.py              # Isothermal flash separator
 │   │   └── heater.py             # Temperature control heater
+│   ├── modelica/                 # OMPython bridge: .mo transpiler + omc runner
+│   │   ├── transpiler.py         # transpile() — config → Modelica source
+│   │   ├── mo_writer.py          # build_model_source() — string builder
+│   │   ├── unit_equations.py     # Per-unit equation generators
+│   │   └── omc_runner.py         # compile_modelica() — OMPython validate + FMU
 │   ├── utils/                    # Utilities
 │   │   ├── validate_flowsheet.py # Schema + connectivity validation
 │   │   └── flowsheet_diagram.py  # Graphviz visualization
@@ -281,6 +295,7 @@ Optional EO solver backends:
 
 - **pyomo** ≥ 6.7 — Pyomo + IPOPT backend (`pip install "processforge[eo]"`)
 - **casadi** ≥ 3.6 — CasADi AD-based backend (`pip install "processforge[eo-casadi]"`)
+- **OMPython** ≥ 1.4 — Python API to OpenModelica compiler (`pip install "processforge[modelica]"`). Requires [OpenModelica](https://openmodelica.org) installed on the system.
 
 
 ## Logo credit

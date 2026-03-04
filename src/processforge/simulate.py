@@ -97,6 +97,36 @@ def _cmd_export_fmu(args):
         raise SystemExit(1)
 
 
+def _cmd_export_modelica(args):
+    """Transpile a flowsheet to Modelica and optionally compile via OMPython."""
+    fname = args.flowsheet
+    if not os.path.exists(fname):
+        logger.error(f"Flowsheet file '{fname}' not found.")
+        raise SystemExit(1)
+
+    from .modelica import transpile, compile_modelica
+    from .modelica.transpiler import _derive_model_name
+    from .utils.validate_flowsheet import validate_flowsheet as _vf
+
+    output_dir = args.output_dir or "outputs"
+
+    try:
+        mo_path = transpile(fname, output_dir=output_dir)
+    except Exception as e:
+        logger.error(f"Modelica transpilation failed: {e}")
+        raise SystemExit(1)
+
+    if not args.no_compile:
+        try:
+            config = _vf(fname)
+            model_name = _derive_model_name(config, fname)
+            fmu_path = compile_modelica(mo_path, model_name, output_dir=output_dir)
+            logger.info(f"Model Exchange FMU written to: {fmu_path}")
+        except Exception as e:
+            logger.error(f"OMPython compilation failed: {e}")
+            raise SystemExit(1)
+
+
 def _cmd_diagram(args):
     """Generate a flowsheet diagram from a JSON file."""
     fname = args.flowsheet
@@ -146,8 +176,27 @@ def main():
     diagram_parser.add_argument("--output-dir", "-o", default=".", help="Output directory (default: current directory)")
     diagram_parser.add_argument("--format", "-f", default="png", choices=["png", "svg", "pdf"], help="Output format (default: png)")
 
+    # processforge export-modelica
+    mo_parser = subparsers.add_parser(
+        "export-modelica",
+        help="Transpile flowsheet to Modelica .mo and compile via OMPython",
+    )
+    mo_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
+    mo_parser.add_argument(
+        "--output-dir", "-o", default="outputs",
+        help="Directory for the .mo and .fmu outputs (default: outputs/)",
+    )
+    mo_parser.add_argument(
+        "--no-compile",
+        action="store_true",
+        help="Write the .mo file only; skip OMPython/omc compilation",
+    )
+
     # processforge export-fmu
-    fmu_parser = subparsers.add_parser("export-fmu", help="Export flowsheet as FMI 2.0 co-simulation FMU")
+    fmu_parser = subparsers.add_parser(
+        "export-fmu",
+        help="Export flowsheet as FMI 2.0 co-simulation FMU",
+    )
     fmu_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
     fmu_parser.add_argument(
         "--output-dir", "-o", default="outputs",
@@ -169,6 +218,7 @@ def main():
         "validate": _cmd_validate,
         "diagram": _cmd_diagram,
         "export-fmu": _cmd_export_fmu,
+        "export-modelica": _cmd_export_modelica,
     }
     commands[args.command](args)
 
