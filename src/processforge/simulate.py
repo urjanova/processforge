@@ -167,14 +167,29 @@ def main():
         help="Generate PNG plots for simulation outputs",
     )
     # processforge validate
-    validate_parser = subparsers.add_parser("validate", help="Validate a flowsheet JSON file")
+    validate_parser = subparsers.add_parser(
+        "validate", help="Validate a flowsheet JSON file"
+    )
     validate_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
 
     # processforge diagram
-    diagram_parser = subparsers.add_parser("diagram", help="Generate a flowsheet diagram")
+    diagram_parser = subparsers.add_parser(
+        "diagram", help="Generate a flowsheet diagram"
+    )
     diagram_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
-    diagram_parser.add_argument("--output-dir", "-o", default=".", help="Output directory (default: current directory)")
-    diagram_parser.add_argument("--format", "-f", default="png", choices=["png", "svg", "pdf"], help="Output format (default: png)")
+    diagram_parser.add_argument(
+        "--output-dir",
+        "-o",
+        default=".",
+        help="Output directory (default: current directory)",
+    )
+    diagram_parser.add_argument(
+        "--format",
+        "-f",
+        default="png",
+        choices=["png", "svg", "pdf"],
+        help="Output format (default: png)",
+    )
 
     # processforge export-modelica
     mo_parser = subparsers.add_parser(
@@ -183,7 +198,9 @@ def main():
     )
     mo_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
     mo_parser.add_argument(
-        "--output-dir", "-o", default="outputs",
+        "--output-dir",
+        "-o",
+        default="outputs",
         help="Directory for the .mo and .fmu outputs (default: outputs/)",
     )
     mo_parser.add_argument(
@@ -199,11 +216,15 @@ def main():
     )
     fmu_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
     fmu_parser.add_argument(
-        "--output-dir", "-o", default="outputs",
+        "--output-dir",
+        "-o",
+        default="outputs",
         help="Directory for the output FMU (default: outputs/)",
     )
     fmu_parser.add_argument(
-        "--backend", choices=["scipy", "pyomo", "casadi"], default="scipy",
+        "--backend",
+        choices=["scipy", "pyomo", "casadi"],
+        default="scipy",
         help="EO solver backend for steady-state mode (default: scipy)",
     )
 
