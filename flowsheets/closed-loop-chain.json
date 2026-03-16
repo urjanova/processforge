@@ -4,6 +4,49 @@
     "description": "A closed-loop hydraulic system with recycle stream back to tank.",
     "version": "2.0"
   },
+  "materials": {
+    "Benzene": {
+      "friendly_material_id": 1,
+      "density": 0.8765,
+      "density_units": "g/cm3",
+      "temperature": 298.15,
+      "depletable": false,
+      "nuclides": [
+        {"name": "C", "percent": 6.0, "percent_type": "ao"},
+        {"name": "H", "percent": 6.0, "percent_type": "ao"}
+      ]
+    },
+    "Toluene": {
+      "friendly_material_id": 2,
+      "density": 0.867,
+      "density_units": "g/cm3",
+      "temperature": 298.15,
+      "depletable": false,
+      "nuclides": [
+        {"name": "C", "percent": 7.0, "percent_type": "ao"},
+        {"name": "H", "percent": 8.0, "percent_type": "ao"}
+      ]
+    },
+    "Steel": {
+      "friendly_material_id": 3,
+      "density": 7.85,
+      "density_units": "g/cm3",
+      "depletable": false,
+      "nuclides": [
+        {"name": "Fe", "percent": 0.98, "percent_type": "wo"},
+        {"name": "C", "percent": 0.02, "percent_type": "wo"}
+      ]
+    }
+  },
+  "material_mixes": {
+    "Benzene_Toluene_Mix": {
+      "percent_type": "ao",
+      "components": [
+        {"name": "Benzene", "fraction": 0.5},
+        {"name": "Toluene", "fraction": 0.5}
+      ]
+    }
+  },
   "streams": {
     "feed": {
       "T": 298.15,
@@ -27,80 +70,92 @@
       },
       "initial_T": 298.15,
       "P": 101325,
-      "duty": 0.0
+      "duty": 0.0,
+      "material": 3
     },
     "pipe_1": {
       "type": "Pipes",
       "in": "after_tank_1",
       "out": "after_pipe_1",
       "delta_p": 1000.0,
-      "diameter": 0.065
+      "diameter": 0.065,
+      "material": 3
     },
     "valve_1": {
       "type": "Valve",
       "in": "after_pipe_1",
       "out": "after_valve_1",
-      "pressure_ratio": 0.5
+      "pressure_ratio": 0.5,
+      "material": 3
     },
     "pipe_2": {
       "type": "Pipes",
       "in": "after_valve_1",
       "out": "after_pipe_2",
       "delta_p": 1000.0,
-      "diameter": 0.08
+      "diameter": 0.08,
+      "material": 3
     },
     "valve_2": {
       "type": "Valve",
       "in": "after_pipe_2",
       "out": "after_valve_2",
-      "pressure_ratio": 0.5
+      "pressure_ratio": 0.5,
+      "material": 3
     },
     "pipe_2a": {
       "type": "Pipes",
       "in": "after_valve_2",
       "out": "before_pump_1",
       "delta_p": 1000.0,
-      "diameter": 0.08
+      "diameter": 0.08,
+      "material": 3
     },
     "pump_1": {
       "type": "Pump",
       "in": "before_pump_1",
       "out": "after_pump_1",
       "deltaP": 200000.0,
-      "efficiency": 0.75
+      "efficiency": 0.75,
+      "material": 3
     },
     "pipe_2b": {
       "type": "Pipes",
       "in": "after_pump_1",
       "out": "before_valve_3",
       "delta_p": 1000.0,
-      "diameter": 0.08
+      "diameter": 0.08,
+      "material": 3
     },
     "valve_3": {
       "type": "Valve",
       "in": "before_valve_3",
       "out": "after_valve_3",
-      "pressure_ratio": 0.5
+      "pressure_ratio": 0.5,
+      "material": 3
     },
     "pipe_3": {
       "type": "Pipes",
       "in": "after_valve_3",
       "out": "after_pipe_3",
       "delta_p": 1000.0,
-      "diameter": 0.08
+      "diameter": 0.08,
+      "material": 3
     },
     "valve_4": {
       "type": "Valve",
       "in": "after_pipe_3",
       "out": "after_valve_4",
-      "pressure_ratio": 0.5
+      "pressure_ratio": 0.5,
+      "material": 3
     },
     "pipe_4": {
       "type": "Pipes",
       "in": "after_valve_4",
       "out": "recycle_to_tank",
       "delta_p": 1000.0,
-      "diameter": 0.08
+      "diameter": 0.08,
+      "material": 3
     }
   },
   "simulation": {

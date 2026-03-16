@@ -85,14 +85,16 @@ class Flowsheet:
             if not unit_class:
                 logger.error(f"Unknown unit type: {unit_type}")
                 raise ValueError(f"Unknown unit type: {unit_type}")
-            self.units[unit_name] = unit_class(
+            _UNIT_META_KEYS = {"type", "in", "out", "material", "material_mix"}
+            unit = unit_class(
                 unit_name,
-                **{
-                    k: v
-                    for k, v in unit_config.items()
-                    if k not in ["type", "in", "out"]
-                },
+                **{k: v for k, v in unit_config.items() if k not in _UNIT_META_KEYS},
             )
+            if "material" in unit_config:
+                unit.material = unit_config["material"]
+            if "material_mix" in unit_config:
+                unit.material_mix = unit_config["material_mix"]
+            self.units[unit_name] = unit
             logger.info(f"Built unit {unit_name} of type {unit_type}")
 
     def _get_unit_inlets(self, unit_name):

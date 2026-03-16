@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-03-16
+
+### Fixed
+
+- Updated `build_units` function to accomodate materials and material_mixes so that it can be processed. 
+
+## [0.2.10] - 2026-03-16
+
+### Added
+
+- Added support for OpenMC material definitions, allowing users to define materials using OpenMC's format for use in simulations. We dont use OpenMC in the flow but this allows users to easily convert their OpenMC material definitions for use in ProcessForge, enhancing compatibility and ease of use for those familiar with OpenMC.
+
 ## [0.2.7] - 2026-03-02
 
 ### Added
