@@ -157,7 +157,8 @@
           "required": [
             "type",
             "in",
-            "out"
+            "out",
+            "material"
           ],
           "properties": {
             "type": {
