@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.14] - 2026-03-23
+
+### Added
+
+- Added validation for `friendly_material_mix_id` in flowsheet JSON, ensuring it is required and unique across all material mixes. This enhances data integrity and consistency in flowsheet definitions.
+- Removed the `z` key from the `feed` stream in `closed-loop-chain.json`, as the composition is now defined via `material_mix: 1`. This eliminates redundancy and potential confusion in stream definitions.
+
 ## [0.2.12] - 2026-03-16
 
 ### Fixed

@@ -172,12 +172,27 @@ Flowsheets are defined as JSON files. The `simulation.mode` field controls which
 ```json
 {
   "metadata": { "name": "My Flowsheet", "version": "2.0" },
+  "materials": {
+    "Water":   { "friendly_material_id": 1 },
+    "Toluene": { "friendly_material_id": 2 },
+    "Steel":   { "friendly_material_id": 3 }
+  },
+  "material_mixes": {
+    "Water_Toluene_Mix": {
+      "friendly_material_mix_id": 1,
+      "percent_type": "ao",
+      "components": [
+        { "name": "Water",   "fraction": 0.8 },
+        { "name": "Toluene", "fraction": 0.2 }
+      ]
+    }
+  },
   "streams": {
-    "feed": { "T": 298.15, "P": 101325, "flowrate": 1.0, "z": { "Water": 0.8, "Toluene": 0.2 } }
+    "feed": { "T": 298.15, "P": 101325, "flowrate": 1.0, "material_mix": 1 }
   },
   "units": {
-    "pump_1": { "type": "Pump", "in": "feed", "out": "after_pump", "deltaP": 200000, "efficiency": 0.75 },
-    "valve_1": { "type": "Valve", "in": "after_pump", "out": "product", "pressure_ratio": 0.5 }
+    "pump_1":  { "type": "Pump",  "in": "feed",       "out": "after_pump", "deltaP": 200000, "efficiency": 0.75, "material": 3 },
+    "valve_1": { "type": "Valve", "in": "after_pump",  "out": "product",   "pressure_ratio": 0.5,                "material": 3 }
   },
   "simulation": {
     "mode": "steady",
@@ -187,6 +202,40 @@ Flowsheets are defined as JSON files. The `simulation.mode` field controls which
 ```
 
 The optional `backend` key selects the EO solver backend (`"scipy"`, `"pyomo"`, or `"casadi"`). Defaults to `"scipy"`.
+
+### Materials and composition
+
+Stream composition can be defined in two ways:
+
+**Explicit `z` dict** — list component mole fractions directly on the stream:
+```json
+"feed": { "T": 298.15, "P": 101325, "flowrate": 1.0, "z": { "Water": 0.8, "Toluene": 0.2 } }
+```
+
+**`material_mix` reference** — define a reusable mix in the top-level `material_mixes` section and reference it by `friendly_material_mix_id`. The validator automatically expands the reference into a `z` dict before simulation:
+```json
+"material_mixes": {
+  "Water_Toluene_Mix": {
+    "friendly_material_mix_id": 1,
+    "percent_type": "ao",
+    "components": [
+      { "name": "Water",   "fraction": 0.8 },
+      { "name": "Toluene", "fraction": 0.2 }
+    ]
+  }
+},
+"streams": {
+  "feed": { "T": 298.15, "P": 101325, "flowrate": 1.0, "material_mix": 1 }
+}
+```
+
+Rules:
+- `z` and `material_mix` are mutually exclusive on a single stream.
+- `friendly_material_mix_id` values must be unique across all mixes.
+- Each component `name` in a mix must match a key in the top-level `materials` section.
+- When all component fractions are provided they must sum to 1.0.
+
+Every unit also requires a `material` integer field pointing to a `friendly_material_id` in the `materials` section (this identifies the structural material the unit is made of, separate from the fluid composition).
 
 ### Recycle streams
 

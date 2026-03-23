@@ -33,6 +33,7 @@ def validate_flowsheet(config_path):
         logger.info(f"✅ Flowsheet '{config_path}' is valid.")
         check_stream_connectivity(config)
         _check_material_semantics(config)
+        _resolve_material_mix_streams(config)
         return config
     except ValidationError as e:
         logger.error(f"❌ Validation failed for '{config_path}':")
@@ -192,7 +193,22 @@ def _check_material_semantics(config):
                 f"❌ Duplicate friendly_material_id values found: {sorted(dupes)}"
             )
 
-        # 3 & 4. Mix component name resolution and fraction sum
+        # 3. friendly_material_mix_id uniqueness
+        mix_ids = [
+            mix_def["friendly_material_mix_id"]
+            for mix_def in material_mixes.values()
+        ]
+        if len(mix_ids) != len(set(mix_ids)):
+            seen, dupes = set(), set()
+            for i in mix_ids:
+                if i in seen:
+                    dupes.add(i)
+                seen.add(i)
+            raise ValueError(
+                f"❌ Duplicate friendly_material_mix_id values found: {sorted(dupes)}"
+            )
+
+        # 4 & 5. Mix component name resolution and fraction sum
         for mix_name, mix_def in material_mixes.items():
             fractions = []
             for component in mix_def.get("components", []):
@@ -222,7 +238,29 @@ def _check_material_semantics(config):
                         f"❌ Stream '{stream_name}' z-key '{comp_name}' is not defined in materials."
                     )
 
-    # 6. Every unit must reference a valid friendly_material_id
+        # 5b. z and material_mix are mutually exclusive on a stream
+        for stream_name, stream_def in config.get("streams", {}).items():
+            if "z" in stream_def and "material_mix" in stream_def:
+                raise ValueError(
+                    f"❌ Stream '{stream_name}' defines both 'z' and 'material_mix'. "
+                    f"Use 'material_mix' to reference a predefined mix, or 'z' for an "
+                    f"explicit composition — not both."
+                )
+
+        # 6. Stream material_mix references must resolve to a valid friendly_material_mix_id
+        valid_mix_ids = {
+            mix_def["friendly_material_mix_id"]
+            for mix_def in material_mixes.values()
+        }
+        for stream_name, stream_def in config.get("streams", {}).items():
+            mix_ref = stream_def.get("material_mix")
+            if mix_ref is not None and mix_ref not in valid_mix_ids:
+                raise ValueError(
+                    f"❌ Stream '{stream_name}' references material_mix id {mix_ref}, "
+                    f"which does not match any friendly_material_mix_id in material_mixes."
+                )
+
+    # 7. Every unit must reference a valid friendly_material_id
     hint = " (no materials section defined)" if not materials else ""
     for unit_name, unit_def in config.get("units", {}).items():
         mat_id = unit_def.get("material")
@@ -233,3 +271,46 @@ def _check_material_semantics(config):
             )
 
     return True
+
+
+def _resolve_material_mix_streams(config: dict) -> dict:
+    """Expand material_mix references on streams into z composition dicts.
+
+    For every stream that carries a ``material_mix`` integer
+    (a ``friendly_material_mix_id``), this function looks up the corresponding
+    mix definition and writes its component fractions into ``stream["z"]``.
+    This expansion happens after validation so that the solver receives a fully
+    populated ``z`` dict regardless of whether the author wrote ``z`` explicitly
+    or used a ``material_mix`` reference.
+
+    The mutual-exclusivity rule (``z`` and ``material_mix`` cannot coexist) is
+    enforced earlier in ``_check_material_semantics``, so by the time this
+    function runs every stream has at most one of the two.
+
+    Args:
+        config: Validated flowsheet configuration dict (mutated in place).
+
+    Returns:
+        The same config dict with ``z`` populated on any stream that had
+        ``material_mix``.
+    """
+    material_mixes = config.get("material_mixes", {})
+    if not material_mixes:
+        return config
+
+    id_to_mix = {
+        mix_def["friendly_material_mix_id"]: mix_def
+        for mix_def in material_mixes.values()
+    }
+
+    for stream_def in config.get("streams", {}).values():
+        mix_ref = stream_def.get("material_mix")
+        if mix_ref is not None:
+            mix = id_to_mix[mix_ref]  # existence already validated
+            stream_def["z"] = {
+                comp["name"]: comp["fraction"]
+                for comp in mix["components"]
+                if "fraction" in comp
+            }
+
+    return config

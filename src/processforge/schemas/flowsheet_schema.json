@@ -86,8 +86,12 @@
       "patternProperties": {
         "^[a-zA-Z0-9_]+$": {
           "type": "object",
-          "required": ["components"],
+          "required": ["friendly_material_mix_id", "components"],
           "properties": {
+            "friendly_material_mix_id": {
+              "type": "integer",
+              "description": "Unique numeric ID for this material mix"
+            },
             "percent_type": {
               "type": "string",
               "enum": ["ao", "wo", "vo"],
@@ -143,6 +147,10 @@
             },
             "z": {
               "type": "object"
+            },
+            "material_mix": {
+              "type": "integer",
+              "description": "friendly_material_mix_id of the material mix carried by this stream"
             }
           },
           "additionalProperties": true

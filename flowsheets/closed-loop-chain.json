@@ -40,6 +40,7 @@
   },
   "material_mixes": {
     "Benzene_Toluene_Mix": {
+      "friendly_material_mix_id": 1,
       "percent_type": "ao",
       "components": [
         {"name": "Benzene", "fraction": 0.5},
@@ -51,11 +52,8 @@
     "feed": {
       "T": 298.15,
       "P": 101325,
-      "z": {
-        "Benzene": 0.5,
-        "Toluene": 0.5
-      },
-      "flowrate": 0.1
+      "flowrate": 0.1,
+      "material_mix": 1
     }
   },
   "units": {
