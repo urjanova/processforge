@@ -1,9 +1,10 @@
 import copy
 
 from ..eo.units.valve_eo import ValveEOMixin
+from .provider_mixin import ProviderMixin
 
 
-class Valve(ValveEOMixin):
+class Valve(ProviderMixin, ValveEOMixin):
     """
     Simple steady-state valve model.
     Reduces pressure according to a fixed ratio (P_out = ratio * P_in).
@@ -14,7 +15,7 @@ class Valve(ValveEOMixin):
         self.name = name
         self.pressure_ratio = pressure_ratio
 
-    def run(self, inlet):
+    def _run_impl(self, inlet):
         """
         Simulates the operation of a valve unit by adjusting the pressure of the inlet stream.
         This method takes an inlet stream dictionary, applies a pressure reduction based on the

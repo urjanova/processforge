@@ -1,9 +1,10 @@
 import copy
 
 from ..eo.units.pump_eo import PumpEOMixin
+from .provider_mixin import ProviderMixin
 
 
-class Pump(PumpEOMixin):
+class Pump(ProviderMixin, PumpEOMixin):
     """
     Simple steady-state pump model.
     Adds a fixed pressure rise ΔP to the inlet stream.
@@ -15,7 +16,7 @@ class Pump(PumpEOMixin):
         self.deltaP = deltaP
         self.efficiency = efficiency
 
-    def run(self, inlet):
+    def _run_impl(self, inlet):
         """
         Simulates the operation of a pump unit by processing the inlet stream.
         This method takes an inlet stream dictionary, calculates the outlet conditions

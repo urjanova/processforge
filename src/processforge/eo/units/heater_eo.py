@@ -73,8 +73,18 @@ class HeaterEOMixin(EOUnitModelMixin):
         duty = self.duty  # type: ignore[attr-defined]
         comps = list(z_in.keys())
 
-        h_in = get_enthalpy_molar(z_in, t_in, p_in)
-        h_out = get_enthalpy_molar(z_out, t_out, p_out)
+        # Route through provider when attached; fall back to CoolProp.
+        provider = getattr(self, "_provider", None)
+        if provider is not None:
+            h_in = provider.get_thermo_properties(
+                {"z": z_in, "T": t_in, "P": p_in}
+            )["H"]
+            h_out = provider.get_thermo_properties(
+                {"z": z_out, "T": t_out, "P": p_out}
+            )["H"]
+        else:
+            h_in = get_enthalpy_molar(z_in, t_in, p_in)
+            h_out = get_enthalpy_molar(z_out, t_out, p_out)
 
         f_eff = f_in if abs(f_in) > 1e-20 else 1e-20
         residuals = [

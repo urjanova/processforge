@@ -33,6 +33,7 @@ def validate_flowsheet(config_path):
         logger.info(f"✅ Flowsheet '{config_path}' is valid.")
         check_stream_connectivity(config)
         _check_material_semantics(config)
+        _check_provider_references(config)
         _resolve_material_mix_streams(config)
         return config
     except ValidationError as e:
@@ -132,25 +133,59 @@ def _check_unreachable_units(config, defined_streams):
         )
 
 
+_PIPE_LIKE_UNIT_TYPES = frozenset({"Pipes", "CSTR", "PFR", "IdealGasReactor"})
+
+
 def _check_pipe_linkage(config):
     """
-    Enforce that non-pipe units receive inputs only from feeds or pipe outputs.
+    Enforce that non-pipe units receive inputs only from feeds or pipe/reactor outputs.
+
+    Reactor unit types (CSTR, PFR, IdealGasReactor) are treated as valid
+    sources alongside Pipes units, since they similarly transform streams.
     """
-    pipe_outputs = {
-        u["out"] for u in config["units"].values() if u["type"] == "Pipes"
+    pipe_like_outputs = {
+        u["out"] for u in config["units"].values()
+        if u["type"] in _PIPE_LIKE_UNIT_TYPES
     }
     feed_streams = set(config["streams"].keys())
-    valid_inputs = feed_streams | pipe_outputs
+    valid_inputs = feed_streams | pipe_like_outputs
 
     for name, unit in config["units"].items():
-        if unit["type"] == "Pipes":
+        if unit["type"] in _PIPE_LIKE_UNIT_TYPES:
             continue
         for inlet in _get_unit_inlets(unit):
             if inlet not in valid_inputs:
                 raise ValueError(
                     f"❌ Unit '{name}' input '{inlet}' must come from a "
-                    f"feed stream or a Pipes unit output."
+                    f"feed stream or a Pipes / reactor unit output."
                 )
+
+
+def _check_provider_references(config: dict) -> None:
+    """Validate that provider references in the flowsheet are consistent.
+
+    Checks:
+    1. Every unit's ``"provider"`` key names a declared entry in ``providers``.
+    2. ``"default_provider"`` (if set) names a declared entry in ``providers``.
+    """
+    declared = set(config.get("providers", {}).keys())
+
+    default = config.get("default_provider")
+    if default is not None and default not in declared:
+        raise ValueError(
+            f"❌ 'default_provider' references '{default}', which is not "
+            f"declared in the 'providers' block. "
+            f"Declared providers: {sorted(declared)}"
+        )
+
+    for unit_name, unit_cfg in config.get("units", {}).items():
+        ref = unit_cfg.get("provider")
+        if ref is not None and ref not in declared:
+            raise ValueError(
+                f"❌ Unit '{unit_name}' references provider '{ref}', which is "
+                f"not declared in the 'providers' block. "
+                f"Declared providers: {sorted(declared)}"
+            )
 
 
 def _check_material_semantics(config):

@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added the `pf` command to be used interchangably and updated Readme. 
+- Added the `pf` command to be used interchangably and updated Readme.
+- Changed provider behavior: No providers block means all units silently get `coolprop` (zero change for existing flowsheets).
+- Added support for `"default_provider": "cantera"` where all units without an explicit "provider" key will use `cantera`.
+- Changed `simulation.backend` default to `"scipy"` (was `"pyomo"` in schema default, now resolves to a scipy fallback in code).
+- Updated dependencies: `ompython` moved from core dependencies to the `[modelica]` optional group; `fmpy` and `cantera` were added as new optional dependency groups.
 
 ## [0.2.15] - 2026-03-23
 

@@ -70,22 +70,38 @@ class Flowsheet:
         self.tear_streams = set()
         self.has_recycles = False
 
-    def build_units(self):
+    def build_units(self, provider_map: dict | None = None):
         logger.info("Building units")
-        unit_types = {
+        from .units.cstr import CSTR
+        from .units.pfr import PFR
+        unit_types: dict = {
             "Pump": Pump,
             "Valve": Valve,
             "Strainer": Strainer,
             "Tank": Tank,
             "Pipes": Pipes,
+            "CSTR": CSTR,
+            "PFR": PFR,
+            "IdealGasReactor": CSTR,
         }
+
+        # Extend with any unit types registered by active providers.
+        if provider_map:
+            for provider in provider_map.values():
+                extra = getattr(provider, "unit_types", {})
+                unit_types.update(extra)
+
+        _UNIT_META_KEYS = {"type", "in", "out", "material", "material_mix", "provider"}
+
+        from .providers.manager import get_unit_provider
+        _pm = provider_map or {}
+
         for unit_name, unit_config in self.config["units"].items():
             unit_type = unit_config["type"]
             unit_class = unit_types.get(unit_type)
             if not unit_class:
                 logger.error(f"Unknown unit type: {unit_type}")
                 raise ValueError(f"Unknown unit type: {unit_type}")
-            _UNIT_META_KEYS = {"type", "in", "out", "material", "material_mix"}
             unit = unit_class(
                 unit_name,
                 **{k: v for k, v in unit_config.items() if k not in _UNIT_META_KEYS},
@@ -94,6 +110,9 @@ class Flowsheet:
                 unit.material = unit_config["material"]
             if "material_mix" in unit_config:
                 unit.material_mix = unit_config["material_mix"]
+            # Attach the resolved provider (default = CoolProp when no map supplied).
+            if _pm:
+                unit._provider = get_unit_provider(_pm, unit_config)
             self.units[unit_name] = unit
             logger.info(f"Built unit {unit_name} of type {unit_type}")
 
@@ -184,11 +203,17 @@ class Flowsheet:
         """
 
         logger.info("Starting simulation")
-        self.build_units()
-        mode = self.config.get("simulation", {}).get("mode", "steady")
-        logger.info(f"Simulation mode: {mode}")
-        solver = Solver()
-        return self.run_dynamic(solver) if mode == "dynamic" else self.run_steady()
+        from .providers.manager import build_provider_map, teardown_providers
+        providers_config = self.config.get("providers", {})
+        provider_map = build_provider_map(providers_config, self.config)
+        try:
+            self.build_units(provider_map=provider_map)
+            mode = self.config.get("simulation", {}).get("mode", "steady")
+            logger.info(f"Simulation mode: {mode}")
+            solver = Solver()
+            return self.run_dynamic(solver) if mode == "dynamic" else self.run_steady()
+        finally:
+            teardown_providers(provider_map)
 
     def run_steady(self):
         """

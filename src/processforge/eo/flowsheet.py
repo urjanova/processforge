@@ -51,11 +51,18 @@ class EOFlowsheet:
             ODE units are not supported in steady-state EO mode).
     """
 
-    def __init__(self, config: dict, backend: str = "pyomo") -> None:
+    def __init__(self, config: dict, backend: str | None = None) -> None:
         logger.info("Initializing EOFlowsheet")
         self.config = config
-        self.backend = backend
+        # Resolve backend: explicit arg > simulation.backend > simulation.default_backend > "scipy"
+        sim_cfg = config.get("simulation", {})
+        self.backend = (
+            backend
+            or sim_cfg.get("backend")
+            or sim_cfg.get("default_backend", "scipy")
+        )
         self._unit_objects: dict = {}
+        self._provider_map: dict = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -74,17 +81,21 @@ class EOFlowsheet:
             Stream result dict in the same format as ``Flowsheet.run()``:
             ``{stream_name: {"T": ..., "P": ..., "flowrate": ..., "z": {...}}}``
         """
+        from processforge.providers.manager import teardown_providers
         manager = self._build()
-        x0 = self._warm_start(manager)
-        self.x0: "np.ndarray" = x0.copy()
-        self.var_names: list[str] = self._build_var_names(manager)
-        solver = EOSolver(backend=self.backend)
-        x_sol, converged, stats = solver.solve(manager, x0)
-        if not converged:
-            logger.warning("EOFlowsheet: solver did not fully converge.")
-        results = manager.extract_results(x_sol)
-        logger.info("EOFlowsheet: simulation complete.")
-        return results
+        try:
+            x0 = self._warm_start(manager)
+            self.x0: "np.ndarray" = x0.copy()
+            self.var_names: list[str] = self._build_var_names(manager)
+            solver = EOSolver(backend=self.backend)
+            x_sol, converged, stats = solver.solve(manager, x0)
+            if not converged:
+                logger.warning("EOFlowsheet: solver did not fully converge.")
+            results = manager.extract_results(x_sol)
+            logger.info("EOFlowsheet: simulation complete.")
+            return results
+        finally:
+            teardown_providers(self._provider_map)
 
     # ------------------------------------------------------------------
     # Build phase
@@ -93,6 +104,12 @@ class EOFlowsheet:
     def _build(self) -> GlobalJacobianManager:
         """Parse config, build units, register everything with the manager."""
         self._check_no_tank()
+        self._check_provider_backend_compat()
+
+        from processforge.providers.manager import build_provider_map
+        self._provider_map = build_provider_map(
+            self.config.get("providers", {}), self.config
+        )
 
         components = self._collect_components()
         logger.info(f"EOFlowsheet: components = {components}")
@@ -104,7 +121,7 @@ class EOFlowsheet:
             manager.register_feed(name, stream_dict)
 
         # Build unit objects and register them
-        self._unit_objects = self._build_units()
+        self._unit_objects = self._build_units(self._provider_map)
         for unit_name, unit in self._unit_objects.items():
             unit_cfg = self.config["units"][unit_name]
             inlet_names = _get_inlets(unit_cfg)
@@ -117,7 +134,7 @@ class EOFlowsheet:
 
         return manager
 
-    def _build_units(self) -> dict:
+    def _build_units(self, provider_map: dict | None = None) -> dict:
         """Instantiate unit objects using the same factory logic as Flowsheet."""
         from processforge.units.pump import Pump
         from processforge.units.valve import Valve
@@ -135,6 +152,9 @@ class EOFlowsheet:
             "Flash": (Flash, "params"),
         }
 
+        from processforge.providers.manager import get_unit_provider
+        _pm = provider_map or {}
+
         units = {}
         for unit_name, unit_cfg in self.config["units"].items():
             unit_type = unit_cfg["type"]
@@ -142,7 +162,7 @@ class EOFlowsheet:
                 raise ValueError(f"Unknown unit type '{unit_type}'.")
             cls, style = unit_types[unit_type]
 
-            exclude = {"type", "in", "out"}
+            exclude = {"type", "in", "out", "provider"}
             if unit_type == "Flash":
                 # Flash uses out_vap / out_liq — exclude both from kwargs
                 exclude |= {"out_vap", "out_liq"}
@@ -150,13 +170,35 @@ class EOFlowsheet:
             params = {k: v for k, v in unit_cfg.items() if k not in exclude}
             if style == "params":
                 # Heater / Flash use __init__(name, params_dict)
-                units[unit_name] = cls(unit_name, params)
+                unit = cls(unit_name, params)
             else:
-                units[unit_name] = cls(unit_name, **params)
+                unit = cls(unit_name, **params)
 
+            # Attach provider so EO residuals can route thermo calls.
+            if _pm:
+                unit._provider = get_unit_provider(_pm, unit_cfg)
+
+            units[unit_name] = unit
             logger.info(f"Built unit '{unit_name}' ({unit_type})")
 
         return units
+
+    def _check_provider_backend_compat(self) -> None:
+        """Raise if a Cantera provider is used with a symbolic EO backend.
+
+        Cantera thermo calls return Python floats and are not symbolically
+        differentiable.  They cannot be used with Pyomo or CasADi backends.
+        """
+        providers_cfg = self.config.get("providers", {})
+        has_cantera = any(
+            p.get("type") == "cantera" for p in providers_cfg.values()
+        )
+        if has_cantera and self.backend in ("pyomo", "casadi"):
+            raise NotImplementedError(
+                f"CanteraProvider is not compatible with backend='{self.backend}'. "
+                "Cantera thermo calls are not symbolically differentiable. "
+                "Use backend='scipy' (or omit 'backend' — it defaults to 'scipy')."
+            )
 
     def _check_no_tank(self) -> None:
         """Raise if any Tank unit is present (dynamic units not EO-compatible)."""

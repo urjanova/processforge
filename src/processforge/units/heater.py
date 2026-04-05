@@ -73,15 +73,23 @@ class Heater(HeaterEOMixin):
         feed = streams[self.inlet]
         T_in, P, z = feed["T"], feed["P"], feed["z"]
 
+        # Route enthalpy calls through provider when available
+        provider = getattr(self, "_provider", None)
+
+        def _H(T_val):
+            if provider is not None:
+                return provider.get_thermo_properties({"z": z, "T": T_val, "P": P})["H"]
+            return get_enthalpy_molar(z, T_val, P)
+
         # Enthalpy in
-        H_in = get_enthalpy_molar(z, T_in, P)
+        H_in = _H(T_in)
 
         # Target enthalpy out
         H_target = H_in + self.duty / self.flowrate
 
         # Define residual function
         def residual(T):
-            return get_enthalpy_molar(z, T, P) - H_target
+            return _H(T) - H_target
 
         # Solve for outlet T (reasonable bounds: -100 K to 2000 K)
         try:

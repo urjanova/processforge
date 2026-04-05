@@ -31,6 +31,10 @@ def _cmd_run(args):
         logger.error(f"Failed to validate flowsheet file '{fname}': {e}")
         raise SystemExit(1)
 
+    # Stash the config file path for providers that need it (e.g. ModelicaProvider).
+    # Added after schema validation so additionalProperties:false doesn't reject it.
+    config["_config_path"] = fname
+
     base_name = os.path.splitext(os.path.basename(fname))[0]
 
     sim_cfg = config.get("simulation", {})
@@ -44,8 +48,8 @@ def _cmd_run(args):
         x0, var_names = build_dynamic_x0(config)
         run_info = build_run_info(config, x0=x0, var_names=var_names)
     else:
-        backend = sim_cfg.get("backend", "scipy")
-        fs = EOFlowsheet(config, backend=backend)
+        # Pass None so EOFlowsheet resolves backend from config (with scipy default).
+        fs = EOFlowsheet(config, backend=None)
         logger.info("=== Steady-State EO Results ===")
         results = fs.run()
         run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)

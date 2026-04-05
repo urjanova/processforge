@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "processforge"
-version = "0.2.15"
+version = "0.2.16"
 description = "A Python-based process simulation framework for chemical engineering applications."
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -34,7 +34,6 @@ dependencies = [
     "graphviz>=0.20",
     "pandas>=2.2",
     "zarr>=3.0",
-    "ompython>=4.0.0",
 ]
 
 [project.optional-dependencies]
@@ -49,7 +48,11 @@ fmu = [
     "pythonfmu>=0.6",
 ]
 modelica = [
-    "OMPython>=1.4",
+    "OMPython>=4.0.0",
+    "fmpy>=0.3",
+]
+cantera = [
+    "cantera>=3.0",
 ]
 dev = [
     "pytest>=7.0",

@@ -8,6 +8,40 @@
     "simulation"
   ],
   "properties": {
+    "providers": {
+      "type": "object",
+      "description": "Named provider declarations (Terraform-inspired). Omit to use CoolProp defaults.",
+      "patternProperties": {
+        "^[a-zA-Z0-9_]+$": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["coolprop", "cantera", "modelica"],
+              "description": "Provider engine type"
+            },
+            "mechanism": {
+              "type": "string",
+              "description": "Cantera mechanism file path (e.g. 'gri30.yaml')"
+            },
+            "phase": {
+              "type": "string",
+              "description": "Cantera phase name within the mechanism file"
+            },
+            "output_dir": {
+              "type": "string",
+              "description": "Modelica provider: directory for .mo and FMU outputs"
+            }
+          },
+          "additionalProperties": true
+        }
+      }
+    },
+    "default_provider": {
+      "type": "string",
+      "description": "Name of the provider used by units that omit a 'provider' key. Defaults to built-in CoolProp."
+    },
     "metadata": {
       "type": "object",
       "properties": {
@@ -178,8 +212,15 @@
                 "Tank",
                 "Pipes",
                 "Flash",
-                "Heater"
+                "Heater",
+                "CSTR",
+                "PFR",
+                "IdealGasReactor"
               ]
+            },
+            "provider": {
+              "type": "string",
+              "description": "Name of a declared provider to use for this unit. Omit to use the flowsheet default (CoolProp)."
             },
             "in": {
               "oneOf": [
@@ -249,8 +290,17 @@
             "casadi",
             "scipy"
           ],
-          "default": "pyomo",
-          "description": "EO solver backend for steady-state mode"
+          "description": "EO solver backend for steady-state mode. Overrides default_backend."
+        },
+        "default_backend": {
+          "type": "string",
+          "enum": [
+            "pyomo",
+            "casadi",
+            "scipy"
+          ],
+          "default": "scipy",
+          "description": "EO solver backend used when 'backend' is omitted. Defaults to 'scipy'."
         },
         "t0": {
           "type": "number",

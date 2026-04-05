@@ -2,9 +2,10 @@ import copy
 import math
 
 from ..eo.units.pipes_eo import PipesEOMixin
+from .provider_mixin import ProviderMixin
 
 
-class Pipes(PipesEOMixin):
+class Pipes(ProviderMixin, PipesEOMixin):
     """
     Simple steady-state pipes model.
     Represents pipes connecting units, with a fixed pressure drop due to friction.
@@ -16,7 +17,7 @@ class Pipes(PipesEOMixin):
         self.delta_p = delta_p
         self.diameter = diameter
 
-    def run(self, inlet):
+    def _run_impl(self, inlet):
         """
         Processes the inlet stream through a pipe unit, calculating outlet properties including pressure drop and flow rate.
         This method assumes laminar flow and uses a simplified Hagen-Poiseuille equation for flow calculation.

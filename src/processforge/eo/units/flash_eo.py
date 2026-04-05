@@ -71,8 +71,15 @@ class FlashEOMixin(EOUnitModelMixin):
         z_in = inlet_vals["z"]
         comps = list(z_in.keys())
 
-        # Compute VLE (same logic as SM run())
-        k_vals = thermo.get_K_values(comps, t_in, p_flash)
+        # Route K-values through provider when attached; fall back to CoolProp.
+        provider = getattr(self, "_provider", None)
+        if provider is not None:
+            props = provider.get_thermo_properties(
+                {"z": z_in, "T": t_in, "P": p_flash}
+            )
+            k_vals = props.get("K_values", thermo.get_K_values(comps, t_in, p_flash))
+        else:
+            k_vals = thermo.get_K_values(comps, t_in, p_flash)
         beta = thermo.rachford_rice(z_in, k_vals)
 
         x = {c: z_in[c] / (1 + beta * (k_vals[c] - 1)) for c in z_in}

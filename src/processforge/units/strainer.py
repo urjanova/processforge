@@ -1,9 +1,10 @@
 import copy
 
 from ..eo.units.strainer_eo import StrainerEOMixin
+from .provider_mixin import ProviderMixin
 
 
-class Strainer(StrainerEOMixin):
+class Strainer(ProviderMixin, StrainerEOMixin):
     """
     Simplified pressure-drop element.
     Removes a fixed ΔP from the inlet pressure.
@@ -14,7 +15,7 @@ class Strainer(StrainerEOMixin):
         self.name = name
         self.deltaP = deltaP
 
-    def run(self, inlet):
+    def _run_impl(self, inlet):
         """
         Run the strainer unit process.
 

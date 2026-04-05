@@ -7,5 +7,7 @@ from .tank import Tank
 from .pipes import Pipes
 from .flash import Flash
 from .heater import Heater
+from .cstr import CSTR
+from .pfr import PFR
 
-__all__ = ["Pump", "Valve", "Strainer", "Tank", "Pipes", "Flash", "Heater"]
+__all__ = ["Pump", "Valve", "Strainer", "Tank", "Pipes", "Flash", "Heater", "CSTR", "PFR"]

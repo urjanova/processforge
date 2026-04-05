@@ -2,6 +2,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from ..thermo import get_enthalpy_molar, get_Cp_molar
 from dataclasses import dataclass
+from .provider_mixin import ProviderMixin
 
 
 @dataclass
@@ -12,7 +13,7 @@ class TankState:
     n_total: float
 
 
-class Tank:
+class Tank(ProviderMixin):
     """
     Simple well-mixed molar tank.
     Parameters expected in params:
@@ -38,7 +39,17 @@ class Tank:
         self.initial_T = params.get("initial_T", 300.0)
         self.flow_in = params.get("flow_in", 1.0)  # mol/s if inlet doesn't specify
 
-    def run(self, inlet):
+    def _get_thermo_properties(self, z: dict, T: float, P: float) -> dict:
+        """Route thermo calls through the attached provider when available."""
+        provider = getattr(self, "_provider", None)
+        if provider is not None:
+            return provider.get_thermo_properties({"z": z, "T": T, "P": P})
+        return {
+            "H": get_enthalpy_molar(z, T, P),
+            "Cp": get_Cp_molar(z, T, P),
+        }
+
+    def _run_impl(self, inlet):
         """
         Steady-state tank operation.
         For steady-state, the tank acts as a well-mixed vessel at equilibrium.
@@ -125,12 +136,14 @@ class Tank:
         for i, comp in enumerate(comps):
             dn_dt[i] = Fin * z_in.get(comp, 0.0) - Fout * x.get(comp, 0.0)
 
-        # enthalpies
-        H_in = get_enthalpy_molar(z_in, T_in, P_in)  # J/mol
-        H_out = get_enthalpy_molar(x, T, self.P)  # J/mol
+        # enthalpies (routed through provider when available)
+        props_in = self._get_thermo_properties(z_in, T_in, P_in)
+        H_in = props_in["H"]  # J/mol
+        props_out = self._get_thermo_properties(x, T, self.P)
+        H_out = props_out["H"]  # J/mol
 
         # Cp mix
-        Cp_mix = get_Cp_molar(x, T, self.P)  # J/mol/K
+        Cp_mix = props_out.get("Cp", get_Cp_molar(x, T, self.P))  # J/mol/K
         if Cp_mix <= 0:
             Cp_mix = 1e-6
 
