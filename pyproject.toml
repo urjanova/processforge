@@ -70,6 +70,7 @@ Issues = "https://github.com/urjanova/processforge/issues"
 
 [project.scripts]
 processforge = "processforge.simulate:main"
+pf = "processforge.simulate:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

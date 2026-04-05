@@ -114,22 +114,24 @@ uv add "processforge[modelica]"
 
 ### Command Line Interface
 
-ProcessForge provides a CLI with three subcommands:
+ProcessForge provides a CLI with three subcommands. Both `processforge` and the shorter alias `pf` are interchangeable:
 
 ```bash
 # Run a simulation (add --export-images to generate PNG plots)
 processforge run flowsheets/closed-loop-chain.json [--export-images]
+pf run flowsheets/closed-loop-chain.json [--export-images]
 
 # Validate a flowsheet configuration
 processforge validate flowsheets/closed-loop-chain.json
+pf validate flowsheets/closed-loop-chain.json
 
 # Generate a flowsheet diagram
 processforge diagram flowsheets/closed-loop-chain.json
-processforge diagram flowsheets/closed-loop-chain.json --format svg --output-dir diagrams/
+pf diagram flowsheets/closed-loop-chain.json --format svg --output-dir diagrams/
 
 # Export flowsheet as Modelica .mo and compile to Model Exchange FMU via OMPython
 processforge export-modelica flowsheets/my-flowsheet.json
-processforge export-modelica flowsheets/my-flowsheet.json --output-dir modelica/ --no-compile
+pf export-modelica flowsheets/my-flowsheet.json --output-dir modelica/ --no-compile
 ```
 
 Running a simulation generates output files in the `outputs/` directory:
@@ -252,22 +254,22 @@ Recycle streams require no special configuration. Any stream produced as the `ou
 
 ### Run a steady-state simulation
 ```bash
-processforge run flowsheets/hydraulic-chain.json
+pf run flowsheets/hydraulic-chain.json
 ```
 
 ### Run a dynamic simulation
 ```bash
-processforge run flowsheets/closed-loop-chain.json
+pf run flowsheets/closed-loop-chain.json
 ```
 
 ### Validate a flowsheet
 ```bash
-processforge validate flowsheets/closed-loop-chain.json
+pf validate flowsheets/closed-loop-chain.json
 ```
 
 ### Generate a flowsheet diagram
 ```bash
-processforge diagram flowsheets/closed-loop-chain.json
+pf diagram flowsheets/closed-loop-chain.json
 ```
 
 ## Project Structure
