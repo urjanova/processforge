@@ -11,7 +11,7 @@ class Pump(ProviderMixin, PumpEOMixin):
     Optionally computes shaft power and outlet temperature rise (adiabatic efficiency).
     """
 
-    def __init__(self, name, deltaP=1e5, efficiency=0.8):
+    def __init__(self, name, deltaP=1e5, efficiency=0.8, **kwargs):
         self.name = name
         self.deltaP = deltaP
         self.efficiency = efficiency

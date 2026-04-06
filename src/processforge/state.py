@@ -64,7 +64,9 @@ class StateManager:
         root.attrs["var_names"] = list(var_names)
         root.attrs["timestamp"] = ts
         root.attrs["snapshot_id"] = snapshot_name
-        root.create_dataset("x", data=np.asarray(x_converged, dtype=float))
+        
+        x_data = np.asarray(x_converged, dtype=float)
+        root.create_dataset("x", data=x_data, shape=x_data.shape)
 
         # Update latest pointer
         with open(self._latest_file, "w", encoding="utf-8") as f:

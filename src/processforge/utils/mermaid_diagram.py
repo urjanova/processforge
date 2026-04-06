@@ -8,9 +8,9 @@ def generate_mermaid(config: dict, output_path: str | None = None) -> str:
     Build a Mermaid flowchart LR diagram of the flowsheet topology.
 
     Node shapes:
-      - Feed streams:        ([name\\nfeed stream])  — stadium
-      - Standard units:      [name\\nType]            — rectangle
-      - Flash (2 outlets):   {name\\nFlash}           — diamond
+      - Feed streams:        ([name<br>feed stream])  — stadium
+      - Standard units:      [name<br>Type]            — rectangle
+      - Flash (2 outlets):   {name<br>Flash}           — diamond
 
     Edge labels show the intermediate stream name.
 
@@ -29,16 +29,16 @@ def generate_mermaid(config: dict, output_path: str | None = None) -> str:
     # Declare feed stream nodes
     for stream_name in feed_streams:
         node_id = _node_id(stream_name)
-        lines.append(f'    {node_id}(["📥 {stream_name}\\nfeed stream"])')
+        lines.append(f'    {node_id}(["📥 {stream_name}<br>feed stream"])')
 
     # Declare unit nodes
     for unit_name, unit_cfg in units.items():
         unit_type = unit_cfg.get("type", unit_name)
         node_id = _node_id(unit_name)
         if unit_type == "Flash":
-            lines.append(f'    {node_id}{{"{unit_name}\\n{unit_type}"}}')
+            lines.append(f'    {node_id}{{"{unit_name}<br>{unit_type}"}}')
         else:
-            lines.append(f'    {node_id}["{unit_name}\\n{unit_type}"]')
+            lines.append(f'    {node_id}["{unit_name}<br>{unit_type}"]')
 
     lines.append("")  # blank line before edges
 

@@ -12,7 +12,7 @@ class Pipes(ProviderMixin, PipesEOMixin):
     Assumes isenthalpic (no temperature change).
     """
 
-    def __init__(self, name, delta_p=1000.0, diameter=0.1):
+    def __init__(self, name, delta_p=1000.0, diameter=0.1, **kwargs):
         self.name = name
         self.delta_p = delta_p
         self.diameter = diameter

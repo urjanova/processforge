@@ -162,7 +162,7 @@
     }
   },
   "simulation": {
-    "mode": "dynamic",
+    "mode": "steady",
     "t0": 0.0,
     "tf": 20.0,
     "dt": 1.0

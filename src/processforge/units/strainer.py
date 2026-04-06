@@ -11,7 +11,7 @@ class Strainer(ProviderMixin, StrainerEOMixin):
     Adiabatic, isenthalpic.
     """
 
-    def __init__(self, name, deltaP=5000.0):
+    def __init__(self, name, deltaP=5000.0, **kwargs):
         self.name = name
         self.deltaP = deltaP
 
