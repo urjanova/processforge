@@ -6,13 +6,14 @@ from typing import Optional
 from loguru import logger
 
 from .base import AbstractProvider
+from .cantera_jacobian import CanteraJacobianMixin
 from .registry import register_provider
 
 # Unit types this provider can compute natively.
 _REACTOR_UNIT_TYPES = {"CSTR", "PFR", "IdealGasReactor"}
 
 
-class CanteraProvider(AbstractProvider):
+class CanteraProvider(AbstractProvider, CanteraJacobianMixin):
     """Provides thermochemical properties and reactor simulations via Cantera.
 
     Scope

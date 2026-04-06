@@ -80,6 +80,9 @@ class GlobalJacobianManager:
                 "inlet_names": inlet_names,
                 "outlet_names": outlet_names,
                 "config": config,
+                # Provider reference stored here so evaluate_J() can route
+                # JacobianContributor-capable providers to the analytic path.
+                "provider": getattr(unit, "_provider", None),
             }
         )
 
@@ -160,22 +163,115 @@ class GlobalJacobianManager:
         self, x: np.ndarray, epsilon: float = 1e-7
     ) -> sp.csr_matrix:
         """
-        Evaluate the global sparse Jacobian J = dF/dx via finite differences.
+        Evaluate the global sparse Jacobian J = dF/dx.
 
-        Uses the known block-sparsity pattern so only columns that appear in
-        each residual block are perturbed, giving roughly a 5-10× speedup over
-        naïve column-by-column perturbation for typical flowsheets.
+        For units whose provider implements the ``JacobianContributor`` protocol,
+        analytic (or semi-analytic) triplets are collected directly from the
+        provider's ``compute_jacobian_block`` method.  All other stream column
+        groups fall back to the existing block-sparse finite-difference path.
+
+        The ``ReferenceStateRegistry`` ensures every provider that contributes
+        to the same stream sees the same (T, P, z) snapshot from the current x
+        vector, enforcing reference-state consistency across physics engines.
         """
+        from processforge.providers.jacobian_contributor import (
+            JacobianContributor,
+            ReferenceState,
+        )
+        from processforge.providers.reference_state_registry import ReferenceStateRegistry
+
         n = self._n_vars
         F0 = self.evaluate_F(x)
-        pattern = self._sparsity_column_groups()
+
+        # --- 1. Snapshot every stream into the registry ---
+        registry = ReferenceStateRegistry()
+        for name, sv in self._streams.items():
+            vals = sv.to_vector_slice(x)
+            registry.snapshot_stream(
+                name,
+                vals["T"],
+                vals["P"],
+                vals["z"],
+                vals["flowrate"],
+                sv.global_offset,
+            )
 
         rows_list: list[int] = []
         cols_list: list[int] = []
         data_list: list[float] = []
 
-        for col_group in pattern:
-            # Perturb all columns in the group simultaneously (they don't interact)
+        # --- 2. Analytic path for JacobianContributor providers ---
+        # partial_analytic tracks whether EVERY unit fed by a given inlet
+        # stream returned non-empty triplets.  Only fully-covered inlets are
+        # exempted from the FD pass below.
+        partial_analytic: dict[str, bool] = {}
+
+        for entry in self._unit_entries:
+            provider = entry.get("provider")
+            if provider is None or not isinstance(provider, JacobianContributor):
+                # This unit needs FD; mark all its inlets as not fully covered.
+                for iname in entry["inlet_names"]:
+                    partial_analytic[iname] = False
+                continue
+
+            inlet_names = entry["inlet_names"]
+            config = entry["config"]
+
+            if len(inlet_names) == 1:
+                ref_state = registry.get(inlet_names[0])
+                col_offset = self._streams[inlet_names[0]].global_offset
+            else:
+                # Flow-weighted merged inlet → build synthetic ReferenceState.
+                merged = self._merged_inlet_vals(x, inlet_names)
+                ref_state = ReferenceState(
+                    stream_name="_merged",
+                    T=merged["T"],
+                    P=merged["P"],
+                    z=merged["z"],
+                    flowrate=merged["flowrate"],
+                    global_offset=-1,
+                )
+                col_offset = self._streams[inlet_names[0]].global_offset
+
+            for outlet_name in entry["outlet_names"]:
+                sv_out = self._streams[outlet_name]
+                triplets = provider.compute_jacobian_block(
+                    type(entry["unit"]).__name__,
+                    config,
+                    ref_state,
+                    sv_out.global_offset,
+                    col_offset,
+                    sv_out.n_vars,
+                )
+                if triplets:
+                    for r, c, v in triplets:
+                        rows_list.append(r)
+                        cols_list.append(c)
+                        data_list.append(v)
+                    # Mark inlets as covered only if not already negated.
+                    for iname in inlet_names:
+                        if iname not in partial_analytic:
+                            partial_analytic[iname] = True
+                else:
+                    # Provider returned [] → FD needed for this inlet's columns.
+                    for iname in inlet_names:
+                        partial_analytic[iname] = False
+
+        # Streams whose inlets are fully covered analytically skip the FD pass.
+        analytic_inlet_streams: set[str] = {
+            k for k, v in partial_analytic.items() if v
+        }
+
+        # --- 3. Finite-difference pass for non-analytic stream groups ---
+        stream_by_offset = {sv.global_offset: name for name, sv in self._streams.items()}
+        for col_group in self._sparsity_column_groups():
+            if not col_group:
+                continue
+            stream_name = stream_by_offset.get(col_group[0])
+            if stream_name in analytic_inlet_streams:
+                continue  # already covered by analytic path
+
+            # Perturb all columns in the group simultaneously (they don't interact).
             x_pert = x.copy()
             eps_vec = np.zeros(n)
             for col in col_group:

@@ -24,10 +24,11 @@ from typing import Optional
 from loguru import logger
 
 from .base import AbstractProvider
+from .modelica_jacobian import ModelicaJacobianMixin
 from .registry import register_provider
 
 
-class ModelicaProvider(AbstractProvider):
+class ModelicaProvider(AbstractProvider, ModelicaJacobianMixin):
     """Co-simulation provider backed by an OpenModelica-compiled FMU.
 
     Lifecycle
@@ -100,6 +101,8 @@ class ModelicaProvider(AbstractProvider):
             for v in self._model_desc.modelVariables
         }
         logger.info("ModelicaProvider: FMU ready for co-simulation.")
+        # Attempt to set up a second ME FMU instance for directional derivatives.
+        self._initialize_jacobian_fmu(fmu_path, self._model_desc)
 
     def get_thermo_properties(self, stream: dict) -> dict:
         """Fall back to CoolProp — Modelica does not expose thermo services."""
@@ -149,6 +152,7 @@ class ModelicaProvider(AbstractProvider):
         return outlet
 
     def teardown(self) -> None:
+        self._teardown_jacobian_fmu()
         if hasattr(self, "_fmu") and self._fmu is not None:
             try:
                 self._fmu.terminate()
