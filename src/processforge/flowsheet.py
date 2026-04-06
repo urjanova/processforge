@@ -314,12 +314,18 @@ class Flowsheet:
         
         converged = False
         for iteration in range(max_iter):
-            # Store old tear stream values for convergence check
-            old_tear_values = {
-                stream: deepcopy(results[stream])
-                for stream in self.tear_streams
-                if stream in results
-            }
+            # Store old tear stream values for convergence check.
+            # Manual copy avoids deepcopy overhead on large composition dicts.
+            old_tear_values = {}
+            for stream in self.tear_streams:
+                if stream in results:
+                    s = results[stream]
+                    old_tear_values[stream] = {
+                        "T": s["T"],
+                        "P": s["P"],
+                        "flowrate": s["flowrate"],
+                        "z": dict(s.get("z", {})),
+                    }
             
             # Process all units in order
             for unit_name in processing_order:
@@ -377,9 +383,9 @@ class Flowsheet:
                             wegstein_prev2.get(stream_name, {})
                         )
             
-            # Update history
-            wegstein_prev2 = deepcopy(wegstein_prev)
-            wegstein_prev = deepcopy(old_tear_values)
+            # Update history — Wegstein only reads T, P, flowrate, so skip z.
+            wegstein_prev2 = {k: {"T": v["T"], "P": v["P"], "flowrate": v["flowrate"]} for k, v in wegstein_prev.items()}
+            wegstein_prev = {k: {"T": v["T"], "P": v["P"], "flowrate": v["flowrate"]} for k, v in old_tear_values.items()}
         
         if not converged:
             logger.warning(f"Recycle did not converge after {max_iter} iterations (error: {max_error:.2e})")
@@ -400,7 +406,12 @@ class Flowsheet:
         if not prev_val or not prev2_val:
             return new_val
         
-        accelerated = deepcopy(new_val)
+        accelerated = {
+            "T": new_val["T"],
+            "P": new_val["P"],
+            "flowrate": new_val["flowrate"],
+            "z": dict(new_val.get("z", {})),
+        }
         
         for prop in ["flowrate", "T", "P"]:
             if prop not in new_val or prop not in prev_val or prop not in prev2_val:

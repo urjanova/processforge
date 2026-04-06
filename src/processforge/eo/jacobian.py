@@ -37,8 +37,13 @@ class GlobalJacobianManager:
 
         self._streams: dict[str, StreamVar] = {}
         self._feed_values: dict[str, dict] = {}
+        self._packed_feed_cache: dict[str, np.ndarray] = {}
         self._unit_entries: list[dict] = []
         self._n_vars: int = 0
+
+        # Cached derived structures — invalidated when streams are registered
+        self._cached_column_groups: list[list[int]] | None = None
+        self._stream_by_offset: dict[int, str] | None = None
 
     # ------------------------------------------------------------------
     # Registration API (called by EOFlowsheet.build())
@@ -55,6 +60,9 @@ class GlobalJacobianManager:
         )
         self._streams[name] = sv
         self._n_vars += self.vars_per_stream
+        # Invalidate caches that depend on the stream set
+        self._cached_column_groups = None
+        self._stream_by_offset = None
         logger.debug(f"Registered stream '{name}' at offset {sv.global_offset}")
         return sv
 
@@ -62,6 +70,8 @@ class GlobalJacobianManager:
         """Register a feed stream with fixed boundary-condition values."""
         sv = self.register_stream(name)
         self._feed_values[name] = deepcopy(feed_dict)
+        # Pre-compute packed numpy array; feed values are constant across the solve.
+        self._packed_feed_cache[name] = sv.from_stream_dict(feed_dict)
         return sv
 
     def register_unit(
@@ -118,9 +128,9 @@ class GlobalJacobianManager:
         F = np.zeros(self._n_vars)
 
         # 1. Feed (boundary condition) residuals: x[stream] - feed_value = 0
-        for name, feed in self._feed_values.items():
+        for name in self._feed_values:
             sv = self._streams[name]
-            packed_feed = sv.from_stream_dict(feed)
+            packed_feed = self._packed_feed_cache[name]
             o = sv.global_offset
             F[o: o + sv.n_vars] = x[o: o + sv.n_vars] - packed_feed
 
@@ -263,11 +273,15 @@ class GlobalJacobianManager:
         }
 
         # --- 3. Finite-difference pass for non-analytic stream groups ---
-        stream_by_offset = {sv.global_offset: name for name, sv in self._streams.items()}
-        for col_group in self._sparsity_column_groups():
+        if self._stream_by_offset is None:
+            self._stream_by_offset = {sv.global_offset: name for name, sv in self._streams.items()}
+        if self._cached_column_groups is None:
+            self._cached_column_groups = self._sparsity_column_groups()
+
+        for col_group in self._cached_column_groups:
             if not col_group:
                 continue
-            stream_name = stream_by_offset.get(col_group[0])
+            stream_name = self._stream_by_offset.get(col_group[0])
             if stream_name in analytic_inlet_streams:
                 continue  # already covered by analytic path
 
@@ -279,12 +293,14 @@ class GlobalJacobianManager:
             x_pert += eps_vec
 
             F_pert = self.evaluate_F(x_pert)
+            # Compute dF once per group — identical for every column in the group.
+            dF = (F_pert - F0) / epsilon
+            nz_rows = np.nonzero(np.abs(dF) > 1e-20)[0].tolist()
+            dF_nz = [float(dF[i]) for i in nz_rows]
             for col in col_group:
-                dF = (F_pert - F0) / epsilon
-                for i in np.nonzero(np.abs(dF) > 1e-20)[0]:
-                    rows_list.append(int(i))
-                    cols_list.append(col)
-                    data_list.append(float(dF[i]))
+                rows_list.extend(nz_rows)
+                cols_list.extend([col] * len(nz_rows))
+                data_list.extend(dF_nz)
 
         return sp.csr_matrix(
             (data_list, (rows_list, cols_list)), shape=(n, n)
