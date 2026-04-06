@@ -14,72 +14,47 @@ from .result import (
     save_results_zarr,
 )
 from .utils.flowsheet_diagram import draw_flowsheet
-
-
-
 from .state import StateManager
 
-def _cmd_apply(args):
-    """Apply a flowsheet change using state drift detection and warm-starting."""
-    import os
-    fname = args.flowsheet
-    if not os.path.exists(fname):
-        logger.error(f"Flowsheet file '{fname}' not found.")
-        raise SystemExit(1)
 
-    try:
-        from .utils.validate_flowsheet import validate_flowsheet
-        config = validate_flowsheet(fname)
-    except SystemExit:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to validate flowsheet file '{fname}': {e}")
-        raise SystemExit(1)
+def _cmd_init(args):
+    """Initialise the .processforge/ project directory."""
+    root = args.path or "."
+    pf_dir = os.path.join(root, ".processforge")
+    outputs_dir = os.path.join(root, "outputs")
 
-    config["_config_path"] = fname
-    base_name = os.path.splitext(os.path.basename(fname))[0]
-    
-    sim_cfg = config.get("simulation", {})
-    mode = sim_cfg.get("mode", "steady")
-    if mode != "steady":
-        logger.error("pf apply is only supported for steady-state EO flows.")
-        raise SystemExit(1)
+    os.makedirs(pf_dir, exist_ok=True)
+    os.makedirs(outputs_dir, exist_ok=True)
 
-    state_path = os.path.join("outputs", f"{base_name}.pfstate")
-    manager = StateManager(state_path)
-    
-    state = manager.load_state()
-    if state is not None:
-        drifted = manager.detect_drift(config, state)
-        if not drifted:
-            logger.info("✅ No drift detected. System is already at the desired state.")
-            return
-        logger.info(f"⚠️ Drift detected in parameters: {drifted}")
+    config_path = os.path.join(pf_dir, "config.json")
+    if not os.path.exists(config_path):
+        default_config = {
+            "version": 1,
+            "default_backend": "scipy",
+            "outputs_dir": "outputs",
+        }
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(default_config, f, indent=2)
+        logger.info(f"Created {config_path}")
     else:
-        logger.info("No prior state found. Running cold start...")
-        drifted = []
+        logger.info(f"{config_path} already exists — skipped.")
 
-    from .eo import EOFlowsheet
-    from .provenance import build_run_info
-    from .result import save_results_zarr
-    
-    fs = EOFlowsheet(config, backend=None)
-    fs.state_manager = manager
-    fs.saved_state = state
-    fs.drifted_params = drifted
-    
-    logger.info("=== Running Apply (Steady-State EO) ===")
-    results = fs.run()
-    
-    if hasattr(fs, "x_converged"):
-        manager.save_state(config, fs.x_converged, fs.var_names)
-        
-    run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
-    save_results_zarr(
-        results,
-        os.path.join("outputs", f"{base_name}_results.zarr"),
-        run_info=run_info,
-    )
+    providers = args.providers or ""
+    for prov in [p.strip() for p in providers.split(",") if p.strip()]:
+        if prov == "coolprop":
+            logger.info("CoolProp: built-in, no download needed.")
+        elif prov == "cantera":
+            logger.info("Cantera: run `pip install 'processforge[cantera]'` to enable.")
+        elif prov == "modelica":
+            logger.info(
+                "Modelica/OMPython: run `pip install 'processforge[modelica]'` and "
+                "install OpenModelica (https://openmodelica.org) separately."
+            )
+        else:
+            logger.warning(f"Unknown provider '{prov}' — skipped.")
+
+    logger.info(".processforge/ initialised successfully.")
+
 
 def _cmd_run(args):
     """Run a process simulation from a flowsheet JSON file."""
@@ -107,6 +82,17 @@ def _cmd_run(args):
     is_dynamic = mode == "dynamic"
 
     if is_dynamic:
+        # Load .pfstate as t=0 if available
+        state_path = os.path.join("outputs", f"{base_name}.pfstate")
+        sm = StateManager(state_path)
+        state = sm.load_state()
+        if state is not None:
+            stream_inits = sm.state_to_stream_dicts(state)
+            for s_name, s_vals in stream_inits.items():
+                if s_name in config.get("streams", {}):
+                    config["streams"][s_name].update(s_vals)
+            logger.info("Using .pfstate converged state as dynamic t=0.")
+
         fs = Flowsheet(config)
         logger.info("=== Dynamic Results ===")
         results = fs.run()
@@ -127,7 +113,6 @@ def _cmd_run(args):
     if args.export_images:
         plot_results(results, fname=f"{base_name}_results.png")
         plot_timeseries(results, fname=f"{base_name}_timeseries.png")
-
 
 
 def _cmd_export_fmu(args):
@@ -205,7 +190,6 @@ def _cmd_diagram(args):
 
 
 def _print_dof_report(report) -> None:
-    from .analysis.dof import SystemDOFReport
     logger.info("=== DOF Analysis ===")
     if report.component_names:
         logger.info(f"Components: {', '.join(report.component_names)}  (N_c = {report.n_components})")
@@ -242,8 +226,24 @@ def _print_unit_mismatches(mismatches) -> None:
             logger.warning(f"⚠️  Unit annotation — stream '{m.stream_name}'.{m.property_name}: {m.message}")
 
 
+def _print_structural_diff(diff: dict) -> None:
+    """Print a +/~/- structural diff of units."""
+    logger.info("=== Structural Diff vs. Saved State ===")
+    for name, unit_type in diff.get("added", {}).items():
+        logger.info(f"  + {name:<20} [{unit_type}]  (added)")
+    for name, info in diff.get("modified", {}).items():
+        unit_type = info.get("type", "?")
+        changes = info.get("changes", [])
+        changes_str = ", ".join(changes)
+        logger.info(f"  ~ {name:<20} [{unit_type}]  {changes_str}")
+    for name, unit_type in diff.get("removed", {}).items():
+        logger.info(f"  - {name:<20} [{unit_type}]  (removed)")
+    if not any(diff.get(k) for k in ("added", "modified", "removed")):
+        logger.info("  (no structural changes)")
+
+
 def _cmd_plan(args):
-    """Parse a PCL or JSON flowsheet, run validators, DOF analysis, and emit a Mermaid diagram."""
+    """Parse a PCL or JSON flowsheet, run validators, DOF analysis, structural diff, and emit a Mermaid diagram."""
     fname = args.flowsheet
     if not os.path.exists(fname):
         logger.error(f"File '{fname}' not found.")
@@ -284,11 +284,22 @@ def _cmd_plan(args):
     report = analyze_dof(config)
     _print_dof_report(report)
 
-    # Step 6: Mermaid diagram
+    # Step 6: Structural diff vs. saved state
+    base_name = os.path.splitext(os.path.basename(fname))[0]
+    state_path = os.path.join("outputs", f"{base_name}.pfstate")
+    sm = StateManager(state_path)
+    state = sm.load_state()
+    if state is not None:
+        diff = sm.detect_structural_diff(config, state)
+        _print_structural_diff(diff)
+    else:
+        logger.info("=== Structural Diff vs. Saved State ===")
+        logger.info("  No prior state found — this will be a cold start.")
+
+    # Step 7: Mermaid diagram
     if not args.no_diagram:
         from .utils.mermaid_diagram import generate_mermaid
         output_dir = args.output_dir or "."
-        base_name = os.path.splitext(os.path.basename(fname))[0]
         out_path = os.path.join(output_dir, f"{base_name}_plan.mmd")
         generate_mermaid(config, output_path=out_path)
         logger.info(f"Mermaid diagram → {out_path}")
@@ -299,6 +310,135 @@ def _cmd_plan(args):
         raise SystemExit(1)
 
 
+def _cmd_apply(args):
+    """Apply flowsheet: drift detection, warm-start, homotopy fallback, convergence guardrails."""
+    fname = args.flowsheet
+    if not os.path.exists(fname):
+        logger.error(f"Flowsheet file '{fname}' not found.")
+        raise SystemExit(1)
+
+    try:
+        config = validate_flowsheet(fname)
+    except SystemExit:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to validate flowsheet file '{fname}': {e}")
+        raise SystemExit(1)
+
+    config["_config_path"] = fname
+    base_name = os.path.splitext(os.path.basename(fname))[0]
+
+    sim_cfg = config.get("simulation", {})
+    mode = sim_cfg.get("mode", "steady")
+    if mode != "steady":
+        logger.error("pf apply is only supported for steady-state EO flowsheets.")
+        raise SystemExit(1)
+
+    outputs_dir = "outputs"
+    os.makedirs(outputs_dir, exist_ok=True)
+    state_path = os.path.join(outputs_dir, f"{base_name}.pfstate")
+    sm = StateManager(state_path)
+
+    state = sm.load_state()
+
+    # Structural diff: detect topology changes
+    topology_changed = False
+    if state is not None:
+        diff = sm.detect_structural_diff(config, state)
+        _print_structural_diff(diff)
+        topology_changed = bool(diff.get("added") or diff.get("removed"))
+        if topology_changed:
+            logger.warning(
+                "Topology changed (units added/removed). "
+                "Homotopy requires identical topology — falling back to cold start."
+            )
+
+    # Parameter drift (only meaningful when topology is unchanged)
+    drifted: list[str] = []
+    if state is not None and not topology_changed:
+        drifted = sm.detect_drift(config, state)
+        if not drifted:
+            logger.info("✅ No drift detected. System is already at the desired state.")
+            return
+        logger.info(f"⚠️ Drift detected: {drifted}")
+
+    # Build flowsheet; attach saved state for warm-start unless topology changed
+    fs = EOFlowsheet(config, backend=None)
+    fs.saved_state = state if not topology_changed else None
+
+    logger.info("=== Running Apply (Steady-State EO) ===")
+    results = fs.run()
+
+    if fs.converged:
+        sm.save_state(config, fs.x_converged, fs.var_names)
+        run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
+        save_results_zarr(
+            results,
+            os.path.join(outputs_dir, f"{base_name}_results.zarr"),
+            run_info=run_info,
+        )
+        logger.info("✅ Apply succeeded. New snapshot saved.")
+        return
+
+    # Direct solve failed — try homotopy (only when topology is same and state exists)
+    if state is not None and not topology_changed and drifted:
+        logger.warning("Direct solve failed. Attempting homotopy continuation...")
+        from .eo.solver import EOSolver, solve_with_homotopy
+
+        solver = EOSolver(backend=fs.backend)
+        from .eo.flowsheet import EOFlowsheet as _EO
+        tmp_fs = _EO(config, backend=None)
+        from processforge.providers.manager import teardown_providers
+        manager = tmp_fs._build()
+        try:
+            x_hom, hom_converged, hom_stats = solve_with_homotopy(
+                tmp_fs, manager, solver, state, drifted
+            )
+        finally:
+            teardown_providers(tmp_fs._provider_map)
+
+        if hom_converged:
+            sm.save_state(config, x_hom, fs.var_names)
+            run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
+            save_results_zarr(
+                results,
+                os.path.join(outputs_dir, f"{base_name}_results.zarr"),
+                run_info=run_info,
+            )
+            logger.info("✅ Homotopy apply succeeded. New snapshot saved.")
+            return
+
+        # Both failed — auto-revert and write divergence report
+        logger.error("Homotopy also failed to converge.")
+        sm.rollback(1)
+        logger.warning("Reverted .pfstate to last good snapshot.")
+        divergence = {
+            "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+            "drifted_params": drifted,
+            "final_norm": hom_stats.get("final_norm"),
+            "solver_stats": hom_stats,
+            "x_last": x_hom.tolist(),
+            "var_names": fs.var_names,
+        }
+    else:
+        # Cold start also failed; no rollback (nothing to revert to)
+        logger.error("Cold-start solve failed to converge.")
+        divergence = {
+            "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+            "drifted_params": [],
+            "final_norm": fs.solver_stats.get("final_norm"),
+            "solver_stats": fs.solver_stats,
+            "x_last": fs.x_converged.tolist() if hasattr(fs, "x_converged") else [],
+            "var_names": fs.var_names if hasattr(fs, "var_names") else [],
+        }
+
+    div_path = os.path.join(outputs_dir, f"{base_name}_divergence.json")
+    with open(div_path, "w", encoding="utf-8") as f:
+        json.dump(divergence, f, indent=2)
+    logger.error(f"Divergence report written to {div_path}")
+    raise SystemExit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="ProcessForge - Chemical Process Simulation",
@@ -306,9 +446,24 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
+    # processforge init
+    init_parser = subparsers.add_parser("init", help="Initialise .processforge/ project directory")
+    init_parser.add_argument(
+        "--path", default=".",
+        help="Root directory to initialise in (default: current directory)",
+    )
+    init_parser.add_argument(
+        "--providers", default="",
+        help="Comma-separated provider names to set up (e.g. coolprop,cantera,modelica)",
+    )
+
     # processforge apply
-    apply_parser = subparsers.add_parser("apply", help="Apply flowsheet using state-based warm start and homotopy")
+    apply_parser = subparsers.add_parser(
+        "apply",
+        help="Apply flowsheet using state-based warm start and homotopy fallback",
+    )
     apply_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
+
     # processforge run
     run_parser = subparsers.add_parser("run", help="Run a process simulation")
     run_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
@@ -317,10 +472,11 @@ def main():
         action="store_true",
         help="Generate PNG plots for simulation outputs",
     )
+
     # processforge plan
     plan_parser = subparsers.add_parser(
         "plan",
-        help="Validate a flowsheet, run DOF analysis, and generate a Mermaid diagram",
+        help="Validate a flowsheet, run DOF analysis, structural diff, and generate a Mermaid diagram",
     )
     plan_parser.add_argument("flowsheet", help="Path to .pcl or .json flowsheet file")
     plan_parser.add_argument(
@@ -395,6 +551,7 @@ def main():
         raise SystemExit(1)
 
     commands = {
+        "init": _cmd_init,
         "run": _cmd_run,
         "apply": _cmd_apply,
         "plan": _cmd_plan,
@@ -407,61 +564,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-def _cmd_apply(args):
-    """Apply the closest existing state, detect drift, block or warm-start, fallback to homotopy."""
-    from .state import StateManager
-    fname = args.flowsheet
-    if not os.path.exists(fname):
-        logger.error(f"Flowsheet file '{fname}' not found.")
-        raise SystemExit(1)
-
-    try:
-        config = validate_flowsheet(fname)
-    except SystemExit:
-        raise
-    
-    config["_config_path"] = fname
-    base_name = os.path.splitext(os.path.basename(fname))[0]
-    
-    sim_cfg = config.get("simulation", {})
-    mode = sim_cfg.get("mode", "steady")
-    if mode != "steady":
-        logger.error("pf apply is only supported for steady-state EO flows.")
-        raise SystemExit(1)
-        
-    state_path = os.path.join("outputs", f"{base_name}.pfstate")
-    manager = StateManager(state_path)
-    
-    # Drift Detection
-    state = manager.load_state()
-    if state is not None:
-        drifted = manager.detect_drift(config, state)
-        if not drifted:
-            logger.info("✅ No drift detected. System is already at the desired state.")
-            return
-        else:
-            logger.info(f"⚠️ Drift detected in parameters: {drifted}")
-    else:
-        logger.info("No prior state found. Running cold start...")
-        drifted = []
-
-    # Run standard flowsheet with possible warm-start
-    fs = EOFlowsheet(config, backend=None)
-    fs.state_manager = manager
-    fs.saved_state = state
-    
-    logger.info("=== Running Apply... ===")
-    results = fs.run()
-    
-    # Ensure save state
-    if hasattr(fs, "x_converged"):
-        manager.save_state(config, fs.x_converged, fs.var_names)
-        
-    # Also save outputs.zarr
-    run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
-    save_results_zarr(
-        results,
-        os.path.join("outputs", f"{base_name}_results.zarr"),
-        run_info=run_info,
-    )

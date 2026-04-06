@@ -13,6 +13,7 @@ A Python-based process simulation framework for chemical process engineering app
 - [Usage](#usage)
 - [Flowsheet Configuration](#flowsheet-configuration)
 - [Quick Start Examples](#quick-start-examples)
+- [Plan / Apply Workflow](#plan--apply-workflow-detail)
 - [Project Structure](#project-structure)
 - [Dependencies](#dependencies)
 - [License](#license)
@@ -49,10 +50,13 @@ A Python-based process simulation framework for chemical process engineering app
 - Connectivity checks (inlet sources, unused outlets, unreachable units)
 - Comprehensive logging for debugging
 
-### State Management & Fast Convergence
-- **State Manager (`.pfstate`)**: Zarr-backed snapshots storing converged simulation variables and original configuration. Enables Terraform-like tracking of actual vs. desired state via Drift Detection.
-- **Warm-Starting Engine**: `pf apply` automatically uses closest existing `.pfstate` variable arrays as initial guesses, radically reducing convergence time.
-- **Homotopy Solver**: Auto-fallback to continuation method that breaks drifted parameter steps into 10 smaller increments if the system fails a global solve.
+### Plan / Apply Workflow
+- **`pf init`**: Initialises the `.processforge/` project directory and `outputs/` folder. Run once per project.
+- **`pf plan`**: Validates the flowsheet (schema, DOF, Pint unit consistency), performs a structural diff against the last saved state (`+` added, `~` modified, `-` removed units), and generates a Mermaid diagram — all without running the solver.
+- **`pf apply`**: Solves the flowsheet using the last converged state as a warm start. Falls back automatically to a step-wise homotopy/continuation solver if the direct Newton solve fails. Topology changes (added/removed units) trigger a cold start with a warning.
+- **Snapshot Versioning**: Every successful `apply` creates a new numbered snapshot in `.pfstate/snapshots/`. Previous snapshots are never deleted, enabling rollback to any prior converged design.
+- **Convergence Guardrails**: If both the direct solve and homotopy fail, the engine auto-reverts `latest` to the last good snapshot and writes a divergence debug report (`*_divergence.json`) with the final residual norm, drifted parameters, and solver statistics.
+- **Dynamic t=0 from State**: `pf run` (dynamic mode) automatically loads the latest `.pfstate` converged values as the initial conditions for time-integration, replacing arbitrary feed defaults with a physically meaningful starting point.
 
 ## Available Unit Operations
 
@@ -119,34 +123,51 @@ uv add "processforge[modelica]"
 
 ### Command Line Interface
 
-ProcessForge provides a CLI with three subcommands. Both `processforge` and the shorter alias `pf` are interchangeable:
+ProcessForge provides a CLI with the following subcommands. Both `processforge` and the shorter alias `pf` are interchangeable.
+
+#### Recommended workflow: init → plan → apply
 
 ```bash
-# Run a simulation (add --export-images to generate PNG plots)
-processforge run flowsheets/closed-loop-chain.json [--export-images]
-pf run flowsheets/closed-loop-chain.json [--export-images]
+# 1. Initialise project (run once per project)
+pf init
 
-# Apply a flowsheet change using state drift detection and warm-starting
-processforge apply flowsheets/closed-loop-chain.json
-pf apply flowsheets/closed-loop-chain.json
+# 2. Preview changes: structural diff, DOF analysis, unit consistency, Mermaid diagram
+pf plan flowsheets/my-flowsheet.json
 
-# Validate a flowsheet configuration
-processforge validate flowsheets/closed-loop-chain.json
-pf validate flowsheets/closed-loop-chain.json
-
-# Generate a flowsheet diagram
-processforge diagram flowsheets/closed-loop-chain.json
-pf diagram flowsheets/closed-loop-chain.json --format svg --output-dir diagrams/
-
-# Export flowsheet as Modelica .mo and compile to Model Exchange FMU via OMPython
-processforge export-modelica flowsheets/my-flowsheet.json
-pf export-modelica flowsheets/my-flowsheet.json --output-dir modelica/ --no-compile
+# 3. Apply changes: warm-start from last state, homotopy fallback, snapshot versioned
+pf apply flowsheets/my-flowsheet.json
 ```
 
-Running a simulation generates output files in the `outputs/` directory:
-- `*_results.zarr` - Simulation results stored as a Zarr directory
-- `*_validation.xlsx` - Validation report derived directly from the Zarr store
-- `*.pfstate` - Zarr-backed state file for warm-starting and drift detection
+#### All commands
+
+```bash
+# Initialise .processforge/ directory and outputs/ folder
+pf init [--path PATH]
+
+# Preview changes against saved state (no solver run)
+pf plan flowsheets/my-flowsheet.json [--no-diagram] [--output-dir diagrams/]
+
+# Apply flowsheet using state-based warm start and homotopy fallback
+pf apply flowsheets/my-flowsheet.json
+
+# Run a simulation directly (steady-state or dynamic)
+pf run flowsheets/my-flowsheet.json [--export-images]
+
+# Generate a standalone flowsheet diagram
+pf diagram flowsheets/my-flowsheet.json [--format svg] [--output-dir diagrams/]
+
+# Export flowsheet as Modelica .mo and optionally compile to FMU via OMPython
+pf export-modelica flowsheets/my-flowsheet.json [--output-dir modelica/] [--no-compile]
+
+# Export flowsheet as FMI 2.0 co-simulation FMU
+pf export-fmu flowsheets/my-flowsheet.json [--output-dir outputs/] [--backend scipy]
+```
+
+Running `pf apply` or `pf run` generates output files in the `outputs/` directory:
+- `*_results.zarr` — Simulation results stored as a Zarr directory
+- `*_validation.xlsx` — Validation report derived directly from the Zarr store
+- `*.pfstate/` — Versioned state store: `snapshots/` directory with one Zarr group per successful apply, plus a `latest` pointer for rollback
+- `*_divergence.json` — Written when both the direct solve and homotopy fail; contains drifted parameters, final residual norm, and solver statistics
 
 ### As a Python Module
 
@@ -261,25 +282,65 @@ Recycle streams require no special configuration. Any stream produced as the `ou
 
 ## Quick Start Examples
 
-### Run a steady-state simulation
+### New project setup
 ```bash
-pf run flowsheets/hydraulic-chain.json
+pf init
+pf plan flowsheets/hydraulic-chain.json   # validate + preview diff
+pf apply flowsheets/hydraulic-chain.json  # solve + save snapshot
 ```
 
-### Run a dynamic simulation
+### Iterating on a design
+```bash
+# Edit flowsheet.json, then:
+pf plan flowsheets/hydraulic-chain.json   # see what changed (+/~/-)
+pf apply flowsheets/hydraulic-chain.json  # warm-start from last converged state
+```
+
+### Run a dynamic simulation (uses pfstate as t=0 if available)
 ```bash
 pf run flowsheets/closed-loop-chain.json
-```
-
-### Validate a flowsheet
-```bash
-pf validate flowsheets/closed-loop-chain.json
 ```
 
 ### Generate a flowsheet diagram
 ```bash
 pf diagram flowsheets/closed-loop-chain.json
 ```
+
+## Plan / Apply Workflow Detail
+
+The plan/apply workflow mirrors Terraform's preview-before-execute model:
+
+| Step | Command | What happens |
+|------|---------|--------------|
+| 1 | `pf init` | Creates `.processforge/config.json` and `outputs/`. Run once. |
+| 2 | `pf plan` | Schema + DOF validation, Pint unit checks, structural diff vs. saved state, Mermaid diagram. No solver runs. |
+| 3 | `pf apply` | Loads last snapshot as warm-start x₀, runs Newton solve. Falls back to 10-step homotopy continuation if needed. Saves a new snapshot on success. |
+
+### Structural diff output (`pf plan`)
+
+```
++ compressor_2   [Pump]    (added)
+~ pump_1         [Pump]    deltaP: 1e5 → 2e5
+- old_valve      [Valve]   (removed)
+```
+
+### Snapshot versioning (`.pfstate/`)
+
+```
+outputs/my-flowsheet.pfstate/
+  snapshots/
+    0001_2026-04-06T12:00:00Z/   ← first apply
+    0002_2026-04-06T13:30:00Z/   ← second apply
+  latest                          ← plain text: "0002_2026-04-06T13:30:00Z"
+```
+
+Each snapshot stores the converged variable vector (`x`), variable names, and the flowsheet config at that point in time.
+
+### Divergence guardrails
+
+If both the direct Newton solve and the homotopy fallback fail to converge:
+1. `latest` is automatically reverted to the previous good snapshot.
+2. A `*_divergence.json` report is written with the drifted parameters, final `||F||`, homotopy step history, and the last `x` vector for debugging.
 
 ## Project Structure
 
@@ -290,13 +351,14 @@ processforge/
 │   ├── flowsheet.py              # Sequential-modular solver (dynamic mode)
 │   ├── thermo.py                 # Thermodynamic calculations via CoolProp
 │   ├── result.py                 # Results export (Zarr, Excel, plotting)
-│   ├── simulate.py               # CLI entry point with subcommands
+│   ├── simulate.py               # CLI entry point (init, plan, apply, run, diagram, export-*)
+│   ├── state.py                  # StateManager — versioned .pfstate snapshots, drift detection
 │   ├── solver.py                 # ODE solver interface (dynamic)
 │   ├── validate.py               # Simple schema validation
 │   ├── _schema.py                # Schema loader (importlib.resources)
 │   ├── eo/                       # Equation-oriented (EO) steady-state solver
-│   │   ├── flowsheet.py          # EOFlowsheet — build, warm-start, solve
-│   │   ├── solver.py             # EOSolver — backend selector
+│   │   ├── flowsheet.py          # EOFlowsheet — build, warm-start, solve; exposes fs.converged
+│   │   ├── solver.py             # EOSolver — backend selector; solve_with_homotopy() continuation
 │   │   ├── jacobian.py           # GlobalJacobianManager — F(x), J(x)
 │   │   ├── stream_var.py         # StreamVar — per-stream variable container
 │   │   ├── mixin.py              # EOUnitModelMixin — unit residual interface

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.2.20] - 2026-04-06
+
+### Added
+- Added the `pf init` CLI command to initialise the `.processforge/` project directory and `outputs/` folder.
+- Added versioned snapshots to `.pfstate` State Management. Every successful `pf apply` now saves a new numbered snapshot in `snapshots/` with a `latest` file pointer, allowing for safe rollbacks.
+- Added structural diff generation (unit additions, removals, modifications) to the `pf plan` and `pf apply` commands to preview topology changes against the last saved state.
+- Added divergence guardrails to `pf apply`: if both standard Newton solve and homotopy fallback fail, it automatically reverts to the last good state snapshot and writes a detailed debug report (`*_divergence.json`).
+- Added support in `pf run` (dynamic mode) to automatically load the latest converged `.pfstate` values as the initial conditions for time-integration.
+
+### Changed
+- Updated `README.md` to reflect new `pf` CLI commands and added details on the new `plan` and `apply` workflow, including snapshot versioning and divergence guardrails.
+- Updated `flowsheet.py` to store the solver convergence status and statistics after solving.
+- Refactored `StateManager` to fully support Zarr-backed versioning, structural diff detection (`detect_structural_diff`), rollback capability, and state to stream dict conversion.
+- Updated `pf apply` to automatically fall back to a cold start when flowsheet topology changes are detected.
 
 ## [0.2.19] - 2026-04-06
 ### Added

@@ -90,7 +90,8 @@ class EOFlowsheet:
             solver = EOSolver(backend=self.backend)
             x_sol, converged, stats = solver.solve(manager, x0)
             self.x_converged = x_sol
-            self.x_converged = x_sol
+            self.converged = converged
+            self.solver_stats = stats
             if not converged:
                 logger.warning("EOFlowsheet: solver did not fully converge.")
             results = manager.extract_results(x_sol)
@@ -259,12 +260,6 @@ class EOFlowsheet:
         import numpy as np
 
         stream_vals: dict[str, dict] = {}
-
-        # Check if saved_state provides a warm start
-        state = getattr(self, "saved_state", None)
-        if state is not None and "x" in state:
-            logger.info("Loading initial guess from closest existing .pfstate.")
-            return np.array(state["x"])
 
         # Check if saved_state provides a warm start
         state = getattr(self, "saved_state", None)
