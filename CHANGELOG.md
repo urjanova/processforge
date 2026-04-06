@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.19] - 2026-04-06
+### Added
+- Added `.pfstate` State Management backed by Zarr to persistently store converged simulation values alongside configuration.
+- Added drift detection to intelligently compare the "Desired State" (current flowsheet definition) against the "Actual State" (.pfstate).
+- Added the `pf apply` CLI command to execute simulations with automatic drift detection and warm-starting.
+- Implemented a Homotopy Solver that acts as a step-wise parameter continuation method (10 steps) if the standard non-linear solver fails.
+
 ## [0.2.18] - 2026-04-06
 ### Added
 - Added a provider Jacobian contribution API with `JacobianContributor`, `ReferenceState`, and `ReferenceStateRegistry`.

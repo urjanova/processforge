@@ -49,6 +49,11 @@ A Python-based process simulation framework for chemical process engineering app
 - Connectivity checks (inlet sources, unused outlets, unreachable units)
 - Comprehensive logging for debugging
 
+### State Management & Fast Convergence
+- **State Manager (`.pfstate`)**: Zarr-backed snapshots storing converged simulation variables and original configuration. Enables Terraform-like tracking of actual vs. desired state via Drift Detection.
+- **Warm-Starting Engine**: `pf apply` automatically uses closest existing `.pfstate` variable arrays as initial guesses, radically reducing convergence time.
+- **Homotopy Solver**: Auto-fallback to continuation method that breaks drifted parameter steps into 10 smaller increments if the system fails a global solve.
+
 ## Available Unit Operations
 
 | Unit Type | Mode | Description | Key Parameters |
@@ -121,6 +126,10 @@ ProcessForge provides a CLI with three subcommands. Both `processforge` and the 
 processforge run flowsheets/closed-loop-chain.json [--export-images]
 pf run flowsheets/closed-loop-chain.json [--export-images]
 
+# Apply a flowsheet change using state drift detection and warm-starting
+processforge apply flowsheets/closed-loop-chain.json
+pf apply flowsheets/closed-loop-chain.json
+
 # Validate a flowsheet configuration
 processforge validate flowsheets/closed-loop-chain.json
 pf validate flowsheets/closed-loop-chain.json
@@ -137,7 +146,7 @@ pf export-modelica flowsheets/my-flowsheet.json --output-dir modelica/ --no-comp
 Running a simulation generates output files in the `outputs/` directory:
 - `*_results.zarr` - Simulation results stored as a Zarr directory
 - `*_validation.xlsx` - Validation report derived directly from the Zarr store
-- PNG plots for temperatures and compositions when `--export-images` is supplied
+- `*.pfstate` - Zarr-backed state file for warm-starting and drift detection
 
 ### As a Python Module
 

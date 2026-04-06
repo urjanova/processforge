@@ -16,6 +16,71 @@ from .result import (
 from .utils.flowsheet_diagram import draw_flowsheet
 
 
+
+from .state import StateManager
+
+def _cmd_apply(args):
+    """Apply a flowsheet change using state drift detection and warm-starting."""
+    import os
+    fname = args.flowsheet
+    if not os.path.exists(fname):
+        logger.error(f"Flowsheet file '{fname}' not found.")
+        raise SystemExit(1)
+
+    try:
+        from .utils.validate_flowsheet import validate_flowsheet
+        config = validate_flowsheet(fname)
+    except SystemExit:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to validate flowsheet file '{fname}': {e}")
+        raise SystemExit(1)
+
+    config["_config_path"] = fname
+    base_name = os.path.splitext(os.path.basename(fname))[0]
+    
+    sim_cfg = config.get("simulation", {})
+    mode = sim_cfg.get("mode", "steady")
+    if mode != "steady":
+        logger.error("pf apply is only supported for steady-state EO flows.")
+        raise SystemExit(1)
+
+    state_path = os.path.join("outputs", f"{base_name}.pfstate")
+    manager = StateManager(state_path)
+    
+    state = manager.load_state()
+    if state is not None:
+        drifted = manager.detect_drift(config, state)
+        if not drifted:
+            logger.info("✅ No drift detected. System is already at the desired state.")
+            return
+        logger.info(f"⚠️ Drift detected in parameters: {drifted}")
+    else:
+        logger.info("No prior state found. Running cold start...")
+        drifted = []
+
+    from .eo import EOFlowsheet
+    from .provenance import build_run_info
+    from .result import save_results_zarr
+    
+    fs = EOFlowsheet(config, backend=None)
+    fs.state_manager = manager
+    fs.saved_state = state
+    fs.drifted_params = drifted
+    
+    logger.info("=== Running Apply (Steady-State EO) ===")
+    results = fs.run()
+    
+    if hasattr(fs, "x_converged"):
+        manager.save_state(config, fs.x_converged, fs.var_names)
+        
+    run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
+    save_results_zarr(
+        results,
+        os.path.join("outputs", f"{base_name}_results.zarr"),
+        run_info=run_info,
+    )
+
 def _cmd_run(args):
     """Run a process simulation from a flowsheet JSON file."""
     fname = args.flowsheet
@@ -241,6 +306,9 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
+    # processforge apply
+    apply_parser = subparsers.add_parser("apply", help="Apply flowsheet using state-based warm start and homotopy")
+    apply_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
     # processforge run
     run_parser = subparsers.add_parser("run", help="Run a process simulation")
     run_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
@@ -328,6 +396,7 @@ def main():
 
     commands = {
         "run": _cmd_run,
+        "apply": _cmd_apply,
         "plan": _cmd_plan,
         "diagram": _cmd_diagram,
         "export-fmu": _cmd_export_fmu,
@@ -338,3 +407,61 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+def _cmd_apply(args):
+    """Apply the closest existing state, detect drift, block or warm-start, fallback to homotopy."""
+    from .state import StateManager
+    fname = args.flowsheet
+    if not os.path.exists(fname):
+        logger.error(f"Flowsheet file '{fname}' not found.")
+        raise SystemExit(1)
+
+    try:
+        config = validate_flowsheet(fname)
+    except SystemExit:
+        raise
+    
+    config["_config_path"] = fname
+    base_name = os.path.splitext(os.path.basename(fname))[0]
+    
+    sim_cfg = config.get("simulation", {})
+    mode = sim_cfg.get("mode", "steady")
+    if mode != "steady":
+        logger.error("pf apply is only supported for steady-state EO flows.")
+        raise SystemExit(1)
+        
+    state_path = os.path.join("outputs", f"{base_name}.pfstate")
+    manager = StateManager(state_path)
+    
+    # Drift Detection
+    state = manager.load_state()
+    if state is not None:
+        drifted = manager.detect_drift(config, state)
+        if not drifted:
+            logger.info("✅ No drift detected. System is already at the desired state.")
+            return
+        else:
+            logger.info(f"⚠️ Drift detected in parameters: {drifted}")
+    else:
+        logger.info("No prior state found. Running cold start...")
+        drifted = []
+
+    # Run standard flowsheet with possible warm-start
+    fs = EOFlowsheet(config, backend=None)
+    fs.state_manager = manager
+    fs.saved_state = state
+    
+    logger.info("=== Running Apply... ===")
+    results = fs.run()
+    
+    # Ensure save state
+    if hasattr(fs, "x_converged"):
+        manager.save_state(config, fs.x_converged, fs.var_names)
+        
+    # Also save outputs.zarr
+    run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
+    save_results_zarr(
+        results,
+        os.path.join("outputs", f"{base_name}_results.zarr"),
+        run_info=run_info,
+    )
