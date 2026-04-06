@@ -175,7 +175,7 @@ def _cmd_diagram(args):
     with open(fname, "r") as f:
         flowsheet_schema = json.load(f)
 
-    output_dir = args.output_dir or "."
+    output_dir = args.output_dir or "diagrams"
     fmt = args.format or "png"
 
     base_name = os.path.splitext(os.path.basename(fname))[0]
@@ -199,7 +199,7 @@ def _print_dof_report(report) -> None:
     for r in report.per_unit:
         icon = "✅" if r.status == "determined" else ("⚠️" if r.status == "under-specified" else "❌")
         logger.info(
-            f"  {r.unit_name:<16} [{r.unit_type:<18}] "
+            f"  {r.unit_name:<8} {f'[{r.unit_type}]':<8} "
             f"unknowns={r.n_unknowns}  equations={r.n_equations}  "
             f"DOF={r.dof}  {icon} {r.status}"
         )
@@ -299,7 +299,7 @@ def _cmd_plan(args):
     # Step 7: Mermaid diagram
     if not args.no_diagram:
         from .utils.mermaid_diagram import generate_mermaid
-        output_dir = args.output_dir or "."
+        output_dir = args.output_dir or "diagrams"
         out_path = os.path.join(output_dir, f"{base_name}_plan.mmd")
         generate_mermaid(config, output_path=out_path)
         logger.info(f"Mermaid diagram → {out_path}")
@@ -444,6 +444,9 @@ def main():
         description="ProcessForge - Chemical Process Simulation",
         prog="processforge",
     )
+    parser.add_argument(
+        "--debug", action="store_true", help="Enable detailed debug tracebacks for errors"
+    )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # processforge init
@@ -480,8 +483,8 @@ def main():
     )
     plan_parser.add_argument("flowsheet", help="Path to .pcl or .json flowsheet file")
     plan_parser.add_argument(
-        "--output-dir", "-o", default=".",
-        help="Output directory for the Mermaid diagram (default: current directory)",
+        "--output-dir", "-o", default="diagrams",
+        help="Output directory for the Mermaid diagram (default: diagrams)",
     )
     plan_parser.add_argument(
         "--no-diagram", action="store_true",
@@ -496,8 +499,8 @@ def main():
     diagram_parser.add_argument(
         "--output-dir",
         "-o",
-        default=".",
-        help="Output directory (default: current directory)",
+        default="diagrams",
+        help="Output directory (default: diagrams)",
     )
     diagram_parser.add_argument(
         "--format",
@@ -559,7 +562,17 @@ def main():
         "export-fmu": _cmd_export_fmu,
         "export-modelica": _cmd_export_modelica,
     }
-    commands[args.command](args)
+    
+    try:
+        commands[args.command](args)
+    except Exception as e:
+        if getattr(args, "debug", False):
+            logger.exception("An unhandled exception occurred during command execution:")
+            raise SystemExit(1)
+        else:
+            logger.error(f"{type(e).__name__}: {str(e)}")
+            logger.info("Run with --debug for the full traceback.")
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":
