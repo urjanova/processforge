@@ -10,6 +10,31 @@ _VALID_DENSITY_UNITS = frozenset({
 })
 
 
+def _validate_config_impl(config: dict, source_name: str) -> dict:
+    """
+    Run all validation checks on an already-loaded config dict.
+
+    Args:
+        config:      Flowsheet configuration dict.
+        source_name: Display name used in log/error messages (file path or '<dict>').
+
+    Returns:
+        The validated (and material-mix-resolved) config dict.
+
+    Raises:
+        ValidationError: On JSON schema violations.
+        ValueError:      On semantic/connectivity violations.
+    """
+    schema = load_flowsheet_schema()
+    validate(instance=config, schema=schema)
+    logger.info(f"✅ Flowsheet '{source_name}' is valid.")
+    check_stream_connectivity(config)
+    _check_material_semantics(config)
+    _check_provider_references(config)
+    _resolve_material_mix_streams(config)
+    return config
+
+
 def validate_flowsheet(config_path):
     """
     Validate a flowsheet JSON file against the schema and connectivity rules.
@@ -23,19 +48,11 @@ def validate_flowsheet(config_path):
     Raises:
         SystemExit: If schema validation or connectivity checks fail.
     """
-    schema = load_flowsheet_schema()
-
     with open(config_path, "r", encoding="utf-8") as f:
         config = json.load(f)
 
     try:
-        validate(instance=config, schema=schema)
-        logger.info(f"✅ Flowsheet '{config_path}' is valid.")
-        check_stream_connectivity(config)
-        _check_material_semantics(config)
-        _check_provider_references(config)
-        _resolve_material_mix_streams(config)
-        return config
+        return _validate_config_impl(config, source_name=config_path)
     except ValidationError as e:
         logger.error(f"❌ Validation failed for '{config_path}':")
         logger.error(f"   → {e.message}")
@@ -44,6 +61,34 @@ def validate_flowsheet(config_path):
         raise SystemExit(1) from e
     except ValueError as e:
         logger.error(f"❌ Semantic validation failed for '{config_path}':")
+        logger.error(f"   → {e}")
+        raise SystemExit(1) from e
+
+
+def validate_flowsheet_dict(config: dict, source_name: str = "<dict>") -> dict:
+    """
+    Validate an already-loaded flowsheet config dict.
+
+    Args:
+        config:      Flowsheet configuration dict.
+        source_name: Optional label used in log/error messages.
+
+    Returns:
+        dict: The validated (and material-mix-resolved) config dict.
+
+    Raises:
+        SystemExit: If schema validation or connectivity checks fail.
+    """
+    try:
+        return _validate_config_impl(config, source_name=source_name)
+    except ValidationError as e:
+        logger.error(f"❌ Validation failed for '{source_name}':")
+        logger.error(f"   → {e.message}")
+        if e.path:
+            logger.error(f"   Path: {' → '.join(map(str, e.path))}")
+        raise SystemExit(1) from e
+    except ValueError as e:
+        logger.error(f"❌ Semantic validation failed for '{source_name}':")
         logger.error(f"   → {e}")
         raise SystemExit(1) from e
 

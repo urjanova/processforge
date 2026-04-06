@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.17] - 2026-04-06
+### Added
+- Added the `plan` CLI command for flowsheet validation, DOF analysis, and Mermaid diagram generation.
+- Added `validate_flowsheet_dict` utility for validating flowsheet configurations from dictionaries.
+- Added `pcl` optional dependency group containing `pint`.
+
+### Modified
+- Replaced the `validate` CLI command with the new `plan` command.
+
 ## [0.2.16] - 2026-04-05
 
 ### Added

@@ -4,7 +4,7 @@ import os
 
 from loguru import logger
 
-from .utils.validate_flowsheet import validate_flowsheet
+from .utils.validate_flowsheet import validate_flowsheet, validate_flowsheet_dict
 from .flowsheet import Flowsheet
 from .eo import EOFlowsheet
 from .provenance import build_dynamic_x0, build_run_info
@@ -63,22 +63,6 @@ def _cmd_run(args):
         plot_results(results, fname=f"{base_name}_results.png")
         plot_timeseries(results, fname=f"{base_name}_timeseries.png")
 
-
-def _cmd_validate(args):
-    """Validate a flowsheet JSON file."""
-    fname = args.flowsheet
-    if not os.path.exists(fname):
-        logger.error(f"Flowsheet file '{fname}' not found.")
-        raise SystemExit(1)
-
-    try:
-        validate_flowsheet(fname)
-        logger.info(f"Flowsheet '{fname}' is valid.")
-    except SystemExit:
-        raise
-    except Exception as e:
-        logger.error(f"Validation failed: {e}")
-        raise SystemExit(1)
 
 
 def _cmd_export_fmu(args):
@@ -155,6 +139,101 @@ def _cmd_diagram(args):
     logger.info(f"Diagram saved to {output_path}")
 
 
+def _print_dof_report(report) -> None:
+    from .analysis.dof import SystemDOFReport
+    logger.info("=== DOF Analysis ===")
+    if report.component_names:
+        logger.info(f"Components: {', '.join(report.component_names)}  (N_c = {report.n_components})")
+    else:
+        logger.warning("No components found in feed streams — DOF analysis may be incomplete.")
+
+    for r in report.per_unit:
+        icon = "✅" if r.status == "determined" else ("⚠️" if r.status == "under-specified" else "❌")
+        logger.info(
+            f"  {r.unit_name:<16} [{r.unit_type:<18}] "
+            f"unknowns={r.n_unknowns}  equations={r.n_equations}  "
+            f"DOF={r.dof}  {icon} {r.status}"
+        )
+        for issue in r.issues:
+            logger.warning(f"    → {r.unit_name}: {issue}")
+
+    logger.info(f"Feed stream specs:  {report.feed_stream_specs}")
+    logger.info(f"Total unknowns:     {report.total_unknowns}")
+    logger.info(f"Total equations:    {report.total_equations} (unit) + {report.feed_stream_specs} (feed) = {report.total_equations + report.feed_stream_specs}")
+
+    if report.system_dof == 0:
+        logger.info("System DOF: 0  ✅ Exactly determined — ready to solve")
+    elif report.system_dof > 0:
+        logger.warning(f"System DOF: {report.system_dof}  ⚠️  Under-specified — add {report.system_dof} more spec(s)")
+    else:
+        logger.error(f"System DOF: {report.system_dof}  ❌ Over-specified — remove {abs(report.system_dof)} spec(s)")
+
+
+def _print_unit_mismatches(mismatches) -> None:
+    for m in mismatches:
+        if not m.compatible:
+            logger.error(f"❌ Unit mismatch — stream '{m.stream_name}'.{m.property_name}: {m.message}")
+        else:
+            logger.warning(f"⚠️  Unit annotation — stream '{m.stream_name}'.{m.property_name}: {m.message}")
+
+
+def _cmd_plan(args):
+    """Parse a PCL or JSON flowsheet, run validators, DOF analysis, and emit a Mermaid diagram."""
+    fname = args.flowsheet
+    if not os.path.exists(fname):
+        logger.error(f"File '{fname}' not found.")
+        raise SystemExit(1)
+
+    # Step 1: Load config
+    if fname.endswith(".pcl"):
+        from .pcl import load_pcl, PCLCompileError
+        try:
+            json_config = load_pcl(fname)
+        except PCLCompileError as e:
+            logger.error(f"PCL compile error: {e}")
+            raise SystemExit(1)
+    else:
+        try:
+            with open(fname, "r", encoding="utf-8") as f:
+                json_config = json.load(f)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parse error in '{fname}': {e}")
+            raise SystemExit(1)
+
+    # Step 2: Pint unit consistency check (before _units are stripped)
+    from .utils.unit_consistency import check_unit_consistency, strip_units_annotations
+    mismatches = check_unit_consistency(json_config)
+    _print_unit_mismatches(mismatches)
+
+    # Step 3: Strip _units annotations before schema validation
+    strip_units_annotations(json_config)
+
+    # Step 4: Schema + connectivity validation
+    try:
+        config = validate_flowsheet_dict(json_config, source_name=fname)
+    except SystemExit:
+        raise
+
+    # Step 5: DOF analysis
+    from .analysis.dof import analyze_dof
+    report = analyze_dof(config)
+    _print_dof_report(report)
+
+    # Step 6: Mermaid diagram
+    if not args.no_diagram:
+        from .utils.mermaid_diagram import generate_mermaid
+        output_dir = args.output_dir or "."
+        base_name = os.path.splitext(os.path.basename(fname))[0]
+        out_path = os.path.join(output_dir, f"{base_name}_plan.mmd")
+        generate_mermaid(config, output_path=out_path)
+        logger.info(f"Mermaid diagram → {out_path}")
+
+    # Exit non-zero on hard errors
+    hard_errors = [m for m in mismatches if not m.compatible]
+    if hard_errors or report.system_dof < 0:
+        raise SystemExit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="ProcessForge - Chemical Process Simulation",
@@ -170,11 +249,20 @@ def main():
         action="store_true",
         help="Generate PNG plots for simulation outputs",
     )
-    # processforge validate
-    validate_parser = subparsers.add_parser(
-        "validate", help="Validate a flowsheet JSON file"
+    # processforge plan
+    plan_parser = subparsers.add_parser(
+        "plan",
+        help="Validate a flowsheet, run DOF analysis, and generate a Mermaid diagram",
     )
-    validate_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
+    plan_parser.add_argument("flowsheet", help="Path to .pcl or .json flowsheet file")
+    plan_parser.add_argument(
+        "--output-dir", "-o", default=".",
+        help="Output directory for the Mermaid diagram (default: current directory)",
+    )
+    plan_parser.add_argument(
+        "--no-diagram", action="store_true",
+        help="Skip Mermaid diagram generation",
+    )
 
     # processforge diagram
     diagram_parser = subparsers.add_parser(
@@ -240,7 +328,7 @@ def main():
 
     commands = {
         "run": _cmd_run,
-        "validate": _cmd_validate,
+        "plan": _cmd_plan,
         "diagram": _cmd_diagram,
         "export-fmu": _cmd_export_fmu,
         "export-modelica": _cmd_export_modelica,
