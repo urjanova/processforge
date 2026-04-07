@@ -1,4 +1,4 @@
-"""Provider lifecycle manager for ProcessForge flowsheets.
+"""Provider lifecycle manager for Processforge flowsheets.
 
 Builds, initialises, and tears down the provider map derived from the
 ``providers`` block in a flowsheet JSON.  Mirrors the two-level default

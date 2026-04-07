@@ -1,4 +1,4 @@
-"""AbstractProvider: base class for all ProcessForge provider implementations."""
+"""AbstractProvider: base class for all Processforge provider implementations."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -7,7 +7,7 @@ from typing import Optional
 
 class AbstractProvider(ABC):
     """
-    Bridge between ProcessForge flowsheet declarations and calculation engines.
+    Bridge between Processforge flowsheet declarations and calculation engines.
 
     A provider translates stream/unit resource definitions into calls against a
     specific backend (CoolProp, Cantera, OpenModelica FMU, etc.).

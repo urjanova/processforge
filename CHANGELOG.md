@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added support for OpenMC material definitions, allowing users to define materials using OpenMC's format for use in simulations. We dont use OpenMC in the flow but this allows users to easily convert their OpenMC material definitions for use in ProcessForge, enhancing compatibility and ease of use for those familiar with OpenMC.
+- Added support for OpenMC material definitions, allowing users to define materials using OpenMC's format for use in simulations. We dont use OpenMC in the flow but this allows users to easily convert their OpenMC material definitions for use in Processforge, enhancing compatibility and ease of use for those familiar with OpenMC.
 
 ## [0.2.7] - 2026-03-02
 
@@ -89,7 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- A new metadata to the Zarr output to include the version of ProcessForge used for the simulation, aiding in reproducibility and tracking of results.
+- A new metadata to the Zarr output to include the version of Processforge used for the simulation, aiding in reproducibility and tracking of results.
 
 
 

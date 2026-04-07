@@ -1,4 +1,4 @@
-"""Build the complete Modelica model source string from a ProcessForge config.
+"""Build the complete Modelica model source string from a Processforge config.
 
 The generated model is flat and self-contained — no Modelica Standard Library
 imports. Stream variables follow the naming convention ``{stream}_{prop}``
@@ -100,7 +100,7 @@ def build_model_source(
 
     Args:
         model_name:  Valid Modelica identifier (e.g. ``"PumpHeaterFlash"``).
-        config:      Validated ProcessForge flowsheet config dict.
+        config:      Validated Processforge flowsheet config dict.
         interface:   Output of ``fmu.builder._analyze_config(config)``.
 
     Returns:

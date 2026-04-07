@@ -1,6 +1,6 @@
-"""Provider abstraction layer for ProcessForge.
+"""Provider abstraction layer for Processforge.
 
-Providers are the 'how' behind flowsheet declarations — they bridge ProcessForge
+Providers are the 'how' behind flowsheet declarations — they bridge Processforge
 stream/unit definitions to underlying calculation engines (CoolProp, Cantera,
 OpenModelica, etc.).
 

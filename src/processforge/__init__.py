@@ -1,5 +1,5 @@
 """
-ProcessForge - A Python process simulation framework for chemical engineering.
+Processforge - A Python process simulation framework for chemical engineering.
 
 Provides steady-state and dynamic process simulation capabilities including:
 - Flowsheet modeling with recycle loop support

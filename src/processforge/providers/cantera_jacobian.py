@@ -7,7 +7,7 @@ Strategy
 --------
 Cantera's ``jacobian_stoich`` attribute gives kinetics-space derivatives
 (d net-production-rate / d concentration), not the stream-variable residual
-space (T, P, z, flowrate) that ProcessForge uses.  Converting between the
+space (T, P, z, flowrate) that Processforge uses.  Converting between the
 two spaces requires a chain-rule calculation that is more complex than simply
 doing unit-local finite differences on the Cantera side.
 

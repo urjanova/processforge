@@ -1,4 +1,4 @@
-"""JacobianContributor: opt-in AD endpoint for ProcessForge physics providers.
+"""JacobianContributor: opt-in AD endpoint for Processforge physics providers.
 
 Any provider (Cantera, Modelica/FMU, PathSim, OpenMC, etc.) that can supply
 its own Jacobian contributions — rather than relying on global finite differences

@@ -1,4 +1,4 @@
-"""Provenance and metadata utilities for ProcessForge runs."""
+"""Provenance and metadata utilities for Processforge runs."""
 from __future__ import annotations
 
 import platform

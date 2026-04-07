@@ -1,4 +1,4 @@
-"""FMI variable spec generation for ProcessForge FMU export."""
+"""FMI variable spec generation for Processforge FMU export."""
 from __future__ import annotations
 
 import re

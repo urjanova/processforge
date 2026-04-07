@@ -441,7 +441,7 @@ def _cmd_apply(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="ProcessForge - Chemical Process Simulation",
+        description="Processforge - Chemical Process Simulation",
         prog="processforge",
     )
     parser.add_argument(

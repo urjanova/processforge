@@ -123,7 +123,7 @@ uv add "processforge[modelica]"
 
 ### Command Line Interface
 
-ProcessForge provides a CLI with the following subcommands. Both `processforge` and the shorter alias `pf` are interchangeable.
+Processforge provides a CLI with the following subcommands. Both `processforge` and the shorter alias `pf` are interchangeable.
 
 #### Recommended workflow: init → plan → apply
 

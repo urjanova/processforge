@@ -1,4 +1,4 @@
-"""Build a PythonFMU co-simulation FMU from a ProcessForge flowsheet config."""
+"""Build a PythonFMU co-simulation FMU from a Processforge flowsheet config."""
 from __future__ import annotations
 
 import os
@@ -17,7 +17,7 @@ def build_fmu(
     output_dir: str = "outputs",
     backend: str = "scipy",
 ) -> str:
-    """Build an FMI 2.0 co-simulation FMU from a ProcessForge flowsheet JSON.
+    """Build an FMI 2.0 co-simulation FMU from a Processforge flowsheet JSON.
 
     Args:
         config_path: Path to the flowsheet JSON file.
@@ -183,8 +183,8 @@ def _get_slave_class_name(config: dict, config_path: str) -> str:
     if name and name[0].isdigit():
         name = "FMU_" + name
     if not name:
-        name = "ProcessForgeFMU"
+        name = "ProcessforgeFMU"
 
     # PascalCase: capitalise each word segment
     name = "".join(part.capitalize() for part in name.split("_"))
-    return name or "ProcessForgeFMU"
+    return name or "ProcessforgeFMU"

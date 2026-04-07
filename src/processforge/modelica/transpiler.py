@@ -1,4 +1,4 @@
-"""Transpile a ProcessForge flowsheet JSON to a self-contained Modelica .mo file."""
+"""Transpile a Processforge flowsheet JSON to a self-contained Modelica .mo file."""
 from __future__ import annotations
 
 import os
@@ -16,7 +16,7 @@ def transpile(
     output_dir: str = "outputs",
     output_path: str | None = None,
 ) -> str:
-    """Translate a ProcessForge flowsheet JSON to a Modelica ``.mo`` file.
+    """Translate a Processforge flowsheet JSON to a Modelica ``.mo`` file.
 
     Args:
         config_path:  Path to the flowsheet JSON.
@@ -71,8 +71,8 @@ def _derive_model_name(config: dict, config_path: str) -> str:
     if name and name[0].isdigit():
         name = "PF_" + name
     if not name:
-        name = "ProcessForgeModel"
+        name = "ProcessforgeModel"
 
     # PascalCase
     name = "".join(part.capitalize() for part in name.split("_"))
-    return name or "ProcessForgeModel"
+    return name or "ProcessforgeModel"

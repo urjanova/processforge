@@ -1,4 +1,4 @@
-"""OMPython bridge: ProcessForge → Modelica transpiler and omc compiler."""
+"""OMPython bridge: Processforge → Modelica transpiler and omc compiler."""
 from .transpiler import transpile
 from .omc_runner import compile_modelica
 

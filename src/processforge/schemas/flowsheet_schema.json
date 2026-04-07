@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "ProcessForge Flowsheet Configuration Schema",
+  "title": "Processforge Flowsheet Configuration Schema",
   "type": "object",
   "required": [
     "streams",

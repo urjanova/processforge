@@ -1,4 +1,4 @@
-"""Equation-oriented (EO) steady-state flowsheet solver for ProcessForge."""
+"""Equation-oriented (EO) steady-state flowsheet solver for Processforge."""
 from .flowsheet import EOFlowsheet
 from .solver import EOSolver
 from .backends import AbstractEOBackend, ScipyBackend, PyomoBackend, CasADiBackend
