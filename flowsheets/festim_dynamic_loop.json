@@ -1,0 +1,121 @@
+{
+  "metadata": {
+    "name": "Festim Dynamic Loop",
+    "description": "A closed loop to test dynamic H2 depletion via a Festim membrane.",
+    "version": "1.0"
+  },
+  "providers": {
+    "coolprop": {
+      "type": "coolprop"
+    },
+    "festim": {
+      "type": "festim",
+      "materials": {
+        "3": {
+          "D_0": 4.1e-7,
+          "E_D": 0.39,
+          "S_0": 4.28e-5,
+          "E_S": 0.26
+        }
+      }
+    }
+  },
+  "materials": {
+    "Hydrogen": {
+      "friendly_material_id": 1,
+      "density": 0.08988,
+      "density_units": "g/L",
+      "temperature": 298.15,
+      "depletable": false,
+      "nuclides": [
+        {"name": "H", "percent": 100.0, "percent_type": "ao"}
+      ]
+    },
+    "Nitrogen": {
+      "friendly_material_id": 2,
+      "density": 1.2506,
+      "density_units": "g/L",
+      "temperature": 298.15,
+      "depletable": false,
+      "nuclides": [
+        {"name": "N", "percent": 100.0, "percent_type": "ao"}
+      ]
+    },
+    "Steel": {
+      "friendly_material_id": 3,
+      "density": 7.85,
+      "density_units": "g/cm3",
+      "depletable": false,
+      "nuclides": [
+        {"name": "Fe", "percent": 0.98, "percent_type": "wo"},
+        {"name": "C", "percent": 0.02, "percent_type": "wo"}
+      ]
+    }
+  },
+  "material_mixes": {
+    "H2_N2_Mix": {
+      "friendly_material_mix_id": 1,
+      "percent_type": "ao",
+      "components": [
+        {"name": "Hydrogen", "fraction": 0.1},
+        {"name": "Nitrogen", "fraction": 0.9}
+      ]
+    }
+  },
+  "streams": {
+    "feed": {
+      "T": 300.0,
+      "P": 1000000,
+      "flowrate": 0.1,
+      "material_mix": 1
+    }
+  },
+  "units": {
+    "tank": {
+      "type": "Tank",
+      "in": ["feed", "recycle"],
+      "out": "after_tank",
+      "outlet_flow": 1.0,
+      "initial_n": {
+        "Hydrogen": 1.0,
+        "Nitrogen": 9.0
+      },
+      "initial_T": 300.0,
+      "P": 1000000,
+      "duty": 0.0,
+      "material": 3
+    },
+    "pump": {
+      "type": "Pump",
+      "in": "after_tank",
+      "out": "after_pump",
+      "deltaP": 0.0,
+      "efficiency": 0.75,
+      "material": 3
+    },
+    "heater": {
+      "type": "Heater",
+      "in": "after_pump",
+      "out": "after_heater",
+      "duty": 1000.0,
+      "material": 3
+    },
+    "membrane": {
+      "type": "FestimMembrane",
+      "provider": "festim",
+      "in": "after_heater",
+      "retentate_out": "recycle",
+      "permeate_out": "waste",
+      "thickness": 0.005,
+      "mesh_cells": 50,
+      "area": 10.0,
+      "material": 3
+    }
+  },
+  "simulation": {
+    "mode": "dynamic",
+    "t0": 0.0,
+    "tf": 10.0,
+    "dt": 1.0
+  }
+}

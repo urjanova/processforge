@@ -74,6 +74,7 @@ class Flowsheet:
         logger.info("Building units")
         from .units.cstr import CSTR
         from .units.pfr import PFR
+        from .units.festim_membrane import FestimMembrane
         unit_types: dict = {
             "Pump": Pump,
             "Valve": Valve,
@@ -83,6 +84,7 @@ class Flowsheet:
             "CSTR": CSTR,
             "PFR": PFR,
             "IdealGasReactor": CSTR,
+            "FestimMembrane": FestimMembrane,
         }
 
         # Extend with any unit types registered by active providers.
@@ -123,6 +125,23 @@ class Flowsheet:
             return inlet
         return [inlet] if inlet else []
 
+    def _get_unit_outlets(self, unit_name):
+        """Get all output streams for a unit."""
+        cfg = self.config["units"][unit_name]
+        outlets = []
+        if "out" in cfg:
+            out = cfg["out"]
+            if isinstance(out, list):
+                outlets.extend(out)
+            else:
+                outlets.append(out)
+        if "retentate_out" in cfg:
+            outlets.append(cfg["retentate_out"])
+        if "permeate_out" in cfg:
+            outlets.append(cfg["permeate_out"])
+        # Add other potential outlet keys here
+        return outlets
+
     def _detect_cycles_and_tear_streams(self):
         """
         Detects cycles in the flowsheet graph and identifies tear streams.
@@ -134,9 +153,9 @@ class Flowsheet:
         """
         # Build graph: stream -> producing unit, unit -> output stream
         stream_producers = {}
-        for unit_name, unit_config in self.config["units"].items():
-            out_stream = unit_config["out"]
-            stream_producers[out_stream] = unit_name
+        for unit_name in self.config["units"]:
+            for out_stream in self._get_unit_outlets(unit_name):
+                stream_producers[out_stream] = unit_name
         
         # Build adjacency: unit -> list of downstream units
         adj = {unit_name: [] for unit_name in self.units}
@@ -238,7 +257,13 @@ class Flowsheet:
             unit = self.units[unit_name]
             cfg = self.config["units"][unit_name]
             inlet = self._get_merged_inlet(results, cfg)
-            results[cfg["out"]] = unit.run(inlet)
+            unit_out = unit.run(inlet)
+            if "out" in cfg:
+                results[cfg["out"]] = unit_out
+            else:
+                for out_key in ["retentate_out", "permeate_out"]:
+                    if out_key in cfg and out_key in unit_out:
+                        results[cfg[out_key]] = unit_out[out_key]
             logger.debug(f"Processed unit {unit_name}")
         self.results = results
         logger.info("Steady-state simulation completed")
@@ -332,7 +357,13 @@ class Flowsheet:
                 unit = self.units[unit_name]
                 cfg = self.config["units"][unit_name]
                 inlet = self._get_merged_inlet(results, cfg)
-                results[cfg["out"]] = unit.run(inlet)
+                unit_out = unit.run(inlet)
+                if "out" in cfg:
+                    results[cfg["out"]] = unit_out
+                else:
+                    for out_key in ["retentate_out", "permeate_out"]:
+                        if out_key in cfg and out_key in unit_out:
+                            results[cfg[out_key]] = unit_out[out_key]
             
             # Check convergence on tear streams
             max_error = 0.0
@@ -456,10 +487,10 @@ class Flowsheet:
         if has_cycles:
             logger.info(f"Detected {len(cycles)} recycle loop(s) with tear streams: {tear_streams}")
 
-        stream_producers = {
-            unit_config["out"]: unit_name
-            for unit_name, unit_config in self.config["units"].items()
-        }
+        stream_producers = {}
+        for unit_name in self.config["units"]:
+            for out_stream in self._get_unit_outlets(unit_name):
+                stream_producers[out_stream] = unit_name
 
         # Create adjacency list (unit -> downstream units)
         adj = {unit_name: [] for unit_name in self.units}
@@ -638,7 +669,7 @@ class Flowsheet:
             unit = self.units[unit_name]
             cfg = self.config["units"][unit_name]
             inlet_name = cfg["in"]
-            outlet_name = cfg["out"]
+            outlets = self._get_unit_outlets(unit_name)
             inlet_stream_ts = results[inlet_name]
 
             if hasattr(unit, "run_dynamic"):
@@ -646,12 +677,23 @@ class Flowsheet:
                 sol = unit.run_dynamic(
                     inlet_stream_ts, (start_time, end_time), t_eval, solver
                 )
-                results[outlet_name] = sol
+                if len(outlets) == 1:
+                    results[outlets[0]] = sol
+                else:
+                    for out_key, stream_name in zip(["retentate_out", "permeate_out"], outlets):
+                        if out_key in sol:
+                            results[stream_name] = sol[out_key]
             else:
                 logger.debug(f"Processing static unit {unit_name} dynamically")
-                results[outlet_name] = self._process_static_unit(
+                sol = self._process_static_unit(
                     unit, inlet_stream_ts, t_eval, num_steps
                 )
+                if len(outlets) == 1:
+                    results[outlets[0]] = sol
+                else:
+                    for out_key, stream_name in zip(["retentate_out", "permeate_out"], outlets):
+                        if out_key in sol:
+                            results[stream_name] = sol[out_key]
 
         self.results = results
         logger.info("Dynamic simulation completed")
@@ -675,17 +717,16 @@ class Flowsheet:
         
         # Initialize all output streams in results
         for unit_name in processing_order:
-            cfg = self.config["units"][unit_name]
-            outlet_name = cfg["out"]
-            if outlet_name not in results:
-                # Initialize with zeros/empty structure
-                results[outlet_name] = {
-                    "time": t_eval.tolist(),
-                    "T": [298.15] * num_steps,
-                    "P": [101325] * num_steps,
-                    "flowrate": [0.0] * num_steps,
-                    "z": {}
-                }
+            for outlet_name in self._get_unit_outlets(unit_name):
+                if outlet_name not in results:
+                    # Initialize with zeros/empty structure
+                    results[outlet_name] = {
+                        "time": t_eval.tolist(),
+                        "T": [298.15] * num_steps,
+                        "P": [101325] * num_steps,
+                        "flowrate": [0.0] * num_steps,
+                        "z": {comp: [0.0] * num_steps for comp in components},
+                    }
         
         # Get component list from feed streams
         components = set()
@@ -739,7 +780,6 @@ class Flowsheet:
             for unit_name in processing_order:
                 unit = self.units[unit_name]
                 cfg = self.config["units"][unit_name]
-                outlet_name = cfg["out"]
                 
                 # Get merged inlet snapshot for this timestep
                 inlet_snapshot = self._get_inlet_snapshot(results, cfg, step)
@@ -754,7 +794,12 @@ class Flowsheet:
                     outlet_snapshot = unit.run(inlet_snapshot)
                 
                 # Store results for this timestep
-                self._store_snapshot_in_timeseries(results, outlet_name, outlet_snapshot, step, components)
+                if "out" in cfg:
+                    self._store_snapshot_in_timeseries(results, cfg["out"], outlet_snapshot, step, components)
+                else:
+                    for out_key in ["retentate_out", "permeate_out"]:
+                        if out_key in cfg and out_key in outlet_snapshot:
+                            self._store_snapshot_in_timeseries(results, cfg[out_key], outlet_snapshot[out_key], step, components)
         
         self.results = results
         logger.info("Dynamic simulation with recycle completed")

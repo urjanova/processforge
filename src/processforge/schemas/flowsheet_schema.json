@@ -215,7 +215,8 @@
                 "Heater",
                 "CSTR",
                 "PFR",
-                "IdealGasReactor"
+                "IdealGasReactor",
+                "FestimMembrane"
               ]
             },
             "provider": {
@@ -266,7 +267,22 @@
               "description": "friendly_material_id of the material this unit is made of"
             }
           },
-          "additionalProperties": true
+          "additionalProperties": true,
+          "if": {
+            "properties": {
+              "type": { "const": "FestimMembrane" }
+            }
+          },
+          "then": {
+            "properties": {
+              "in": { "type": "string" },
+              "retentate_out": { "type": "string" },
+              "permeate_out": { "type": "string" },
+              "thickness": { "type": "number", "minimum": 0 },
+              "mesh_cells": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["type", "in", "retentate_out", "permeate_out", "thickness", "mesh_cells", "material"]
+          }
         }
       }
     },
