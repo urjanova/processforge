@@ -29,6 +29,7 @@ class ScipyBackend(AbstractEOBackend):
         x0: np.ndarray,
         tol: float = 1e-6,
         max_iter: int = 50,
+        log_every: int = 5,
     ) -> tuple[np.ndarray, bool, dict]:
         x = x0.copy()
         converged = False
@@ -37,7 +38,10 @@ class ScipyBackend(AbstractEOBackend):
         for iteration in range(max_iter):
             F = manager.evaluate_F(x)
             norm_F = float(np.max(np.abs(F)))
-            logger.debug(f"NR iter {iteration}: ||F||_inf = {norm_F:.3e}")
+            if iteration % log_every == 0:
+                logger.info(f"  NR iter {iteration:3d}: ||F||_inf = {norm_F:.3e}")
+            else:
+                logger.debug(f"NR iter {iteration}: ||F||_inf = {norm_F:.3e}")
 
             if norm_F < tol:
                 converged = True
