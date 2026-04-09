@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -470,6 +470,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/20/b5/23b216d9d985a956623b6bd12d4086b60f0059b27799f23016af04a74ea1/fastjsonschema-2.21.2.tar.gz", hash = "sha256:b1eb43748041c880796cd077f1a07c3d94e93ae84bba5ed36800a33554ae05de", size = 374130, upload-time = "2025-08-14T18:49:36.666Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/a8/20d0723294217e47de6d9e2e40fd4a9d2f7c4b6ef974babd482a59743694/fastjsonschema-2.21.2-py3-none-any.whl", hash = "sha256:1c797122d0a86c5cace2e54bf4e819c36223b552017172f32c5c024a6b77e463", size = 24024, upload-time = "2025-08-14T18:49:34.776Z" },
+]
+
+[[package]]
+name = "festim"
+version = "1.4.1.post1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/99/bc/78e138849d753922810e7a65852f111655a24630e106f35d430e29a3eaae/festim-1.4.1.post1.tar.gz", hash = "sha256:9fb3d33cc7cf8e093892ca06ee0584c5b4de7b3f586f19424fc9ebc9c114ba42", size = 7930565, upload-time = "2025-08-28T18:04:16.491Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3c/77/c0b0892b81a250d2e9b6f319d4e78d5dd9f7b5484c62eb066e18f377ec83/festim-1.4.1.post1-py3-none-any.whl", hash = "sha256:4a63e950e2aef20124364d9a17e7cdedd7bfa9214b799da2c154f1cf6f3a80ba", size = 88798, upload-time = "2025-08-28T18:04:15.067Z" },
 ]
 
 [[package]]
@@ -1468,6 +1477,9 @@ eo-casadi = [
     { name = "casadi" },
     { name = "pyomo" },
 ]
+festim = [
+    { name = "festim" },
+]
 fmu = [
     { name = "pythonfmu" },
 ]
@@ -1486,6 +1498,7 @@ requires-dist = [
     { name = "cantera", marker = "extra == 'cantera'", specifier = ">=3.0" },
     { name = "casadi", marker = "extra == 'eo-casadi'", specifier = ">=3.6" },
     { name = "coolprop", specifier = ">=6.6" },
+    { name = "festim", marker = "extra == 'festim'", specifier = ">=1.4.1" },
     { name = "flake8", marker = "extra == 'dev'" },
     { name = "fmpy", marker = "extra == 'modelica'", specifier = ">=0.3" },
     { name = "graphviz", specifier = ">=0.20" },
@@ -1506,7 +1519,7 @@ requires-dist = [
     { name = "twine", marker = "extra == 'dev'" },
     { name = "zarr", specifier = ">=3.0" },
 ]
-provides-extras = ["eo", "eo-casadi", "fmu", "modelica", "cantera", "pcl", "dev", "docs"]
+provides-extras = ["eo", "eo-casadi", "fmu", "modelica", "cantera", "festim", "pcl", "dev", "docs"]
 
 [[package]]
 name = "psutil"
