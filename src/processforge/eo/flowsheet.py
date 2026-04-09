@@ -63,6 +63,8 @@ class EOFlowsheet:
         )
         self._unit_objects: dict = {}
         self._provider_map: dict = {}
+        self.solver_tol: float = 1e-6
+        self.solver_max_iter: int = 50
 
     # ------------------------------------------------------------------
     # Public API
@@ -87,13 +89,24 @@ class EOFlowsheet:
             x0 = self._warm_start(manager)
             self.x0: "np.ndarray" = x0.copy()
             self.var_names: list[str] = self._build_var_names(manager)
-            solver = EOSolver(backend=self.backend)
+            solver = EOSolver(
+                backend=self.backend,
+                tol=getattr(self, "solver_tol", 1e-6),
+                max_iter=getattr(self, "solver_max_iter", 50),
+            )
             x_sol, converged, stats = solver.solve(manager, x0)
             self.x_converged = x_sol
             self.converged = converged
             self.solver_stats = stats
             if not converged:
                 logger.warning("EOFlowsheet: solver did not fully converge.")
+                from .solver import compute_residual_breakdown
+                try:
+                    self.residual_breakdown = compute_residual_breakdown(
+                        manager, x_sol, self.var_names
+                    )
+                except Exception:  # noqa: BLE001
+                    self.residual_breakdown = []
             results = manager.extract_results(x_sol)
             logger.info("EOFlowsheet: simulation complete.")
             return results
@@ -264,8 +277,20 @@ class EOFlowsheet:
         # Check if saved_state provides a warm start
         state = getattr(self, "saved_state", None)
         if state is not None and "x" in state:
-            logger.info("Loading initial guess from closest existing .pfstate.")
-            return np.array(state["x"])
+            saved_x = np.asarray(state["x"], dtype=float)
+            saved_var_names = state.get("var_names", [])
+            current_var_names = self._build_var_names(manager)
+            if len(saved_x) == manager.n_vars and saved_var_names == current_var_names:
+                logger.info(
+                    f"Warm-start: using saved x from snapshot "
+                    f"'{state.get('snapshot_id', '?')}' (n={len(saved_x)})."
+                )
+                return saved_x
+            logger.warning(
+                f"Warm-start: snapshot has {len(saved_x)} vars, "
+                f"current system has {manager.n_vars}. "
+                "Variable layout changed — using forward-pass guess."
+            )
 
         # Seed with feed streams
         for name, feed in self.config["streams"].items():

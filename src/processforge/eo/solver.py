@@ -69,6 +69,40 @@ class EOSolver:
             )
         return x_sol, converged, stats
 
+def compute_residual_breakdown(
+    manager: "GlobalJacobianManager",
+    x: "np.ndarray",
+    var_names: list,
+    top_n: int = 10,
+) -> list:
+    """Return top-N largest residuals with per-variable labels.
+
+    Args:
+        manager: The assembled Jacobian manager (must still be live).
+        x: Current solution vector.
+        var_names: Human-readable labels (``stream/field`` format).
+        top_n: How many violators to return.
+
+    Returns:
+        List of dicts sorted descending by residual magnitude.
+    """
+    F = manager.evaluate_F(x)
+    entries = []
+    for i, label in enumerate(var_names):
+        if i >= len(F):
+            break
+        parts = label.split("/", 1)
+        entries.append({
+            "index": i,
+            "var_name": label,
+            "stream": parts[0] if len(parts) == 2 else "",
+            "field": parts[1] if len(parts) == 2 else label,
+            "residual": float(abs(F[i])),
+        })
+    entries.sort(key=lambda e: e["residual"], reverse=True)
+    return entries[:top_n]
+
+
 def solve_with_homotopy(
     fs, manager, solver, state, drifted
 ) -> "tuple[np.ndarray, bool, dict]":

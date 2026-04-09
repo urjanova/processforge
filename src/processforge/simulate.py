@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import time
 
 from loguru import logger
 
@@ -284,17 +285,45 @@ def _cmd_plan(args):
     report = analyze_dof(config)
     _print_dof_report(report)
 
+    # Step 5b: DOF fix suggestions
+    if report.system_dof != 0:
+        logger.warning("=== DOF Fix Suggestions ===")
+        for r in report.per_unit:
+            if r.dof > 0:
+                for issue in r.issues:
+                    logger.warning(f"  Unit '{r.unit_name}' [{r.unit_type}]: {issue}")
+            elif r.dof < 0:
+                logger.warning(
+                    f"  Unit '{r.unit_name}' [{r.unit_type}]: "
+                    f"possibly over-specified by {abs(r.dof)} equation(s)"
+                )
+
     # Step 6: Structural diff vs. saved state
     base_name = os.path.splitext(os.path.basename(fname))[0]
     state_path = os.path.join("outputs", f"{base_name}.pfstate")
     sm = StateManager(state_path)
     state = sm.load_state()
+    diff = None
     if state is not None:
         diff = sm.detect_structural_diff(config, state)
         _print_structural_diff(diff)
     else:
         logger.info("=== Structural Diff vs. Saved State ===")
         logger.info("  No prior state found — this will be a cold start.")
+
+    # Step 6b: Warm-start and homotopy eligibility
+    logger.info("=== Warm-Start Status ===")
+    if state is not None:
+        snap_id = state.get("snapshot_id", "unknown")
+        snap_ts = state.get("timestamp", "")
+        logger.info(f"  Warm-start available : Yes  (snapshot {snap_id}, {snap_ts})")
+        topology_ok = diff is None or not bool(diff.get("added") or diff.get("removed"))
+        logger.info(
+            f"  Homotopy eligible    : {'Yes' if topology_ok else 'No (topology changed)'}"
+        )
+    else:
+        logger.info("  Warm-start available : No snapshot found")
+        logger.info("  Homotopy eligible    : No (cold start)")
 
     # Step 7: Mermaid diagram
     if not args.no_diagram:
@@ -363,31 +392,39 @@ def _cmd_apply(args):
         logger.info(f"⚠️ Drift detected: {drifted}")
 
     # Build flowsheet; attach saved state for warm-start unless topology changed
-    fs = EOFlowsheet(config, backend=None)
+    fs = EOFlowsheet(config, backend=args.backend)
     fs.saved_state = state if not topology_changed else None
+    fs.solver_tol = args.tolerance
+    fs.solver_max_iter = args.max_iter
 
     logger.info("=== Running Apply (Steady-State EO) ===")
+    t0 = time.perf_counter()
     results = fs.run()
+    elapsed = time.perf_counter() - t0
 
     if fs.converged:
-        sm.save_state(config, fs.x_converged, fs.var_names)
+        snapshot_id = sm.save_state(config, fs.x_converged, fs.var_names)
         run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
-        save_results_zarr(
-            results,
-            os.path.join(outputs_dir, f"{base_name}_results.zarr"),
-            run_info=run_info,
-        )
-        logger.info("✅ Apply succeeded. New snapshot saved.")
+        zarr_path = os.path.join(outputs_dir, f"{base_name}_results.zarr")
+        save_results_zarr(results, zarr_path, run_info=run_info)
+        logger.info("=== Apply Summary ===")
+        logger.info("  Status       : CONVERGED")
+        logger.info(f"  Final ||F||  : {fs.solver_stats.get('final_norm', '?'):.3e}")
+        logger.info(f"  Iterations   : {fs.solver_stats.get('iterations', '?')}")
+        logger.info(f"  Backend      : {fs.backend}")
+        logger.info(f"  Snapshot ID  : {snapshot_id}")
+        logger.info(f"  Results zarr : {zarr_path}")
+        logger.info(f"  Elapsed (s)  : {elapsed:.2f}")
         return
 
     # Direct solve failed — try homotopy (only when topology is same and state exists)
-    if state is not None and not topology_changed and drifted:
+    if state is not None and not topology_changed and drifted and not args.skip_homotopy:
         logger.warning("Direct solve failed. Attempting homotopy continuation...")
         from .eo.solver import EOSolver, solve_with_homotopy
 
-        solver = EOSolver(backend=fs.backend)
+        solver = EOSolver(backend=fs.backend, tol=args.tolerance, max_iter=args.max_iter)
         from .eo.flowsheet import EOFlowsheet as _EO
-        tmp_fs = _EO(config, backend=None)
+        tmp_fs = _EO(config, backend=args.backend)
         from processforge.providers.manager import teardown_providers
         manager = tmp_fs._build()
         try:
@@ -412,24 +449,42 @@ def _cmd_apply(args):
         logger.error("Homotopy also failed to converge.")
         sm.rollback(1)
         logger.warning("Reverted .pfstate to last good snapshot.")
+        breakdown = getattr(fs, "residual_breakdown", [])
+        if breakdown:
+            logger.error("Top residual violators:")
+            for entry in breakdown:
+                logger.error(
+                    f"  [{entry['index']:4d}] {entry['var_name']:<35s}  |F| = {entry['residual']:.4e}"
+                )
+        import datetime
         divergence = {
-            "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "drifted_params": drifted,
             "final_norm": hom_stats.get("final_norm"),
             "solver_stats": hom_stats,
             "x_last": x_hom.tolist(),
             "var_names": fs.var_names,
+            "top_violators": breakdown,
         }
     else:
         # Cold start also failed; no rollback (nothing to revert to)
         logger.error("Cold-start solve failed to converge.")
+        breakdown = getattr(fs, "residual_breakdown", [])
+        if breakdown:
+            logger.error("Top residual violators:")
+            for entry in breakdown:
+                logger.error(
+                    f"  [{entry['index']:4d}] {entry['var_name']:<35s}  |F| = {entry['residual']:.4e}"
+                )
+        import datetime
         divergence = {
-            "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "drifted_params": [],
             "final_norm": fs.solver_stats.get("final_norm"),
             "solver_stats": fs.solver_stats,
             "x_last": fs.x_converged.tolist() if hasattr(fs, "x_converged") else [],
             "var_names": fs.var_names if hasattr(fs, "var_names") else [],
+            "top_violators": breakdown,
         }
 
     div_path = os.path.join(outputs_dir, f"{base_name}_divergence.json")
@@ -466,6 +521,22 @@ def main():
         help="Apply flowsheet using state-based warm start and homotopy fallback",
     )
     apply_parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
+    apply_parser.add_argument(
+        "--backend", choices=["scipy", "pyomo", "casadi"], default=None,
+        help="Override the flowsheet's simulation.backend",
+    )
+    apply_parser.add_argument(
+        "--tolerance", type=float, default=1e-6,
+        help="Newton solver convergence tolerance (default: 1e-6)",
+    )
+    apply_parser.add_argument(
+        "--max-iter", type=int, default=50,
+        help="Max Newton iterations (default: 50)",
+    )
+    apply_parser.add_argument(
+        "--skip-homotopy", action="store_true",
+        help="Disable homotopy fallback; cold-start only",
+    )
 
     # processforge run
     run_parser = subparsers.add_parser("run", help="Run a process simulation")
