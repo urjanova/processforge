@@ -54,9 +54,6 @@ modelica = [
 cantera = [
     "cantera>=3.0",
 ]
-festim = [
-    "festim>=1.4.1",
-]
 pcl = [
     "pint>=0.24",
 ]
