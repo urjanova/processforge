@@ -225,8 +225,9 @@ class Flowsheet:
 
         logger.info("Starting simulation")
         from .providers.manager import build_provider_map, teardown_providers
-        providers_config = self.config.get("providers", {})
-        provider_map = build_provider_map(providers_config, self.config)
+        from .types import FlowsheetConfig
+        flowsheet_cfg = FlowsheetConfig.from_dict(self.config)
+        provider_map = build_provider_map(flowsheet_cfg.providers, flowsheet_cfg)
         try:
             self.build_units(provider_map=provider_map)
             mode = self.config.get("simulation", {}).get("mode", "steady")

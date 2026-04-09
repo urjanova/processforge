@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from loguru import logger
 
+from processforge.types import CoolPropProviderConfig, FlowsheetConfig, ProviderConfig
+
 from .coolprop_provider import CoolPropProvider
 from .registry import get_provider_class
 
@@ -21,8 +23,8 @@ _DEFAULT_KEY = "__default__"
 
 
 def build_provider_map(
-    providers_config: dict,
-    flowsheet_config: dict,
+    providers_config: dict[str, ProviderConfig],
+    flowsheet_config: FlowsheetConfig,
 ) -> dict[str, "AbstractProvider"]:  # noqa: F821
     """Parse the ``providers`` block and return a ready-to-use provider map.
 
@@ -35,24 +37,20 @@ def build_provider_map(
       flowsheet sets ``"default_provider"``.
 
     Args:
-        providers_config: The ``config["providers"]`` dict (may be empty).
-        flowsheet_config: The full validated flowsheet config dict.
+        providers_config: Mapping of provider name → typed provider config.
+        flowsheet_config: Typed representation of the full flowsheet config.
 
     Returns:
         Mapping of provider name → initialised ``AbstractProvider`` instance.
     """
     # Step 1: always seed with the built-in CoolProp fallback.
     coolprop = CoolPropProvider()
-    coolprop.initialize({}, flowsheet_config)
+    coolprop.initialize(CoolPropProviderConfig(), flowsheet_config)
     provider_map: dict = {_BUILTIN_DEFAULT_KEY: coolprop}
 
     # Step 2: instantiate every declared provider.
     for name, cfg in providers_config.items():
-        ptype = cfg.get("type")
-        if not ptype:
-            raise ValueError(
-                f"Provider '{name}' is missing the required 'type' field."
-            )
+        ptype = cfg.type
         _maybe_import_provider(ptype)
         cls = get_provider_class(ptype)
         instance = cls()
@@ -61,7 +59,7 @@ def build_provider_map(
         logger.info(f"Initialized provider '{name}' (type='{ptype}')")
 
     # Step 3: resolve the active default.
-    user_default = flowsheet_config.get("default_provider")
+    user_default = flowsheet_config.default_provider
     if user_default is not None:
         if user_default not in provider_map:
             raise ValueError(

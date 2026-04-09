@@ -5,7 +5,13 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
-    from processforge.types import MaterialDef, SimulationResult, UnitConfig
+    from processforge.types import (
+        FlowsheetConfig,
+        MaterialDef,
+        ProviderConfig,
+        SimulationResult,
+        UnitConfig,
+    )
 
 
 class AbstractProvider(ABC):
@@ -31,13 +37,17 @@ class AbstractProvider(ABC):
     """
 
     @abstractmethod
-    def initialize(self, provider_config: dict, flowsheet_config: dict) -> None:
+    def initialize(
+        self,
+        provider_config: "ProviderConfig",
+        flowsheet_config: "FlowsheetConfig",
+    ) -> None:
         """Set up provider resources from the flowsheet configuration.
 
         Args:
-            provider_config: The provider's own config block from the JSON
-                ``providers`` map (e.g. ``{"type": "cantera", "mechanism": "gri30.yaml"}``).
-            flowsheet_config: The full validated flowsheet config dict.
+            provider_config: Typed config for this provider (e.g.
+                ``CanteraProviderConfig``, ``FestimProviderConfig``).
+            flowsheet_config: Typed representation of the full flowsheet config.
         """
 
     @abstractmethod

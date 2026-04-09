@@ -9,7 +9,7 @@ Adding a new provider never requires changes to these dataclasses.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Union
 
 
 @dataclass
@@ -124,6 +124,214 @@ class UnitConfig:
         known = {k: v for k, v in d.items() if k in known_keys}
         extra = {k: v for k, v in d.items() if k not in known_keys and k != "in"}
         return cls(inputs=inputs, **known, extra=extra)
+
+
+# ---------------------------------------------------------------------------
+# Per-provider configuration dataclasses
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CoolPropProviderConfig:
+    """Configuration for the built-in CoolProp provider (no extra fields)."""
+
+    type: str = "coolprop"
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CoolPropProviderConfig":
+        return cls()
+
+
+@dataclass
+class CanteraProviderConfig:
+    """Configuration for the Cantera thermochemistry provider.
+
+    Flowsheet JSON example::
+
+        "providers": {
+            "cantera": {"type": "cantera", "mechanism": "gri30.yaml", "phase": null}
+        }
+    """
+
+    type: str = "cantera"
+    mechanism: str = "gri30.yaml"
+    phase: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CanteraProviderConfig":
+        return cls(
+            mechanism=d.get("mechanism", "gri30.yaml"),
+            phase=d.get("phase") or None,
+        )
+
+
+@dataclass
+class FestimProviderConfig:
+    """Configuration for the FESTIM hydrogen-transport provider.
+
+    ``materials`` holds inline material overrides that take priority over the
+    flowsheet's global ``materials`` section.
+
+    Flowsheet JSON example::
+
+        "providers": {
+            "festim": {"type": "festim"}
+        }
+    """
+
+    type: str = "festim"
+    materials: dict = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FestimProviderConfig":
+        return cls(materials=d.get("materials", {}))
+
+
+@dataclass
+class ModelicaProviderConfig:
+    """Configuration for the OpenModelica FMU provider.
+
+    Flowsheet JSON example::
+
+        "providers": {
+            "modelica": {"type": "modelica", "output_dir": "outputs"}
+        }
+    """
+
+    type: str = "modelica"
+    output_dir: str = "outputs"
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ModelicaProviderConfig":
+        return cls(output_dir=d.get("output_dir", "outputs"))
+
+
+#: Union of all known provider config types — extend when adding a new provider.
+ProviderConfig = Union[
+    CoolPropProviderConfig,
+    CanteraProviderConfig,
+    FestimProviderConfig,
+    ModelicaProviderConfig,
+]
+
+_PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
+    "coolprop": CoolPropProviderConfig,
+    "cantera": CanteraProviderConfig,
+    "festim": FestimProviderConfig,
+    "modelica": ModelicaProviderConfig,
+}
+
+
+def provider_config_from_dict(d: dict) -> ProviderConfig:
+    """Parse a raw provider config dict into the appropriate typed dataclass.
+
+    Args:
+        d: Raw provider config block from the flowsheet JSON
+           (must contain a ``"type"`` key).
+
+    Raises:
+        ValueError: If ``"type"`` is missing or names an unknown provider.
+    """
+    ptype = d.get("type")
+    if not ptype:
+        raise ValueError("Provider config is missing the required 'type' field.")
+    cls = _PROVIDER_CONFIG_REGISTRY.get(ptype)
+    if cls is None:
+        raise ValueError(
+            f"Unknown provider type '{ptype}'. "
+            f"Known types: {sorted(_PROVIDER_CONFIG_REGISTRY)}"
+        )
+    return cls.from_dict(d)
+
+
+# ---------------------------------------------------------------------------
+# Full flowsheet configuration
+# ---------------------------------------------------------------------------
+
+@dataclass
+class FlowsheetConfig:
+    """Typed representation of a complete flowsheet configuration.
+
+    ``from_dict()`` converts the raw JSON dict into typed nested dataclasses:
+    providers → per-provider config classes, units → ``UnitConfig``,
+    materials → ``MaterialDef``.  Unknown top-level keys land in ``extra``
+    (e.g. ``_config_path`` injected at runtime by the Modelica runner).
+
+    Usage::
+
+        cfg = FlowsheetConfig.from_dict(raw)
+        cfg.default_provider          # Optional[str]
+        cfg.materials["tungsten"]     # MaterialDef
+        cfg.providers["festim"]       # FestimProviderConfig
+    """
+
+    providers: dict = field(default_factory=dict)   # dict[str, ProviderConfig]
+    default_provider: Optional[str] = None
+    streams: dict = field(default_factory=dict)
+    units: dict = field(default_factory=dict)        # dict[str, UnitConfig]
+    materials: dict = field(default_factory=dict)    # dict[str, MaterialDef]
+    material_mixes: dict = field(default_factory=dict)
+    simulation: dict = field(default_factory=dict)
+    metadata: Optional[dict] = None
+    extra: dict = field(default_factory=dict)        # runtime / unknown fields
+
+    _KNOWN_FIELDS: frozenset = field(
+        default=frozenset({
+            "providers", "default_provider", "streams", "units",
+            "materials", "material_mixes", "simulation", "metadata",
+        }),
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FlowsheetConfig":
+        """Construct from a raw flowsheet config dict (as loaded from JSON)."""
+        known_keys = frozenset({
+            "providers", "default_provider", "streams", "units",
+            "materials", "material_mixes", "simulation", "metadata",
+        })
+        providers = {
+            name: provider_config_from_dict(cfg)
+            for name, cfg in d.get("providers", {}).items()
+        }
+        units = {
+            name: UnitConfig.from_dict(cfg)
+            for name, cfg in d.get("units", {}).items()
+        }
+        materials = {
+            name: MaterialDef.from_dict(mat)
+            for name, mat in d.get("materials", {}).items()
+        }
+        extra = {k: v for k, v in d.items() if k not in known_keys}
+        return cls(
+            providers=providers,
+            default_provider=d.get("default_provider"),
+            streams=d.get("streams", {}),
+            units=units,
+            materials=materials,
+            material_mixes=d.get("material_mixes", {}),
+            simulation=d.get("simulation", {}),
+            metadata=d.get("metadata"),
+            extra=extra,
+        )
+
+    def get(self, key: str, default=None):
+        """Dict-compatible accessor for backwards-compatible code paths.
+
+        Checks typed fields first, then ``extra``.  Returns ``default`` when
+        the key is absent from both.  Exists primarily so helper functions that
+        pre-date this dataclass (e.g. ``_derive_model_name`` in transpiler.py)
+        keep working unchanged.
+        """
+        known_keys = frozenset({
+            "providers", "default_provider", "streams", "units",
+            "materials", "material_mixes", "simulation", "metadata",
+        })
+        if key in known_keys:
+            val = getattr(self, key)
+            return val if val is not None else default
+        return self.extra.get(key, default)
 
 
 @dataclass

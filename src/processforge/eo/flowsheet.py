@@ -123,9 +123,9 @@ class EOFlowsheet:
         self._check_provider_backend_compat()
 
         from processforge.providers.manager import build_provider_map
-        self._provider_map = build_provider_map(
-            self.config.get("providers", {}), self.config
-        )
+        from processforge.types import FlowsheetConfig
+        flowsheet_cfg = FlowsheetConfig.from_dict(self.config)
+        self._provider_map = build_provider_map(flowsheet_cfg.providers, flowsheet_cfg)
 
         components = self._collect_components()
         logger.info(f"EOFlowsheet: components = {components}")

@@ -36,12 +36,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 from loguru import logger
 
 from .base import AbstractProvider
 from .registry import register_provider
+
+if TYPE_CHECKING:
+    from processforge.types import FestimProviderConfig, FlowsheetConfig
 
 
 # ---------------------------------------------------------------------------
@@ -513,16 +516,17 @@ class FestimProvider(AbstractProvider):
         self._materials: dict = {}
         self._initialized: bool = False
 
-    def initialize(self, provider_config: dict, flowsheet_config: dict) -> None:
+    def initialize(
+        self,
+        provider_config: "FestimProviderConfig",
+        flowsheet_config: "FlowsheetConfig",
+    ) -> None:
         """Initialize the FESTIM provider.
 
         Checks that FESTIM is installed, then builds an internal
         :class:`~processforge.types.MaterialDef` registry from the flowsheet's
-        global ``materials`` section.
-
-        Only Festim-relevant fields (D_0, E_D, S_0, E_S, thermal_cond, trap
-        parameters) are retained — OpenMC/other fields (nuclides, density_units)
-        are excluded, keeping the provider footprint minimal.
+        global ``materials`` section (already parsed into typed ``MaterialDef``
+        objects by ``FlowsheetConfig.from_dict``).
 
         Provider-block ``"materials"`` overrides take priority over the global
         section.  Materials are indexed by both ``friendly_material_id`` (as str)
@@ -538,16 +542,14 @@ class FestimProvider(AbstractProvider):
         from processforge.types import MaterialDef
 
         self._materials = {}
-        for mat_name, mat_dict in flowsheet_config.get("materials", {}).items():
-            filtered = {k: v for k, v in mat_dict.items() if k in _FESTIM_MATERIAL_KEYS}
-            mat = MaterialDef.from_dict(filtered)
-            fid = mat_dict.get("friendly_material_id")
+        for mat_name, mat_def in flowsheet_config.materials.items():
+            fid = mat_def.friendly_material_id
             if fid is not None:
-                self._materials[str(fid)] = mat
-            self._materials[mat_name] = mat
+                self._materials[str(fid)] = mat_def
+            self._materials[mat_name] = mat_def
 
         # Provider-block inline overrides take priority
-        for key, props in provider_config.get("materials", {}).items():
+        for key, props in provider_config.materials.items():
             self._materials[str(key)] = MaterialDef.from_dict(props)
 
         self._initialized = True
