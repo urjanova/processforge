@@ -1,13 +1,16 @@
 """CanteraProvider — thermochemistry and reactor kinetics via Cantera."""
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
 from .base import AbstractProvider
 from .cantera_jacobian import CanteraJacobianMixin
 from .registry import register_provider
+
+if TYPE_CHECKING:
+    from processforge.types import CanteraProviderConfig, FlowsheetConfig
 
 # Unit types this provider can compute natively.
 _REACTOR_UNIT_TYPES = {"CSTR", "PFR", "IdealGasReactor"}
@@ -46,7 +49,11 @@ class CanteraProvider(AbstractProvider, CanteraJacobianMixin):
     # Exposed so the SM factory can discover and register reactor unit classes.
     unit_types: dict[str, type] = {}
 
-    def initialize(self, provider_config: dict, flowsheet_config: dict) -> None:
+    def initialize(
+        self,
+        provider_config: "CanteraProviderConfig",
+        flowsheet_config: "FlowsheetConfig",
+    ) -> None:
         try:
             import cantera as ct
         except ImportError as exc:
@@ -56,8 +63,8 @@ class CanteraProvider(AbstractProvider, CanteraJacobianMixin):
             ) from exc
 
         self._ct = ct
-        mechanism = provider_config.get("mechanism", "gri30.yaml")
-        phase = provider_config.get("phase") or None
+        mechanism = provider_config.mechanism
+        phase = provider_config.phase
         if phase:
             self._gas = ct.Solution(mechanism, phase)
         else:

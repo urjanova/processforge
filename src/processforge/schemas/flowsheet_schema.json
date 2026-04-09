@@ -18,7 +18,7 @@
           "properties": {
             "type": {
               "type": "string",
-              "enum": ["coolprop", "cantera", "modelica"],
+              "enum": ["coolprop", "cantera", "modelica","festim"],
               "description": "Provider engine type"
             },
             "mechanism": {
@@ -85,6 +85,33 @@
             "depletable": {
               "type": "boolean",
               "default": false
+            },
+            "D_0": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Pre-exponential diffusivity [m^2/s] — Festim hydrogen transport"
+            },
+            "E_D": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Diffusion activation energy [eV] — Festim hydrogen transport"
+            },
+            "S_0": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Pre-exponential Sieverts solubility [H/m^3/Pa^0.5] — Festim permeation"
+            },
+            "E_S": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Solubility activation energy [eV] — Festim permeation"
+            },
+            "thermal_cond": {
+              "oneOf": [
+                {"type": "number", "exclusiveMinimum": 0},
+                {"type": "string", "description": "Python expression in T, e.g. '3 + 0.1 * T'"}
+              ],
+              "description": "Thermal conductivity [W/m/K] — constant or temperature-dependent expression"
             },
             "nuclides": {
               "type": "array",
@@ -198,8 +225,6 @@
           "type": "object",
           "required": [
             "type",
-            "in",
-            "out",
             "material"
           ],
           "properties": {
@@ -215,7 +240,9 @@
                 "Heater",
                 "CSTR",
                 "PFR",
-                "IdealGasReactor"
+                "IdealGasReactor",
+                "FestimMembrane",
+                "SolverUnit"
               ]
             },
             "provider": {
@@ -266,7 +293,54 @@
               "description": "friendly_material_id of the material this unit is made of"
             }
           },
-          "additionalProperties": true
+          "additionalProperties": true,
+          "allOf": [
+            {
+              "if": {
+                "properties": { "type": { "const": "FestimMembrane" } }
+              },
+              "then": {
+                "required": ["in", "retentate_out", "permeate_out", "thickness", "mesh_cells"],
+                "properties": {
+                  "in": { "type": "string" },
+                  "retentate_out": { "type": "string" },
+                  "permeate_out": { "type": "string" },
+                  "thickness": { "type": "number", "minimum": 0 },
+                  "mesh_cells": { "type": "integer", "minimum": 1 }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": { "type": { "const": "SolverUnit" } }
+              },
+              "then": {
+                "required": ["sim_type"],
+                "properties": {
+                  "sim_type": {
+                    "type": "string",
+                    "description": "Provider-interpreted simulation mode (e.g. 'heat_2d', 'eigenvalue')"
+                  },
+                  "solver_config": {
+                    "type": "object",
+                    "description": "Provider-specific settings — opaque to the framework (mesh, BCs, traps, exports, …)"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "not": {
+                  "properties": {
+                    "type": { "enum": ["FestimMembrane", "SolverUnit"] }
+                  }
+                }
+              },
+              "then": {
+                "required": ["in", "out"]
+              }
+            }
+          ]
         }
       }
     },

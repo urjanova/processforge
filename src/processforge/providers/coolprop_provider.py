@@ -1,9 +1,12 @@
 """CoolPropProvider — default provider wrapping the existing thermo.py functions."""
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from .base import AbstractProvider
+
+if TYPE_CHECKING:
+    from processforge.types import CoolPropProviderConfig, FlowsheetConfig
 
 
 class CoolPropProvider(AbstractProvider):
@@ -14,7 +17,11 @@ class CoolPropProvider(AbstractProvider):
     to work exactly as before.
     """
 
-    def initialize(self, provider_config: dict, flowsheet_config: dict) -> None:
+    def initialize(
+        self,
+        provider_config: "CoolPropProviderConfig",
+        flowsheet_config: "FlowsheetConfig",
+    ) -> None:
         # CoolProp needs no warm-up; nothing to do.
         pass
 

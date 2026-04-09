@@ -19,13 +19,16 @@ from __future__ import annotations
 
 import os
 import tempfile
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
 from .base import AbstractProvider
 from .modelica_jacobian import ModelicaJacobianMixin
 from .registry import register_provider
+
+if TYPE_CHECKING:
+    from processforge.types import FlowsheetConfig, ModelicaProviderConfig
 
 
 class ModelicaProvider(AbstractProvider, ModelicaJacobianMixin):
@@ -47,8 +50,12 @@ class ModelicaProvider(AbstractProvider, ModelicaJacobianMixin):
     an explicit ``"provider"`` key still receive correct thermo data.
     """
 
-    def initialize(self, provider_config: dict, flowsheet_config: dict) -> None:
-        config_path = flowsheet_config.get("_config_path")
+    def initialize(
+        self,
+        provider_config: "ModelicaProviderConfig",
+        flowsheet_config: "FlowsheetConfig",
+    ) -> None:
+        config_path = flowsheet_config.extra.get("_config_path")
         if not config_path:
             raise RuntimeError(
                 "ModelicaProvider requires '_config_path' in flowsheet_config. "
@@ -70,7 +77,7 @@ class ModelicaProvider(AbstractProvider, ModelicaJacobianMixin):
         from processforge.modelica.transpiler import transpile, _derive_model_name
         from processforge.modelica.omc_runner import compile_modelica
 
-        output_dir = provider_config.get("output_dir", "outputs")
+        output_dir = provider_config.output_dir
         os.makedirs(output_dir, exist_ok=True)
 
         logger.info("ModelicaProvider: transpiling flowsheet to Modelica…")

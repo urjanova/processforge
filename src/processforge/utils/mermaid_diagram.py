@@ -46,7 +46,13 @@ def generate_mermaid(config: dict, output_path: str | None = None) -> str:
     # Feed streams are produced by their own node; unit outputs by unit node
     producer: dict[str, str] = {s: _node_id(s) for s in feed_streams}
     for unit_name, unit_cfg in units.items():
-        producer[unit_cfg["out"]] = _node_id(unit_name)
+        out = unit_cfg.get("out")
+        if out:
+            if isinstance(out, str):
+                producer[out] = _node_id(unit_name)
+            elif isinstance(out, list):
+                for s in out:
+                    producer[s] = _node_id(unit_name)
 
     # Draw edges: for each unit, one edge per inlet
     for unit_name, unit_cfg in units.items():

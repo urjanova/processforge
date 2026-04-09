@@ -89,7 +89,7 @@
       "type": "Pump",
       "in": "after_pipe_3",
       "out": "after_pump_2",
-      "deltaP": 300000.0,
+      "deltaP": 200000.0,
       "efficiency": 0.8,
       "material": 3
     },

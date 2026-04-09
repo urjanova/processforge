@@ -3,7 +3,7 @@
 
 ![processforge-logo](images/processforge-logo.jpg)
 
-A Python-based process simulation framework for chemical process engineering applications.
+A Python-based process simulation framework for coupling different simulation engines.
 
 ## Table of Contents
 
@@ -342,61 +342,7 @@ If both the direct Newton solve and the homotopy fallback fail to converge:
 1. `latest` is automatically reverted to the previous good snapshot.
 2. A `*_divergence.json` report is written with the drifted parameters, final `||F||`, homotopy step history, and the last `x` vector for debugging.
 
-## Project Structure
 
-```
-processforge/
-├── src/processforge/              # Core package
-│   ├── __init__.py               # Public API
-│   ├── flowsheet.py              # Sequential-modular solver (dynamic mode)
-│   ├── thermo.py                 # Thermodynamic calculations via CoolProp
-│   ├── result.py                 # Results export (Zarr, Excel, plotting)
-│   ├── simulate.py               # CLI entry point (init, plan, apply, run, diagram, export-*)
-│   ├── state.py                  # StateManager — versioned .pfstate snapshots, drift detection
-│   ├── solver.py                 # ODE solver interface (dynamic)
-│   ├── validate.py               # Simple schema validation
-│   ├── _schema.py                # Schema loader (importlib.resources)
-│   ├── eo/                       # Equation-oriented (EO) steady-state solver
-│   │   ├── flowsheet.py          # EOFlowsheet — build, warm-start, solve; exposes fs.converged
-│   │   ├── solver.py             # EOSolver — backend selector; solve_with_homotopy() continuation
-│   │   ├── jacobian.py           # GlobalJacobianManager — F(x), J(x)
-│   │   ├── stream_var.py         # StreamVar — per-stream variable container
-│   │   ├── mixin.py              # EOUnitModelMixin — unit residual interface
-│   │   ├── backends/             # Pluggable solver backends
-│   │   │   ├── scipy_backend.py  # Newton-Raphson + Armijo (built-in)
-│   │   │   ├── pyomo_backend.py  # Pyomo ConcreteModel + IPOPT (optional)
-│   │   │   └── casadi_backend.py # CasADi SX + rootfinder (optional)
-│   │   └── units/                # EO residual equations per unit type
-│   │       ├── pump_eo.py
-│   │       ├── valve_eo.py
-│   │       ├── strainer_eo.py
-│   │       ├── pipes_eo.py
-│   │       ├── heater_eo.py
-│   │       └── flash_eo.py
-│   ├── units/                    # Unit operation implementations
-│   │   ├── pump.py               # Pump with efficiency
-│   │   ├── valve.py              # Pressure-reducing valve
-│   │   ├── strainer.py           # Pressure drop element
-│   │   ├── pipes.py              # Pipe with friction losses
-│   │   ├── tank.py               # Well-mixed tank (dynamic ODE)
-│   │   ├── flash.py              # Isothermal flash separator
-│   │   └── heater.py             # Temperature control heater
-│   ├── modelica/                 # OMPython bridge: .mo transpiler + omc runner
-│   │   ├── transpiler.py         # transpile() — config → Modelica source
-│   │   ├── mo_writer.py          # build_model_source() — string builder
-│   │   ├── unit_equations.py     # Per-unit equation generators
-│   │   └── omc_runner.py         # compile_modelica() — OMPython validate + FMU
-│   ├── utils/                    # Utilities
-│   │   ├── validate_flowsheet.py # Schema + connectivity validation
-│   │   └── flowsheet_diagram.py  # Graphviz visualization
-│   └── schemas/                  # Bundled JSON schemas
-│       └── flowsheet_schema.json
-├── flowsheets/                    # Example flowsheet configurations
-│   ├── closed-loop-chain.json    # Dynamic recycle example
-│   └── archive/                  # Additional examples
-├── pyproject.toml                # Project configuration
-└── MANIFEST.in                   # Source distribution manifest
-```
 
 ## Dependencies
 

@@ -1,0 +1,54 @@
+{
+  "metadata": {
+    "name": "Festim 2D Heat and Hydrogen Transport",
+    "description": "2D unit square — coupled heat transfer + H transport with a trap, matching simple_2D.py",
+    "version": "1.0"
+  },
+  "providers": {
+    "festim": {
+      "type": "festim"
+    }
+  },
+  "materials": {
+    "tungsten_2d": {
+      "friendly_material_id": 10,
+      "D_0": 4.1e-7,
+      "E_D": 0.39,
+      "thermal_cond": "3 + 0.1 * T"
+    }
+  },
+  "streams": {},
+  "units": {
+    "fem_2d": {
+      "type": "SolverUnit",
+      "provider": "festim",
+      "sim_type": "heat_2d",
+      "material": 10,
+      "solver_config": {
+        "mesh": { "nx": 20, "ny": 20 },
+        "transient": false,
+        "boundary_conditions": [
+          { "type": "DirichletBC", "field": "T",  "value": 300,   "surfaces": 1 },
+          { "type": "ConvectiveFlux", "h_coeff": 10, "T_ext": 650, "surfaces": 2 },
+          { "type": "FluxBC",        "field": "T",  "value": 0,    "surfaces": 3 },
+          { "type": "DirichletBC",   "field": 0,    "value": 1e19, "surfaces": 1 }
+        ],
+        "sources": [
+          { "value": 1000, "volume": 1, "field": "T" }
+        ],
+        "traps": [
+          { "k_0": 3.8e-17, "E_k": 0.39, "p_0": 8.4e12, "E_p": 0.9, "density": 1e25 }
+        ],
+        "exports": [
+          { "field": "solute" },
+          { "field": "retention" },
+          { "field": "T" }
+        ],
+        "export_folder": "output/festim_2d"
+      }
+    }
+  },
+  "simulation": {
+    "mode": "steady"
+  }
+}
