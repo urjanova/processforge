@@ -10,14 +10,16 @@
     }
   },
   "materials": {
+    "H2": {
+      "friendly_material_id": 1
+    },
     "tungsten": {
       "friendly_material_id": 3,
-          "D_0": 4.1e-7,
-          "E_D": 0.39,
-          "S_0": 4.28e-5,
-          "E_S": 0.26
+      "D_0": 4.1e-7,
+      "E_D": 0.39,
+      "S_0": 4.28e-5,
+      "E_S": 0.26
     }
-    
   },
   
   "streams": {
@@ -25,15 +27,14 @@
       "T": 300.0,
       "P": 1000000,
       "flowrate": 0.1,
-      "material": 1
+      "z": { "H2": 1.0 }
     }
   },
   "units": {
-    
     "membrane": {
       "type": "FestimMembrane",
       "provider": "festim",
-      "in": "after_heater",
+      "in": "feed",
       "retentate_out": "recycle",
       "permeate_out": "waste",
       "thickness": 0.005,

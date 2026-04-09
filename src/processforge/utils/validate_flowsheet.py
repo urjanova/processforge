@@ -31,6 +31,7 @@ def _validate_config_impl(config: dict, source_name: str) -> dict:
     check_stream_connectivity(config)
     _check_material_semantics(config)
     _check_provider_references(config)
+    _check_provider_material_props(config)
     _resolve_material_mix_streams(config)
     return config
 
@@ -101,12 +102,31 @@ def _get_unit_inlets(unit_config):
     return [inlet] if inlet else []
 
 
+# Unit types that run standalone FEM/neutronics simulations — no mandatory
+# inlet or outlet stream.  They are exempt from stream connectivity rules.
+_SOLVER_UNIT_TYPES = frozenset({"SolverUnit"})
+
+
+def _collect_produced_streams(config: dict) -> set:
+    """Return all stream names produced by any unit (out, retentate_out, permeate_out)."""
+    produced = set()
+    for unit in config["units"].values():
+        for key in ("out", "retentate_out", "permeate_out"):
+            val = unit.get(key)
+            if val is not None:
+                produced.add(val)
+    return produced
+
+
 def check_stream_connectivity(config):
     """
     Validate stream connectivity in a flowsheet configuration.
 
     Streams are valid if declared in 'streams' (feeds) or produced as the
     'out' of any unit. Recycle streams are auto-detected from graph topology.
+
+    SolverUnit types (FEM/neutronics) are exempt — they have no mandatory
+    inlet or outlet stream.
 
     Raises:
         ValueError: If any connectivity check fails.
@@ -115,12 +135,17 @@ def check_stream_connectivity(config):
         bool: True if all checks pass.
     """
     defined_streams = set(config["streams"].keys())
-    produced_streams = {unit["out"] for unit in config["units"].values()}
+    produced_streams = _collect_produced_streams(config)
     consumed_streams = set()
 
     for name, unit in config["units"].items():
+        utype = unit.get("type", "")
+        if utype in _SOLVER_UNIT_TYPES:
+            # Standalone simulation units — no stream connectivity required
+            continue
         inlets = _get_unit_inlets(unit)
-        if not inlets or not unit.get("out"):
+        has_outlet = unit.get("out") or unit.get("retentate_out")
+        if not inlets or not has_outlet:
             raise ValueError(f"❌ Unit '{name}' missing 'in' or 'out' field.")
         consumed_streams.update(inlets)
 
@@ -148,7 +173,9 @@ def _check_unused_outlets(config, consumed_streams, defined_streams):
     """Warn about outlet streams not consumed by any downstream unit."""
     all_known_consumers = consumed_streams | defined_streams
     for name, unit in config["units"].items():
-        outlet = unit["out"]
+        outlet = unit.get("out")
+        if outlet is None:
+            continue
         if outlet not in all_known_consumers:
             logger.warning(
                 f"⚠️  Outlet '{outlet}' from unit '{name}' is not consumed "
@@ -161,16 +188,23 @@ def _check_unreachable_units(config, defined_streams):
     Detect unreachable units by propagating reachability from feed streams.
 
     Runs N iterations (N = unit count) to cover all paths including cycles.
+    SolverUnit types are excluded — they have no inlet stream dependency.
     """
     reachable = set(defined_streams)
     for _ in range(len(config["units"])):
         for ucfg in config["units"].values():
+            if ucfg.get("type") in _SOLVER_UNIT_TYPES:
+                continue
             if any(i in reachable for i in _get_unit_inlets(ucfg)):
-                reachable.add(ucfg["out"])
+                for key in ("out", "retentate_out", "permeate_out"):
+                    val = ucfg.get(key)
+                    if val:
+                        reachable.add(val)
 
     unreachable = [
         u for u, cfg in config["units"].items()
-        if cfg["out"] not in reachable
+        if cfg.get("type") not in _SOLVER_UNIT_TYPES
+        and not any(cfg.get(k) in reachable for k in ("out", "retentate_out", "permeate_out"))
     ]
     if unreachable:
         raise ValueError(
@@ -180,6 +214,9 @@ def _check_unreachable_units(config, defined_streams):
 
 _PIPE_LIKE_UNIT_TYPES = frozenset({"Pipes", "CSTR", "PFR", "IdealGasReactor"})
 
+# Festim/solver unit types that produce streams valid as downstream inputs
+_FESTIM_UNIT_TYPES = frozenset({"FestimMembrane", "SolverUnit"})
+
 
 def _check_pipe_linkage(config):
     """
@@ -187,22 +224,33 @@ def _check_pipe_linkage(config):
 
     Reactor unit types (CSTR, PFR, IdealGasReactor) are treated as valid
     sources alongside Pipes units, since they similarly transform streams.
+    Festim and SolverUnit types are also valid sources and are exempt from
+    the linkage requirement themselves.
     """
     pipe_like_outputs = {
-        u["out"] for u in config["units"].values()
-        if u["type"] in _PIPE_LIKE_UNIT_TYPES
+        u.get("out") for u in config["units"].values()
+        if u.get("type") in _PIPE_LIKE_UNIT_TYPES and u.get("out")
     }
-    feed_streams = set(config["streams"].keys())
-    valid_inputs = feed_streams | pipe_like_outputs
+    festim_outputs = set()
+    for u in config["units"].values():
+        if u.get("type") in _FESTIM_UNIT_TYPES:
+            for key in ("out", "retentate_out", "permeate_out"):
+                val = u.get(key)
+                if val:
+                    festim_outputs.add(val)
 
+    feed_streams = set(config["streams"].keys())
+    valid_inputs = feed_streams | pipe_like_outputs | festim_outputs
+
+    exempt_types = _PIPE_LIKE_UNIT_TYPES | _FESTIM_UNIT_TYPES
     for name, unit in config["units"].items():
-        if unit["type"] in _PIPE_LIKE_UNIT_TYPES:
+        if unit.get("type") in exempt_types:
             continue
         for inlet in _get_unit_inlets(unit):
             if inlet not in valid_inputs:
                 raise ValueError(
                     f"❌ Unit '{name}' input '{inlet}' must come from a "
-                    f"feed stream or a Pipes / reactor unit output."
+                    f"feed stream or a Pipes / reactor / Festim unit output."
                 )
 
 
@@ -351,6 +399,56 @@ def _check_material_semantics(config):
             )
 
     return True
+
+
+def _check_provider_material_props(config: dict) -> None:
+    """Delegate material validation to each provider's ``validate_material()`` classmethod.
+
+    For every unit that references a declared provider, retrieves the provider
+    class via the registry and calls ``cls.validate_material(mat_name, mat_def, unit_cfg)``.
+
+    This function contains zero provider-specific logic — each provider
+    enforces its own material requirements (Festim: D_0/E_D; OpenMC: nuclides; etc.).
+    Adding a new provider never requires changes here.
+    """
+    from processforge.providers.manager import _maybe_import_provider
+    from processforge.providers.registry import get_provider_class
+    from processforge.types import MaterialDef, UnitConfig
+
+    providers = config.get("providers", {})
+    materials = config.get("materials", {})
+
+    # Build id → (name, MaterialDef) lookup
+    id_to_mat = {
+        mat_dict["friendly_material_id"]: (mat_name, MaterialDef.from_dict(mat_dict))
+        for mat_name, mat_dict in materials.items()
+    }
+
+    errors = []
+    for unit_name, unit_dict in config.get("units", {}).items():
+        provider_ref = unit_dict.get("provider")
+        if provider_ref not in providers:
+            continue
+        ptype = providers[provider_ref].get("type", "")
+        try:
+            _maybe_import_provider(ptype)
+            provider_cls = get_provider_class(ptype)
+        except (ValueError, ImportError):
+            # Provider not installed — skip (runtime error will surface later)
+            continue
+
+        mat_id = unit_dict.get("material")
+        if mat_id not in id_to_mat:
+            continue  # Already caught by _check_material_semantics
+
+        mat_name, mat_def = id_to_mat[mat_id]
+        unit_cfg = UnitConfig.from_dict(unit_dict)
+
+        for msg in provider_cls.validate_material(mat_name, mat_def, unit_cfg):
+            errors.append(f"❌ Unit '{unit_name}': {msg}")
+
+    if errors:
+        raise ValueError("\n".join(errors))
 
 
 def _resolve_material_mix_streams(config: dict) -> dict:

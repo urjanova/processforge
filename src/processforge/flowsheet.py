@@ -75,6 +75,7 @@ class Flowsheet:
         from .units.cstr import CSTR
         from .units.pfr import PFR
         from .units.festim_membrane import FestimMembrane
+        from .units.solver_unit import SolverUnit
         unit_types: dict = {
             "Pump": Pump,
             "Valve": Valve,
@@ -85,6 +86,7 @@ class Flowsheet:
             "PFR": PFR,
             "IdealGasReactor": CSTR,
             "FestimMembrane": FestimMembrane,
+            "SolverUnit": SolverUnit,
         }
 
         # Extend with any unit types registered by active providers.
@@ -276,9 +278,12 @@ class Flowsheet:
         merges the streams by summing flowrates and computing weighted averages.
         """
         inlets = unit_cfg.get("in")
+        if not inlets:
+            # Standalone units (SolverUnit) have no inlet stream
+            return {}
         if isinstance(inlets, str):
             return results.get(inlets, {})
-        
+
         # Multiple inlets - merge them
         merged = {"T": 0.0, "P": 0.0, "flowrate": 0.0, "z": {}}
         total_flow = 0.0

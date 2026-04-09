@@ -10,5 +10,10 @@ from .heater import Heater
 from .cstr import CSTR
 from .pfr import PFR
 from .festim_membrane import FestimMembrane
+from .solver_unit import SolverUnit
 
-__all__ = ["Pump", "Valve", "Strainer", "Tank", "Pipes", "Flash", "Heater", "CSTR", "PFR", "FestimMembrane"]
+__all__ = [
+    "Pump", "Valve", "Strainer", "Tank", "Pipes",
+    "Flash", "Heater", "CSTR", "PFR",
+    "FestimMembrane", "SolverUnit",
+]
