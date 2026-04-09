@@ -3,7 +3,7 @@
 
 ![processforge-logo](images/processforge-logo.jpg)
 
-A Python-based process simulation framework for chemical process engineering applications.
+A Python-based process simulation framework for coupling different simulation engines.
 
 ## Table of Contents
 

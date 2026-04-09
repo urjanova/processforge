@@ -18,7 +18,7 @@
           "properties": {
             "type": {
               "type": "string",
-              "enum": ["coolprop", "cantera", "modelica"],
+              "enum": ["coolprop", "cantera", "modelica","festim"],
               "description": "Provider engine type"
             },
             "mechanism": {
