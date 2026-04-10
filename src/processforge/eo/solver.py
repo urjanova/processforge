@@ -59,6 +59,9 @@ class EOSolver:
             f"EOSolver: solving {manager.n_vars}-variable system "
             f"via '{self.backend_name}' backend"
         )
+        if manager.n_vars == 0:
+            logger.info("EOSolver: empty system (no stream variables) — trivially converged.")
+            return x0, True, {"iterations": 0, "final_norm": 0.0}
         x_sol, converged, stats = self._backend.solve(
             manager, x0, tol=self.tol, max_iter=self.max_iter
         )

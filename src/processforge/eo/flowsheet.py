@@ -108,6 +108,15 @@ class EOFlowsheet:
                 except Exception:  # noqa: BLE001
                     self.residual_breakdown = []
             results = manager.extract_results(x_sol)
+
+            # Run standalone SolverUnit instances (no inlet/outlet streams —
+            # they delegate entirely to their provider's run_simulation()).
+            from processforge.units.solver_unit import SolverUnit
+            for unit_name, unit in self._unit_objects.items():
+                if isinstance(unit, SolverUnit):
+                    logger.info(f"EOFlowsheet: running standalone SolverUnit '{unit_name}'")
+                    results[unit_name] = unit._run_impl({})
+
             logger.info("EOFlowsheet: simulation complete.")
             return results
         finally:
@@ -158,6 +167,7 @@ class EOFlowsheet:
         from processforge.units.pipes import Pipes
         from processforge.units.heater import Heater
         from processforge.units.flash import Flash
+        from processforge.units.solver_unit import SolverUnit
 
         unit_types = {
             "Pump": (Pump, "kwargs"),
@@ -166,6 +176,7 @@ class EOFlowsheet:
             "Pipes": (Pipes, "kwargs"),
             "Heater": (Heater, "params"),
             "Flash": (Flash, "params"),
+            "SolverUnit": (SolverUnit, "kwargs"),
         }
 
         from processforge.providers.manager import get_unit_provider
@@ -296,7 +307,7 @@ class EOFlowsheet:
         for name, feed in self.config["streams"].items():
             stream_vals[name] = deepcopy(feed)
 
-        default_feed = deepcopy(next(iter(self.config["streams"].values())))
+        default_feed = deepcopy(next(iter(self.config["streams"].values()), None))
 
         # One forward pass in config order (no topological sort needed for warm start)
         for unit_name, unit_cfg in self.config["units"].items():
@@ -335,7 +346,7 @@ class EOFlowsheet:
 
         # Fill any unresolved streams with defaults
         for name in manager._streams:
-            if name not in stream_vals:
+            if name not in stream_vals and default_feed is not None:
                 stream_vals[name] = deepcopy(default_feed)
 
         return manager.get_x0(stream_vals)

@@ -44,7 +44,7 @@
           { "field": "retention" },
           { "field": "T" }
         ],
-        "export_folder": "output/festim_2d"
+        "export_folder": "outputs/festim_2d"
       }
     }
   },

@@ -554,7 +554,7 @@ class FestimProvider(AbstractProvider):
 
         self._initialized = True
         logger.info(
-            f"FestimProvider initialized with {len(set(self._materials.values()))} material(s). "
+            f"FestimProvider initialized with {len({id(v) for v in self._materials.values()})} material(s). "
             f"Registered sim_types: {sorted(_SIM_TYPE_REGISTRY)}"
         )
 
