@@ -30,7 +30,7 @@ class Material(BaseModel):
     density: float = Field(examples=[10.5], description="Density of the material.")
     density_units: str = Field(examples=["g/cm3", "atoms/b-cm"], description="Units for the density.")  # 'g/cm3' or 'atoms/b-cm'
     nuclides: List[NuclideFraction] = Field(description="List of nuclides with their fractions in the material.")
-    temperature: Optional[float] = Field(description="Temperature of the material in Kelvin.")
+    temperature: Optional[float] = Field(default=None, description="Temperature of the material in Kelvin.")
     elements: Optional[List[ElementFraction]] = None
 
 
