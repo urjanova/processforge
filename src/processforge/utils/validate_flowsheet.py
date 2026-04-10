@@ -531,19 +531,31 @@ def _check_openmc_unit_config(config: dict) -> None:
             mat_name, mat_raw = id_to_mat_raw[mat_id]
             try:
                 from processforge.schemas.openmc.openmc_model import Material as OpenMCMaterial
-                # Build a dict compatible with the Pydantic Material model
+                # Build a dict compatible with the Pydantic Material model.
+                # Pass through only raw values present in the source material so
+                # missing required fields are surfaced by Pydantic validation
+                # instead of being masked by local defaults.
                 pydantic_dict = {
                     "name": mat_name,
                     "id": mat_raw["id"],
-                    "density": mat_raw.get("density", 1.0),
-                    "density_units": mat_raw.get("density_units", "g/cm3"),
                     "nuclides": [
-                        {"nuclide": n["name"], "fraction": n["percent"]}
+                        {
+                            "nuclide": n["name"],
+                            "fraction": n["percent"],
+                            **(
+                                {"percent_type": n["percent_type"]}
+                                if "percent_type" in n else {}
+                            ),
+                        }
                         for n in mat_raw.get("nuclides", [])
                     ],
                     "temperature": mat_raw.get("temperature"),
                     "elements": mat_raw.get("elements"),
                 }
+                if "density" in mat_raw:
+                    pydantic_dict["density"] = mat_raw["density"]
+                if "density_units" in mat_raw:
+                    pydantic_dict["density_units"] = mat_raw["density_units"]
                 OpenMCMaterial.model_validate(pydantic_dict)
             except Exception as exc:  # noqa: BLE001
                 errors.append(
