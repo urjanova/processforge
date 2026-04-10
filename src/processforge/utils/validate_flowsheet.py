@@ -452,7 +452,14 @@ def _check_provider_material_props(config: dict) -> None:
         raise ValueError("\n".join(errors))
 
 
-_KNOWN_OPENMC_SIM_TYPES = frozenset({"eigenvalue_dagmc", "fixed_source_dagmc"})
+def _get_openmc_sim_type_registry() -> dict:
+    """Return the live ``_SIM_TYPE_REGISTRY`` from the OpenMC provider module.
+
+    Importing ``openmc_provider`` is safe at validation time because it does not
+    import the ``openmc`` library at module level.
+    """
+    from processforge.providers.openmc_provider import _SIM_TYPE_REGISTRY  # noqa: PLC0415
+    return _SIM_TYPE_REGISTRY
 
 
 def _check_openmc_unit_config(config: dict) -> None:
@@ -461,7 +468,8 @@ def _check_openmc_unit_config(config: dict) -> None:
     Checks (only applied to units whose ``provider`` resolves to an OpenMC provider):
 
     1. ``sim_type`` is present.
-    2. ``sim_type`` is a known built-in type.
+    2. ``sim_type`` is registered in the provider's ``_SIM_TYPE_REGISTRY``
+       (supports types added via :func:`~processforge.providers.openmc_provider.register_openmc_sim_type`).
     3. DAGMC sim types require ``dagmc_path`` in ``solver_config``.
     4. DAGMC sim types require ``source_box`` in ``solver_config``.
     5. ``inactive`` must be less than ``batches`` (when both are provided).
@@ -496,10 +504,11 @@ def _check_openmc_unit_config(config: dict) -> None:
             )
             continue
 
-        if sim_type not in _KNOWN_OPENMC_SIM_TYPES:
+        registry = _get_openmc_sim_type_registry()
+        if sim_type not in registry:
             errors.append(
                 f"❌ Unit '{unit_name}' has unknown OpenMC sim_type '{sim_type}'. "
-                f"Known built-in types: {sorted(_KNOWN_OPENMC_SIM_TYPES)}"
+                f"Registered types: {sorted(registry)}"
             )
             continue
 
