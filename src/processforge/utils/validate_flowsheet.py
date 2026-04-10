@@ -32,6 +32,7 @@ def _validate_config_impl(config: dict, source_name: str) -> dict:
     _check_material_semantics(config)
     _check_provider_references(config)
     _check_provider_material_props(config)
+    _check_openmc_unit_config(config)
     _resolve_material_mix_streams(config)
     return config
 
@@ -446,6 +447,109 @@ def _check_provider_material_props(config: dict) -> None:
 
         for msg in provider_cls.validate_material(mat_name, mat_def, unit_cfg):
             errors.append(f"❌ Unit '{unit_name}': {msg}")
+
+    if errors:
+        raise ValueError("\n".join(errors))
+
+
+_KNOWN_OPENMC_SIM_TYPES = frozenset({"eigenvalue_dagmc", "fixed_source_dagmc"})
+
+
+def _check_openmc_unit_config(config: dict) -> None:
+    """Validate OpenMC-specific ``SolverUnit`` fields when provider type is ``"openmc"``.
+
+    Checks (only applied to units whose ``provider`` resolves to an OpenMC provider):
+
+    1. ``sim_type`` is present.
+    2. ``sim_type`` is a known built-in type.
+    3. DAGMC sim types require ``dagmc_path`` in ``solver_config``.
+    4. DAGMC sim types require ``source_box`` in ``solver_config``.
+    5. ``inactive`` must be less than ``batches`` (when both are provided).
+    6. Uses ``openmc_model.Material.model_validate()`` for deep Pydantic validation
+       of each material referenced by an OpenMC unit.
+    """
+    providers = config.get("providers", {})
+    openmc_provider_names = {
+        name for name, pdef in providers.items()
+        if pdef.get("type") == "openmc"
+    }
+    if not openmc_provider_names:
+        return
+
+    materials = config.get("materials", {})
+    # Build id → (name, raw dict) lookup for material validation
+    id_to_mat_raw = {
+        mat_dict["friendly_material_id"]: (mat_name, mat_dict)
+        for mat_name, mat_dict in materials.items()
+    }
+
+    errors = []
+
+    for unit_name, unit_cfg in config.get("units", {}).items():
+        if unit_cfg.get("provider") not in openmc_provider_names:
+            continue
+
+        sim_type = unit_cfg.get("sim_type")
+        if not sim_type:
+            errors.append(
+                f"❌ Unit '{unit_name}' uses OpenMC provider but is missing 'sim_type'."
+            )
+            continue
+
+        if sim_type not in _KNOWN_OPENMC_SIM_TYPES:
+            errors.append(
+                f"❌ Unit '{unit_name}' has unknown OpenMC sim_type '{sim_type}'. "
+                f"Known built-in types: {sorted(_KNOWN_OPENMC_SIM_TYPES)}"
+            )
+            continue
+
+        sc = unit_cfg.get("solver_config") or {}
+
+        if sim_type.endswith("_dagmc") and not sc.get("dagmc_path"):
+            errors.append(
+                f"❌ Unit '{unit_name}' sim_type='{sim_type}' requires "
+                f"'dagmc_path' in solver_config."
+            )
+
+        if sim_type.endswith("_dagmc") and not sc.get("source_box"):
+            errors.append(
+                f"❌ Unit '{unit_name}' sim_type='{sim_type}' requires "
+                f"'source_box' in solver_config."
+            )
+
+        batches = sc.get("batches", 0)
+        inactive = sc.get("inactive", 0)
+        if batches > 0 and inactive >= batches:
+            errors.append(
+                f"❌ Unit '{unit_name}': solver_config 'inactive' ({inactive}) "
+                f"must be less than 'batches' ({batches})."
+            )
+
+        # Deep Pydantic validation using the now-self-contained openmc_model.Material
+        mat_id = unit_cfg.get("material")
+        if mat_id in id_to_mat_raw:
+            mat_name, mat_raw = id_to_mat_raw[mat_id]
+            try:
+                from processforge.schemas.openmc.openmc_model import Material as OpenMCMaterial
+                # Build a dict compatible with the Pydantic Material model
+                pydantic_dict = {
+                    "name": mat_name,
+                    "friendly_material_id": mat_raw["friendly_material_id"],
+                    "density": mat_raw.get("density", 1.0),
+                    "density_units": mat_raw.get("density_units", "g/cm3"),
+                    "nuclides": [
+                        {"nuclide": n["name"], "fraction": n["percent"]}
+                        for n in mat_raw.get("nuclides", [])
+                    ],
+                    "temperature": mat_raw.get("temperature"),
+                    "elements": mat_raw.get("elements"),
+                }
+                OpenMCMaterial.model_validate(pydantic_dict)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(
+                    f"❌ Unit '{unit_name}' material '{mat_name}' failed "
+                    f"OpenMC schema validation: {exc}"
+                )
 
     if errors:
         raise ValueError("\n".join(errors))

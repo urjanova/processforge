@@ -205,12 +205,40 @@ class ModelicaProviderConfig:
         return cls(output_dir=d.get("output_dir", "outputs"))
 
 
+@dataclass
+class OpenMCProviderConfig:
+    """Configuration for the OpenMC Monte Carlo neutronics provider.
+
+    Flowsheet JSON example::
+
+        "providers": {
+            "openmc": {
+                "type": "openmc",
+                "output_dir": "outputs/openmc",
+                "cross_sections": "/path/to/cross_sections.xml"
+            }
+        }
+    """
+
+    type: str = "openmc"
+    output_dir: str = "outputs/openmc"
+    cross_sections: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "OpenMCProviderConfig":
+        return cls(
+            output_dir=d.get("output_dir", "outputs/openmc"),
+            cross_sections=d.get("cross_sections"),
+        )
+
+
 #: Union of all known provider config types — extend when adding a new provider.
 ProviderConfig = Union[
     CoolPropProviderConfig,
     CanteraProviderConfig,
     FestimProviderConfig,
     ModelicaProviderConfig,
+    OpenMCProviderConfig,
 ]
 
 _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
@@ -218,6 +246,7 @@ _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
     "cantera": CanteraProviderConfig,
     "festim": FestimProviderConfig,
     "modelica": ModelicaProviderConfig,
+    "openmc": OpenMCProviderConfig,
 }
 
 

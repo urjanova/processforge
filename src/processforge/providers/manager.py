@@ -128,4 +128,6 @@ def _maybe_import_provider(ptype: str) -> None:
         from . import modelica_provider  # noqa: F401
     elif ptype == "festim":
         from . import festim_provider  # noqa: F401
+    elif ptype == "openmc":
+        from . import openmc_provider  # noqa: F401
     # "coolprop" is already in the registry from registry._seed_registry().
