@@ -146,8 +146,7 @@ class FestimSolverConfig:
                 {"type": "DirichletBC", "field": "T", "value": 300, "surfaces": 1}
             ],
             "traps": [{"k_0": 3.8e-17, "E_k": 0.39, "p_0": 8.4e12, "E_p": 0.9, "density": 1e25}],
-            "exports": [{"field": "solute"}, {"field": "T"}],
-            "export_folder": "output/my_sim"
+            "exports": [{"field": "solute"}, {"field": "T"}]
         }
     """
     boundary_conditions: list = field(default_factory=list)   # list[FestimBoundaryCondition]
@@ -157,7 +156,7 @@ class FestimSolverConfig:
     mesh: Optional[Union[FestimMesh1D, FestimMesh2D]] = None
     transient: bool = False
     T_fixed: Optional[float] = None
-    export_folder: str = "output"
+    export_folder: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "FestimSolverConfig":
@@ -184,7 +183,7 @@ class FestimSolverConfig:
             mesh=mesh,
             transient=d.get("transient", False),
             T_fixed=d.get("T_fixed"),
-            export_folder=d.get("export_folder", "output"),
+            export_folder=d.get("export_folder"),
         )
 
 
@@ -489,7 +488,7 @@ _PERMEATION_REQUIRED = frozenset({"D_0", "E_D", "S_0", "E_S"})
 
 _FESTIM_MATERIAL_KEYS = frozenset({
     "D_0", "E_D", "S_0", "E_S", "thermal_cond",
-    "k_0", "E_k", "p_0", "E_p", "friendly_material_id",
+    "k_0", "E_k", "p_0", "E_p", "id",
 })
 
 
@@ -503,7 +502,7 @@ class FestimProvider(AbstractProvider):
     Responsibilities
     ----------------
     * **Material registry** — ``initialize()`` loads material defs from the
-      flowsheet and indexes them by ``friendly_material_id`` and name.
+      flowsheet and indexes them by ``id`` and name.
     * **Material validation** — ``validate_material()`` enforces Festim-specific
       required properties (D_0/E_D, and S_0/E_S for permeation).
     * **Simulation dispatch** — ``run_simulation()`` looks up the strategy for
@@ -515,6 +514,7 @@ class FestimProvider(AbstractProvider):
     def __init__(self):
         self._materials: dict = {}
         self._initialized: bool = False
+        self._output_dir: str = "output"
 
     def initialize(
         self,
@@ -529,7 +529,7 @@ class FestimProvider(AbstractProvider):
         objects by ``FlowsheetConfig.from_dict``).
 
         Provider-block ``"materials"`` overrides take priority over the global
-        section.  Materials are indexed by both ``friendly_material_id`` (as str)
+        section.  Materials are indexed by both ``id`` (as str)
         and name for flexible lookup.
         """
         try:
@@ -543,7 +543,7 @@ class FestimProvider(AbstractProvider):
 
         self._materials = {}
         for mat_name, mat_def in flowsheet_config.materials.items():
-            fid = mat_def.friendly_material_id
+            fid = mat_def.id
             if fid is not None:
                 self._materials[str(fid)] = mat_def
             self._materials[mat_name] = mat_def
@@ -552,9 +552,11 @@ class FestimProvider(AbstractProvider):
         for key, props in provider_config.materials.items():
             self._materials[str(key)] = MaterialDef.from_dict(props)
 
+        self._output_dir = provider_config.output_dir
+
         self._initialized = True
         logger.info(
-            f"FestimProvider initialized with {len(set(self._materials.values()))} material(s). "
+            f"FestimProvider initialized with {len({id(v) for v in self._materials.values()})} material(s). "
             f"Registered sim_types: {sorted(_SIM_TYPE_REGISTRY)}"
         )
 
@@ -650,9 +652,10 @@ class FestimProvider(AbstractProvider):
             )
 
         solver_cfg = FestimSolverConfig.from_dict(unit_config.solver_config)
+        solver_cfg.export_folder = solver_cfg.export_folder or self._output_dir
         mat_def = self._materials.get(
             str(unit_config.material),
-            MaterialDef(friendly_material_id=-1),
+            MaterialDef(id=-1),
         )
 
         model = F.Simulation()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from loguru import logger
 import numpy as np
 
@@ -32,7 +33,9 @@ class FestimMembrane(ProviderMixin):
         
         # State tracking
         self.current_time = 0.0
-        self._festim_model = None
+        self._festim_model: Any = None
+        self._inner_pressure: Any = None
+        self._temp_obj: Any = None
 
     def _setup_festim_model(self):
         """Sets up the mesh and materials once to avoid recreation overhead."""
@@ -47,9 +50,12 @@ class FestimMembrane(ProviderMixin):
         )
         
         # Retrieve material properties from provider
+        # self.material is set by flowsheet._build_units() after construction;
+        # fall back to self.material_id which is parsed from params in __init__.
+        mat_id = getattr(self, "material", self.material_id)
         mat_props = {}
         if hasattr(self, "_provider") and hasattr(self._provider, "get_material_props"):
-            mat_props = self._provider.get_material_props(self.material_id)
+            mat_props = self._provider.get_material_props(mat_id)
         else:
             # Sane default values if provider is missing or doesn't support get_material_props
             mat_props = {"D_0": 4.1e-7, "E_D": 0.39, "S_0": 4.28e-5, "E_S": 0.26}
@@ -61,9 +67,8 @@ class FestimMembrane(ProviderMixin):
         )
         
         # We will dynamically update these boundary values during evaluate()
-        self._inner_pressure = F.Constant(0.0)
-        self._inner_temp = F.Constant(300.0)
-        
+        self._inner_pressure = F.as_constant(0.0)
+
         # Inner Wall: Sieverts' law driven by the process fluid
         # Outer Wall: Recombination or Dirichlet (assuming zero concentration to environment)
         self._festim_model.boundary_conditions = [
@@ -75,8 +80,9 @@ class FestimMembrane(ProviderMixin):
             ),
             F.DirichletBC(surfaces=2, value=0, field=0)
         ]
-        
-        self._festim_model.T = self._inner_temp
+
+        self._temp_obj = F.Temperature(300.0)
+        self._festim_model.T = self._temp_obj
         
         # Transient settings but manually stepped
         self._festim_model.settings = F.Settings(
@@ -108,9 +114,9 @@ class FestimMembrane(ProviderMixin):
 
         # 2. Update model
         self._setup_festim_model()
-        self._inner_temp.assign(T)
+        self._temp_obj.value = T  # applied when initialise() calls create_functions below
         self._inner_pressure.assign(P_total * y_H2)
-        
+
         # For steady state, we can simulate a large transient or switch transient=False
         # For simplicity, we just force a steady simulation configuration transiently
         self._festim_model.settings.transient = False
@@ -190,7 +196,11 @@ class FestimMembrane(ProviderMixin):
             else:
                 dt = 1.0 # arbitrary small step for last point
                 
-            self._inner_temp.assign(T)
+            # Update temperature directly on the FEniCS Function (initialise already ran)
+            from fenics import Constant, interpolate
+            V = self._temp_obj.T.function_space()
+            self._temp_obj.T.assign(interpolate(Constant(T), V))
+            self._temp_obj.T_n.assign(self._temp_obj.T)
             self._inner_pressure.assign(P * y_H2)
             
             self._festim_model.dt.value.assign(dt)

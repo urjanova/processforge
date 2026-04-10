@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 
 import numpy as np
 
+from .types import RunInfo
+
 _KEY_PACKAGES = [
     "numpy",
     "scipy",
@@ -55,7 +57,7 @@ def build_run_info(
     config: dict,
     x0: np.ndarray | None = None,
     var_names: list[str] | None = None,
-) -> dict:
+) -> RunInfo:
     """Build a run_info metadata dict for provenance tracking.
 
     Args:
@@ -66,34 +68,28 @@ def build_run_info(
                    ``"feed/T"``, ``"feed/P"``, ``"product/z_H2O"``).
 
     Returns:
-        A dict suitable for passing to ``save_results_zarr`` as *run_info*.
-        Keys:
-          - ``git_hash``             – current HEAD commit SHA
-          - ``timestamp``            – ISO-8601 UTC timestamp
-          - ``python_version``       – full ``sys.version`` string
-          - ``platform``             – ``platform.platform()`` string
-          - ``processforge_version`` – installed processforge version
-          - ``mode``                 – ``"steady"`` or ``"dynamic"``
-          - ``backend``              – EO backend name (steady-state only)
-          - ``pkg_versions``         – dict of {package: version}
-          - ``x0``                   – numpy float64 array or ``None``
-          - ``var_names``            – list of str labels or ``None``
+        A :class:`RunInfo` instance suitable for passing to
+        ``save_results_zarr`` as *run_info*.
     """
     from . import __version__ as _pf_version
 
     sim_cfg = config.get("simulation", {})
-    return {
-        "git_hash": _git_hash(),
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "python_version": sys.version,
-        "platform": platform.platform(),
-        "processforge_version": _pf_version,
-        "mode": sim_cfg.get("mode", "steady"),
-        "backend": sim_cfg.get("backend", "scipy"),
-        "pkg_versions": _package_versions(_KEY_PACKAGES),
-        "x0": np.asarray(x0, dtype=float) if x0 is not None else None,
-        "var_names": list(var_names) if var_names is not None else None,
-    }
+    x0_list = None
+    if x0 is not None:
+        x0_list = np.asarray(x0, dtype=float).tolist()
+
+    return RunInfo(
+        git_hash=_git_hash(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        python_version=sys.version,
+        platform=platform.platform(),
+        processforge_version=_pf_version,
+        mode=sim_cfg.get("mode", "steady"),
+        backend=sim_cfg.get("backend", "scipy"),
+        pkg_versions=_package_versions(_KEY_PACKAGES),
+        x0=x0_list,
+        var_names=list(var_names) if var_names is not None else None,
+    )
 
 
 def build_dynamic_x0(config: dict) -> tuple[np.ndarray, list[str]]:

@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import zarr
 from loguru import logger
 
+from .types import RunInfo
+
 
 def _ensure_parent_dir(path):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -39,7 +41,14 @@ def _store_stream(stream_group, stream_data):
         stream_group.create_dataset(key, data=arr, shape=arr.shape)
 
 
-def _store_run_info(root, run_info: dict) -> None:
+def _normalize_run_info(run_info: RunInfo | dict) -> dict:
+    """Normalize dataclass or dict run_info input to a plain dict."""
+    if isinstance(run_info, RunInfo):
+        return run_info.as_dict()
+    return run_info
+
+
+def _store_run_info(root, run_info: RunInfo | dict) -> None:
     """Persist provenance metadata in a ``run_info`` Zarr sub-group.
 
     Layout::
@@ -53,6 +62,7 @@ def _store_run_info(root, run_info: dict) -> None:
                 x0          – float64 array  (length = n_vars)
                 .attrs      → var_names  (JSON list of string labels)
     """
+    run_info_dict = _normalize_run_info(run_info)
     ri_group = root.create_group("run_info")
 
     scalar_keys = [
@@ -65,32 +75,32 @@ def _store_run_info(root, run_info: dict) -> None:
         "backend",
     ]
     ri_group.attrs.update(
-        {k: str(run_info[k]) for k in scalar_keys if k in run_info}
+        {k: str(run_info_dict[k]) for k in scalar_keys if k in run_info_dict}
     )
 
-    pkg_versions = run_info.get("pkg_versions") or {}
+    pkg_versions = run_info_dict.get("pkg_versions") or {}
     if pkg_versions:
         pkg_group = ri_group.create_group("pkg_versions")
         pkg_group.attrs.update({k: str(v) for k, v in pkg_versions.items()})
 
-    x0 = run_info.get("x0")
+    x0 = run_info_dict.get("x0")
     if x0 is not None:
         x0_arr = np.asarray(x0, dtype=float)
         ig_group = ri_group.create_group("initial_guess")
         ig_group.create_dataset("x0", data=x0_arr, shape=x0_arr.shape)
-        var_names = run_info.get("var_names")
+        var_names = run_info_dict.get("var_names")
         if var_names:
             ig_group.attrs["var_names"] = list(var_names)
 
 
-def save_results_zarr(results, fname="results.zarr", run_info=None):
+def save_results_zarr(results, fname="results.zarr", run_info: RunInfo | dict | None = None):
     """Persist simulation results in a Zarr directory.
 
     Args:
         results:  Stream result dict as returned by ``Flowsheet.run()``
                   or ``EOFlowsheet.run()``.
         fname:    Output path for the Zarr store directory.
-        run_info: Optional provenance dict from
+        run_info: Optional provenance metadata from
                   :func:`processforge.provenance.build_run_info`.  When
                   supplied, a ``run_info`` sub-group is written inside the
                   store containing the git hash, package versions, and

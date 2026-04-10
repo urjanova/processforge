@@ -9,6 +9,8 @@ import numpy as np
 import zarr
 from loguru import logger
 
+from .types import SnapshotState
+
 
 class StateManager:
     """
@@ -75,7 +77,7 @@ class StateManager:
         logger.info(f"Saved snapshot {snapshot_name} to {self.state_path}")
         return snapshot_name
 
-    def load_state(self) -> dict | None:
+    def load_state(self) -> SnapshotState | None:
         """Load the latest snapshot.  Returns ``None`` if no state exists."""
         if not os.path.exists(self._latest_file):
             return None
@@ -94,13 +96,13 @@ class StateManager:
             config = json.loads(root.attrs["config"])
             x = root["x"][:]
             var_names = list(root.attrs["var_names"])
-            return {
-                "config": config,
-                "x": x,
-                "var_names": var_names,
-                "snapshot_id": root.attrs.get("snapshot_id", latest_name),
-                "timestamp": root.attrs.get("timestamp", ""),
-            }
+            return SnapshotState(
+                config=config,
+                x=np.asarray(x, dtype=float).tolist(),
+                var_names=var_names,
+                snapshot_id=root.attrs.get("snapshot_id", latest_name),
+                timestamp=root.attrs.get("timestamp", ""),
+            )
         except Exception as exc:
             logger.warning(f"Failed to load snapshot '{latest_name}': {exc}")
             return None
@@ -159,12 +161,12 @@ class StateManager:
     # Drift & structural diff
     # ------------------------------------------------------------------
 
-    def detect_drift(self, current_config: dict, state: dict) -> list[str]:
+    def detect_drift(self, current_config: dict, state: SnapshotState | dict) -> list[str]:
         """Return parameter paths that differ between ``current_config`` and saved state.
 
         Paths look like ``"streams.feed.T"`` or ``"units.pump_1.parameters.deltaP"``.
         """
-        old_config = state["config"]
+        old_config = state.config if isinstance(state, SnapshotState) else state["config"]
         drifted: list[str] = []
 
         for s_name, s_data in current_config.get("streams", {}).items():
@@ -187,7 +189,7 @@ class StateManager:
 
         return drifted
 
-    def detect_structural_diff(self, current_config: dict, state: dict) -> dict:
+    def detect_structural_diff(self, current_config: dict, state: SnapshotState | dict) -> dict:
         """Compare unit topology between ``current_config`` and saved state.
 
         Returns a dict with keys ``"added"``, ``"removed"``, ``"modified"``.
@@ -196,7 +198,8 @@ class StateManager:
         - ``removed``: ``{unit_name: unit_type}`` — units present in old state but not current
         - ``modified``: ``{unit_name: {type, changes}}`` — units present in both but with differing config
         """
-        old_units: dict = state["config"].get("units", {})
+        old_config = state.config if isinstance(state, SnapshotState) else state["config"]
+        old_units: dict = old_config.get("units", {})
         new_units: dict = current_config.get("units", {})
 
         old_names = set(old_units)
@@ -247,14 +250,18 @@ class StateManager:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def state_to_stream_dicts(state: dict) -> dict[str, dict]:
+    def state_to_stream_dicts(state: SnapshotState | dict) -> dict[str, dict]:
         """Convert a saved ``x`` vector + ``var_names`` back to stream dicts.
 
         Returns:
             ``{stream_name: {"T": ..., "P": ..., "flowrate": ..., "z": {...}}}``
         """
-        x: np.ndarray = np.asarray(state["x"], dtype=float)
-        var_names: list[str] = state.get("var_names", [])
+        if isinstance(state, SnapshotState):
+            x: np.ndarray = np.asarray(state.x, dtype=float)
+            var_names: list[str] = state.var_names
+        else:
+            x = np.asarray(state["x"], dtype=float)
+            var_names = state.get("var_names", [])
 
         streams: dict[str, dict] = {}
         for i, label in enumerate(var_names):

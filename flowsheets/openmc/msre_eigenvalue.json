@@ -1,0 +1,117 @@
+{
+  "metadata": {
+    "name": "MSRE Eigenvalue — DAGMC geometry",
+    "description": "Molten Salt Reactor Experiment eigenvalue simulation. Replicates openmc.py reference script. DAGMC geometry loaded from .h5m file. 7 materials matching h5m volume tags: graphite, inor, salt, inconel, helium, Graveyard, helium_comp.",
+    "version": "1.1"
+  },
+  "providers": {
+    "openmc": {
+      "type": "openmc",
+      "output_dir": "outputs/openmc/msre_run",
+      "cross_sections": "tmp_files/cross_sections/cross_sections.xml"
+    }
+  },
+  "materials": {
+    "graphite": {
+      "id": 1,
+      "density": 2.26,
+      "density_units": "g/cm3",
+      "temperature": 0.0,
+      "elements": [
+        { "element": "C", "percent": 1.0, "percent_type": "ao" }
+      ]
+    },
+    "inor": {
+      "id": 2,
+      "density": 9.0,
+      "density_units": "g/cm3",
+      "temperature": 0.0,
+      "elements": [
+        { "element": "Ni", "percent": 0.72, "percent_type": "wo" },
+        { "element": "Mo", "percent": 0.16, "percent_type": "wo" },
+        { "element": "Cr", "percent": 0.07, "percent_type": "wo" },
+        { "element": "Fe", "percent": 0.05, "percent_type": "wo" }
+      ]
+    },
+    "salt": {
+      "id": 3,
+      "density": 2.2,
+      "density_units": "g/cm3",
+      "temperature": 0.0,
+      "depletable": true,
+      "nuclides": [
+        { "name": "Li7",  "percent": 0.335000, "percent_type": "ao" },
+        { "name": "U235", "percent": 0.000527, "percent_type": "ao" },
+        { "name": "U238", "percent": 0.001053, "percent_type": "ao" }
+      ],
+      "elements": [
+        { "element": "F",  "percent": 0.534653, "percent_type": "ao" },
+        { "element": "Be", "percent": 0.076667, "percent_type": "ao" },
+        { "element": "Zr", "percent": 0.010000, "percent_type": "ao" }
+      ]
+    },
+    "inconel": {
+      "id": 4,
+      "density": 8.9,
+      "density_units": "g/cm3",
+      "temperature": 0.0,
+      "elements": [
+        { "element": "Ni", "percent": 0.72, "percent_type": "ao" },
+        { "element": "Cr", "percent": 0.20, "percent_type": "ao" },
+        { "element": "Fe", "percent": 0.08, "percent_type": "ao" }
+      ]
+    },
+    "helium": {
+      "id": 5,
+      "density": 1.0e-4,
+      "density_units": "g/cm3",
+      "temperature": 0.0,
+      "nuclides": [
+        { "name": "He4", "percent": 1.0, "percent_type": "ao" }
+      ]
+    }
+    
+  },
+  "streams": {},
+  "units": {
+    "openmc_solver": {
+      "type": "SolverUnit",
+      "provider": "openmc",
+      "material":3,
+      "sim_type": "eigenvalue_dagmc",
+      "solver_config": {
+        "dagmc_path": "/home/hrishiballal/Documents/Github/urjanova/processforge/tmp_files/geometry/msre_simple.h5m",
+        "batches": 20,
+        "inactive": 5,
+        "particles": 20000,
+        "run_mode": "eigenvalue",
+        "source_box": {
+          "lower_left":  [-125, -125,   0],
+          "upper_right": [ 125,  125, 500],
+          "only_fissionable": true
+        },
+        "mesh_tallies": [
+          {
+            "tally_id": 1,
+            "name": "flux1",
+            "lower_left":  [-125, -125,  90],
+            "upper_right": [ 125,  125, 110],
+            "dimension": [400, 400, 1],
+            "scores": ["flux", "fission"]
+          },
+          {
+            "tally_id": 2,
+            "name": "flux2",
+            "lower_left":  [-175, -10, -50],
+            "upper_right": [ 175,  10, 400],
+            "dimension": [400, 1, 400],
+            "scores": ["flux", "fission"]
+          }
+        ]
+      }
+    }
+  },
+  "simulation": {
+    "mode": "steady"
+  }
+}

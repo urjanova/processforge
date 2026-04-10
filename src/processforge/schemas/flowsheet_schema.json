@@ -18,7 +18,7 @@
           "properties": {
             "type": {
               "type": "string",
-              "enum": ["coolprop", "cantera", "modelica","festim"],
+              "enum": ["coolprop", "cantera", "modelica", "festim", "openmc"],
               "description": "Provider engine type"
             },
             "mechanism": {
@@ -31,7 +31,11 @@
             },
             "output_dir": {
               "type": "string",
-              "description": "Modelica provider: directory for .mo and FMU outputs"
+              "description": "Provider output directory (Modelica/OpenMC/Festim)"
+            },
+            "cross_sections": {
+              "type": "string",
+              "description": "OpenMC provider: path to cross_sections.xml. Overrides OPENMC_CROSS_SECTIONS env var."
             }
           },
           "additionalProperties": true
@@ -63,9 +67,9 @@
       "patternProperties": {
         "^[a-zA-Z0-9_]+$": {
           "type": "object",
-          "required": ["friendly_material_id"],
+          "required": ["id"],
           "properties": {
-            "friendly_material_id": {
+            "id": {
               "type": "integer",
               "description": "Unique numeric ID referenced by units to indicate what material they are made of"
             },
@@ -135,6 +139,30 @@
                 },
                 "additionalProperties": false
               }
+            },
+            "elements": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["element", "percent", "percent_type"],
+                "properties": {
+                  "element": {
+                    "type": "string",
+                    "description": "Periodic table symbol, e.g. 'C', 'Fe', 'Ni'"
+                  },
+                  "percent": {
+                    "type": "number",
+                    "exclusiveMinimum": 0.0
+                  },
+                  "percent_type": {
+                    "type": "string",
+                    "enum": ["ao", "wo"]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "description": "Element-fraction entries for openmc.Material.add_element() calls"
             }
           },
           "additionalProperties": false
@@ -290,7 +318,7 @@
             },
             "material": {
               "type": "integer",
-              "description": "friendly_material_id of the material this unit is made of"
+              "description": "id of the material this unit is made of"
             }
           },
           "additionalProperties": true,

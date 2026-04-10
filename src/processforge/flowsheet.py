@@ -720,6 +720,22 @@ class Flowsheet:
         
         # For each unit, we need to track if it has run_dynamic or not
         # For dynamic units like Tank, we need special handling
+
+        # Collect component names up-front so all stream timeseries are initialized consistently.
+        components = set()
+        for stream_data in self.config["streams"].values():
+            z_cfg = stream_data.get("z")
+            if isinstance(z_cfg, dict):
+                components.update(z_cfg.keys())
+        for stream_ts in results.values():
+            z_ts = stream_ts.get("z")
+            if isinstance(z_ts, dict):
+                components.update(z_ts.keys())
+        for unit_name in processing_order:
+            if self.config["units"][unit_name].get("type") == "Tank":
+                unit = self.units[unit_name]
+                if hasattr(unit, "initial_n") and isinstance(unit.initial_n, dict):
+                    components.update(unit.initial_n.keys())
         
         # Initialize all output streams in results
         for unit_name in processing_order:
@@ -733,12 +749,6 @@ class Flowsheet:
                         "flowrate": [0.0] * num_steps,
                         "z": {comp: [0.0] * num_steps for comp in components},
                     }
-        
-        # Get component list from feed streams
-        components = set()
-        for stream_data in self.config["streams"].values():
-            if "z" in stream_data:
-                components.update(stream_data["z"].keys())
         
         # Ensure all streams have composition timeseries
         for stream_name in results:

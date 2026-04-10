@@ -8,27 +8,8 @@ from loguru import logger
 
 from .jacobian import GlobalJacobianManager
 from .solver import EOSolver
-
-
-def _get_inlets(unit_cfg: dict) -> list[str]:
-    """Return inlet stream name(s) as a list."""
-    inlet = unit_cfg.get("in")
-    if isinstance(inlet, list):
-        return inlet
-    return [inlet] if inlet else []
-
-
-def _get_outlets(unit_cfg: dict) -> list[str]:
-    """Return outlet stream name(s) — handles Flash (out_vap + out_liq)."""
-    if unit_cfg.get("type") == "Flash":
-        outlets = []
-        if unit_cfg.get("out_liq"):
-            outlets.append(unit_cfg["out_liq"])
-        if unit_cfg.get("out_vap"):
-            outlets.append(unit_cfg["out_vap"])
-        return outlets
-    out = unit_cfg.get("out")
-    return [out] if out else []
+from ..types import SnapshotState
+from ..utils.topology import get_inlets, get_outlets
 
 
 class EOFlowsheet:
@@ -108,6 +89,15 @@ class EOFlowsheet:
                 except Exception:  # noqa: BLE001
                     self.residual_breakdown = []
             results = manager.extract_results(x_sol)
+
+            # Run standalone SolverUnit instances (no inlet/outlet streams —
+            # they delegate entirely to their provider's run_simulation()).
+            from processforge.units.solver_unit import SolverUnit
+            for unit_name, unit in self._unit_objects.items():
+                if isinstance(unit, SolverUnit):
+                    logger.info(f"EOFlowsheet: running standalone SolverUnit '{unit_name}'")
+                    results[unit_name] = unit._run_impl({})
+
             logger.info("EOFlowsheet: simulation complete.")
             return results
         finally:
@@ -140,8 +130,8 @@ class EOFlowsheet:
         self._unit_objects = self._build_units(self._provider_map)
         for unit_name, unit in self._unit_objects.items():
             unit_cfg = self.config["units"][unit_name]
-            inlet_names = _get_inlets(unit_cfg)
-            outlet_names = _get_outlets(unit_cfg)
+            inlet_names = get_inlets(unit_cfg)
+            outlet_names = get_outlets(unit_cfg)
             manager.register_unit(unit, inlet_names, outlet_names, unit_cfg)
             logger.debug(
                 f"Registered unit '{unit_name}': "
@@ -158,6 +148,7 @@ class EOFlowsheet:
         from processforge.units.pipes import Pipes
         from processforge.units.heater import Heater
         from processforge.units.flash import Flash
+        from processforge.units.solver_unit import SolverUnit
 
         unit_types = {
             "Pump": (Pump, "kwargs"),
@@ -166,6 +157,7 @@ class EOFlowsheet:
             "Pipes": (Pipes, "kwargs"),
             "Heater": (Heater, "params"),
             "Flash": (Flash, "params"),
+            "SolverUnit": (SolverUnit, "kwargs"),
         }
 
         from processforge.providers.manager import get_unit_provider
@@ -275,15 +267,16 @@ class EOFlowsheet:
         stream_vals: dict[str, dict] = {}
 
         # Check if saved_state provides a warm start
-        state = getattr(self, "saved_state", None)
-        if state is not None and "x" in state:
-            saved_x = np.asarray(state["x"], dtype=float)
-            saved_var_names = state.get("var_names", [])
+        state: SnapshotState | dict | None = getattr(self, "saved_state", None)
+        if isinstance(state, SnapshotState):
+            saved_x = np.asarray(state.x, dtype=float)
+            saved_var_names = state.var_names
+            snapshot_id = state.snapshot_id or "?"
             current_var_names = self._build_var_names(manager)
             if len(saved_x) == manager.n_vars and saved_var_names == current_var_names:
                 logger.info(
                     f"Warm-start: using saved x from snapshot "
-                    f"'{state.get('snapshot_id', '?')}' (n={len(saved_x)})."
+                    f"'{snapshot_id}' (n={len(saved_x)})."
                 )
                 return saved_x
             logger.warning(
@@ -291,18 +284,36 @@ class EOFlowsheet:
                 f"current system has {manager.n_vars}. "
                 "Variable layout changed — using forward-pass guess."
             )
+        elif isinstance(state, dict):
+            state_x = state.get("x")
+            if state_x is not None:
+                saved_x = np.asarray(state_x, dtype=float)
+                saved_var_names = state.get("var_names", [])
+                snapshot_id = state.get("snapshot_id", "?")
+                current_var_names = self._build_var_names(manager)
+                if len(saved_x) == manager.n_vars and saved_var_names == current_var_names:
+                    logger.info(
+                        f"Warm-start: using saved x from snapshot "
+                        f"'{snapshot_id}' (n={len(saved_x)})."
+                    )
+                    return saved_x
+                logger.warning(
+                    f"Warm-start: snapshot has {len(saved_x)} vars, "
+                    f"current system has {manager.n_vars}. "
+                    "Variable layout changed — using forward-pass guess."
+                )
 
         # Seed with feed streams
         for name, feed in self.config["streams"].items():
             stream_vals[name] = deepcopy(feed)
 
-        default_feed = deepcopy(next(iter(self.config["streams"].values())))
+        default_feed = deepcopy(next(iter(self.config["streams"].values()), None))
 
         # One forward pass in config order (no topological sort needed for warm start)
         for unit_name, unit_cfg in self.config["units"].items():
             unit = self._unit_objects[unit_name]
-            inlet_names = _get_inlets(unit_cfg)
-            outlet_names = _get_outlets(unit_cfg)
+            inlet_names = get_inlets(unit_cfg)
+            outlet_names = get_outlets(unit_cfg)
 
             # Skip if any inlet is not yet available
             if not all(n in stream_vals for n in inlet_names):
@@ -335,7 +346,7 @@ class EOFlowsheet:
 
         # Fill any unresolved streams with defaults
         for name in manager._streams:
-            if name not in stream_vals:
+            if name not in stream_vals and default_feed is not None:
                 stream_vals[name] = deepcopy(default_feed)
 
         return manager.get_x0(stream_vals)

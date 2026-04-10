@@ -8,6 +8,7 @@ from loguru import logger
 
 from .backends import ScipyBackend, PyomoBackend, CasADiBackend
 from .backends.base import AbstractEOBackend
+from ..types import SnapshotState
 
 if TYPE_CHECKING:
     from .jacobian import GlobalJacobianManager
@@ -59,6 +60,9 @@ class EOSolver:
             f"EOSolver: solving {manager.n_vars}-variable system "
             f"via '{self.backend_name}' backend"
         )
+        if manager.n_vars == 0:
+            logger.info("EOSolver: empty system (no stream variables) — trivially converged.")
+            return x0, True, {"iterations": 0, "final_norm": 0.0}
         x_sol, converged, stats = self._backend.solve(
             manager, x0, tol=self.tol, max_iter=self.max_iter
         )
@@ -107,14 +111,14 @@ def solve_with_homotopy(
     fs, manager, solver, state, drifted
 ) -> "tuple[np.ndarray, bool, dict]":
     """Try standard solve; if fails, fall back to step-wise homotopy."""
-    old_config = state["config"]
+    old_config = state.config if isinstance(state, SnapshotState) else state["config"]
     current_config = fs.config
 
     # Standard solve first
     from loguru import logger
     import numpy as np
     
-    x0 = np.array(state["x"])
+    x0 = np.array(state.x if isinstance(state, SnapshotState) else state["x"])
     x_sol, converged, stats = solver.solve(manager, x0)
     if converged:
         logger.info("Standard solver converged with previous state's warm guess.")
@@ -150,7 +154,7 @@ def solve_with_homotopy(
         logger.error("No continuous numerical parameters to interpolate. Homotopy fails.")
         return x_sol, False, stats
 
-    x_current = np.array(state["x"])
+    x_current = np.array(state.x if isinstance(state, SnapshotState) else state["x"])
     
     from copy import deepcopy
     interpolated_config = deepcopy(old_config)

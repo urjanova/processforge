@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 
 from ..utils.validate_flowsheet import validate_flowsheet
+from ..utils.topology import TOPOLOGY_KEYS, get_outlets
 from ._fmi_vars import _sanitize_name
 from .slave_template import render_slave_source
 
@@ -107,7 +108,7 @@ def _analyze_config(config: dict) -> dict:
     # Collect all outlet stream names from unit definitions
     all_outlet_streams: set[str] = set()
     for unit_cfg in config["units"].values():
-        for outlet in _get_outlets(unit_cfg):
+        for outlet in get_outlets(unit_cfg):
             all_outlet_streams.add(outlet)
 
     # Output streams = outlets not already in feeds
@@ -117,7 +118,7 @@ def _analyze_config(config: dict) -> dict:
     seen: set[str] = set()
     output_streams_ordered: list[str] = []
     for unit_cfg in config["units"].values():
-        for outlet in _get_outlets(unit_cfg):
+        for outlet in get_outlets(unit_cfg):
             if outlet not in feed_set and outlet not in seen:
                 output_streams_ordered.append(outlet)
                 seen.add(outlet)
@@ -129,13 +130,12 @@ def _analyze_config(config: dict) -> dict:
     components = sorted(comp_set)
 
     # Unit parameters — numeric config keys, excluding topology keys
-    _topology_keys = {"type", "in", "out", "out_liq", "out_vap"}
     unit_params: dict[str, dict] = {}
     for unit_name, unit_cfg in config["units"].items():
         params = {
             k: v
             for k, v in unit_cfg.items()
-            if k not in _topology_keys and isinstance(v, (int, float))
+            if k not in TOPOLOGY_KEYS and isinstance(v, (int, float))
         }
         if params:
             unit_params[unit_name] = params
@@ -155,20 +155,6 @@ def _analyze_config(config: dict) -> dict:
         "unit_params": unit_params,
         "mode": mode,
     }
-
-
-def _get_outlets(unit_cfg: dict) -> list[str]:
-    """Return outlet stream name(s) — handles Flash (out_vap + out_liq)."""
-    if unit_cfg.get("type") == "Flash":
-        outlets = []
-        if unit_cfg.get("out_liq"):
-            outlets.append(unit_cfg["out_liq"])
-        if unit_cfg.get("out_vap"):
-            outlets.append(unit_cfg["out_vap"])
-        return outlets
-    out = unit_cfg.get("out")
-    return [out] if out else []
-
 
 def _get_slave_class_name(config: dict, config_path: str) -> str:
     """Derive a valid Python class name for the FMU slave."""
