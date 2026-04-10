@@ -24,6 +24,7 @@
       "type": "SolverUnit",
       "provider": "festim",
       "sim_type": "heat_2d",
+      "material": 10,
       "solver_config": {
         "mesh": { "nx": 20, "ny": 20 },
         "transient": false,
