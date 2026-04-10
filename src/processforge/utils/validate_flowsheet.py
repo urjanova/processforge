@@ -453,13 +453,13 @@ def _check_provider_material_props(config: dict) -> None:
 
 
 def _get_openmc_sim_type_registry() -> dict:
-    """Return the live ``_SIM_TYPE_REGISTRY`` from the OpenMC provider module.
+    """Return a snapshot of registered OpenMC sim types from the provider module.
 
     Importing ``openmc_provider`` is safe at validation time because it does not
     import the ``openmc`` library at module level.
     """
-    from processforge.providers.openmc_provider import _SIM_TYPE_REGISTRY  # noqa: PLC0415
-    return _SIM_TYPE_REGISTRY
+    from processforge.providers.openmc_provider import get_registered_sim_types  # noqa: PLC0415
+    return get_registered_sim_types()
 
 
 def _check_openmc_unit_config(config: dict) -> None:
@@ -491,6 +491,7 @@ def _check_openmc_unit_config(config: dict) -> None:
         for mat_name, mat_dict in materials.items()
     }
 
+    registry = _get_openmc_sim_type_registry()
     errors = []
 
     for unit_name, unit_cfg in config.get("units", {}).items():
@@ -504,7 +505,6 @@ def _check_openmc_unit_config(config: dict) -> None:
             )
             continue
 
-        registry = _get_openmc_sim_type_registry()
         if sim_type not in registry:
             errors.append(
                 f"❌ Unit '{unit_name}' has unknown OpenMC sim_type '{sim_type}'. "
