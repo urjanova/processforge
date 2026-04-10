@@ -267,7 +267,7 @@ Rules:
 - Each component `name` in a mix must match a key in the top-level `materials` section.
 - When all component fractions are provided they must sum to 1.0.
 
-Every unit also requires a `material` integer field pointing to a `id` in the `materials` section (this identifies the structural material the unit is made of, separate from the fluid composition).
+Every unit also requires a `material` integer field pointing to an `id` in the `materials` section (this identifies the structural material the unit is made of, separate from the fluid composition).
 
 ### Recycle streams
 
