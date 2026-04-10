@@ -205,9 +205,9 @@ Flowsheets are defined as JSON files. The `simulation.mode` field controls which
 {
   "metadata": { "name": "My Flowsheet", "version": "2.0" },
   "materials": {
-    "Water":   { "friendly_material_id": 1 },
-    "Toluene": { "friendly_material_id": 2 },
-    "Steel":   { "friendly_material_id": 3 }
+    "Water":   { "id": 1 },
+    "Toluene": { "id": 2 },
+    "Steel":   { "id": 3 }
   },
   "material_mixes": {
     "Water_Toluene_Mix": {
@@ -267,7 +267,7 @@ Rules:
 - Each component `name` in a mix must match a key in the top-level `materials` section.
 - When all component fractions are provided they must sum to 1.0.
 
-Every unit also requires a `material` integer field pointing to a `friendly_material_id` in the `materials` section (this identifies the structural material the unit is made of, separate from the fluid composition).
+Every unit also requires a `material` integer field pointing to a `id` in the `materials` section (this identifies the structural material the unit is made of, separate from the fluid composition).
 
 ### Recycle streams
 

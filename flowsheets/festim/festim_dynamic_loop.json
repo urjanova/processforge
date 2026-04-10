@@ -11,10 +11,10 @@
   },
   "materials": {
     "H2": {
-      "friendly_material_id": 1
+      "id": 1
     },
     "tungsten": {
-      "friendly_material_id": 3,
+      "id": 3,
       "D_0": 4.1e-7,
       "E_D": 0.39,
       "S_0": 4.28e-5,

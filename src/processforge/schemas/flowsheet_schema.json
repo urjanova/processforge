@@ -31,7 +31,7 @@
             },
             "output_dir": {
               "type": "string",
-              "description": "Modelica/OpenMC provider: directory for outputs"
+              "description": "Provider output directory (Modelica/OpenMC/Festim)"
             },
             "cross_sections": {
               "type": "string",
@@ -67,9 +67,9 @@
       "patternProperties": {
         "^[a-zA-Z0-9_]+$": {
           "type": "object",
-          "required": ["friendly_material_id"],
+          "required": ["id"],
           "properties": {
-            "friendly_material_id": {
+            "id": {
               "type": "integer",
               "description": "Unique numeric ID referenced by units to indicate what material they are made of"
             },
@@ -318,7 +318,7 @@
             },
             "material": {
               "type": "integer",
-              "description": "friendly_material_id of the material this unit is made of"
+              "description": "id of the material this unit is made of"
             }
           },
           "additionalProperties": true,

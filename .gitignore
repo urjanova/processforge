@@ -11,3 +11,4 @@ wheels/
 .venv
 diagrams/
 .processforge
+tmp_files/

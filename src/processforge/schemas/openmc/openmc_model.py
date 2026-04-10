@@ -26,7 +26,7 @@ class Material(BaseModel):
         examples=["divertor_upper", "blanket_rear_wall"],
         description="Descriptive name of the material.",
     )
-    friendly_material_id: int = Field(examples=[42], description="Unique identifier for the material as an integer.")
+    id: int = Field(examples=[42], description="Unique identifier for the material as an integer.")
     density: float = Field(examples=[10.5], description="Density of the material.")
     density_units: str = Field(examples=["g/cm3", "atoms/b-cm"], description="Units for the density.")  # 'g/cm3' or 'atoms/b-cm'
     nuclides: List[NuclideFraction] = Field(description="List of nuclides with their fractions in the material.")

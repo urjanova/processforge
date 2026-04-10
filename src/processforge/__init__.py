@@ -14,7 +14,7 @@ from .flowsheet import Flowsheet
 from .provenance import build_run_info
 from .solver import Solver
 from .thermo import get_enthalpy_molar, get_Cp_molar, get_K_values, rachford_rice
-from .validate import validate_flowsheet
+from .utils.validate_flowsheet import validate_flowsheet
 from .result import (
     plot_results,
     plot_timeseries,

@@ -58,7 +58,7 @@ class SolverUnit(ProviderMixin):
 
     JSON config fields:
       sim_type:      str — provider-interpreted simulation mode (e.g. "heat_2d")
-      material:      int — ``friendly_material_id`` of the structural material
+      material:      int — ``id`` of the structural material
       solver_config: dict — all provider-specific settings (mesh, BCs, traps, …)
     """
 

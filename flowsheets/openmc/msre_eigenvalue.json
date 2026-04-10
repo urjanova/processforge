@@ -1,31 +1,31 @@
 {
   "metadata": {
     "name": "MSRE Eigenvalue — DAGMC geometry",
-    "description": "Molten Salt Reactor Experiment eigenvalue simulation. Replicates openmc.py reference script. DAGMC geometry loaded from .h5m file. 5 materials: graphite, INOR-8, LiF-BeF2-ZrF4-UF4 salt, Inconel, helium.",
-    "version": "1.0"
+    "description": "Molten Salt Reactor Experiment eigenvalue simulation. Replicates openmc.py reference script. DAGMC geometry loaded from .h5m file. 7 materials matching h5m volume tags: graphite, inor, salt, inconel, helium, Graveyard, helium_comp.",
+    "version": "1.1"
   },
   "providers": {
     "openmc": {
       "type": "openmc",
-      "output_dir": "outputs/openmc",
-      "cross_sections": "/path/to/cross_sections.xml"
+      "output_dir": "outputs/openmc/msre_run",
+      "cross_sections": "/home/hrishiballal/Documents/Github/urjanova/processforge/tmp_files/cross_sections/cross_sections.xml"
     }
   },
   "materials": {
     "graphite": {
-      "friendly_material_id": 1,
+      "id": 1,
       "density": 2.26,
       "density_units": "g/cm3",
-      "temperature": 900.0,
+      "temperature": 0.0,
       "elements": [
         { "element": "C", "percent": 1.0, "percent_type": "ao" }
       ]
     },
-    "inor8": {
-      "friendly_material_id": 2,
+    "inor": {
+      "id": 2,
       "density": 9.0,
       "density_units": "g/cm3",
-      "temperature": 900.0,
+      "temperature": 0.0,
       "elements": [
         { "element": "Ni", "percent": 0.72, "percent_type": "wo" },
         { "element": "Mo", "percent": 0.16, "percent_type": "wo" },
@@ -34,10 +34,10 @@
       ]
     },
     "salt": {
-      "friendly_material_id": 3,
+      "id": 3,
       "density": 2.2,
       "density_units": "g/cm3",
-      "temperature": 900.0,
+      "temperature": 0.0,
       "depletable": true,
       "nuclides": [
         { "name": "Li7",  "percent": 0.335000, "percent_type": "ao" },
@@ -51,10 +51,10 @@
       ]
     },
     "inconel": {
-      "friendly_material_id": 4,
+      "id": 4,
       "density": 8.9,
       "density_units": "g/cm3",
-      "temperature": 900.0,
+      "temperature": 0.0,
       "elements": [
         { "element": "Ni", "percent": 0.72, "percent_type": "ao" },
         { "element": "Cr", "percent": 0.20, "percent_type": "ao" },
@@ -62,30 +62,29 @@
       ]
     },
     "helium": {
-      "friendly_material_id": 5,
+      "id": 5,
       "density": 1.0e-4,
       "density_units": "g/cm3",
-      "temperature": 900.0,
+      "temperature": 0.0,
       "nuclides": [
         { "name": "He4", "percent": 1.0, "percent_type": "ao" }
       ]
     }
+    
   },
   "streams": {},
   "units": {
-    "msre_eigenvalue": {
+    "openmc_solver": {
       "type": "SolverUnit",
       "provider": "openmc",
+      "material":3,
       "sim_type": "eigenvalue_dagmc",
-      "material": 3,
       "solver_config": {
-        "dagmc_path": "geometry/msre.h5m",
+        "dagmc_path": "/home/hrishiballal/Documents/Github/urjanova/processforge/tmp_files/geometry/msre_simple.h5m",
         "batches": 20,
         "inactive": 5,
         "particles": 20000,
         "run_mode": "eigenvalue",
-        "temperature_default": 900.0,
-        "output_path": "msre_run",
         "source_box": {
           "lower_left":  [-125, -125,   0],
           "upper_right": [ 125,  125, 500],

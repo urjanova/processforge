@@ -11,7 +11,7 @@
   },
   "materials": {
     "Benzene": {
-      "friendly_material_id": 1,
+      "id": 1,
       "density": 0.8765,
       "density_units": "g/cm3",
       "temperature": 298.15,
@@ -22,7 +22,7 @@
       ]
     },
     "Toluene": {
-      "friendly_material_id": 2,
+      "id": 2,
       "density": 0.867,
       "density_units": "g/cm3",
       "temperature": 298.15,
@@ -33,7 +33,7 @@
       ]
     },
     "Steel": {
-      "friendly_material_id": 3,
+      "id": 3,
       "density": 7.85,
       "density_units": "g/cm3",
       "depletable": false,

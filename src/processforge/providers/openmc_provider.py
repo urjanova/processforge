@@ -175,7 +175,6 @@ class OpenMCSolverConfig:
             "particles": 20000,
             "run_mode": "eigenvalue",
             "temperature_default": 900.0,
-            "output_path": "msre_run",
             "source_box": {
                 "lower_left":  [-125, -125, 0],
                 "upper_right": [ 125,  125, 500],
@@ -202,7 +201,6 @@ class OpenMCSolverConfig:
     source_box: Optional[OpenMCSourceBox] = None
     mesh_tallies: List[OpenMCMeshTally] = field(default_factory=list)
     temperature_default: Optional[float] = None
-    output_path: str = "run"
     cross_sections: Optional[str] = None
 
     @classmethod
@@ -223,7 +221,6 @@ class OpenMCSolverConfig:
             source_box=source_box,
             mesh_tallies=mesh_tallies,
             temperature_default=d.get("temperature_default"),
-            output_path=d.get("output_path", "run"),
             cross_sections=d.get("cross_sections"),
         )
 
@@ -247,7 +244,7 @@ class OpenMCBuildHelpers:
         Calls ``add_nuclide()`` for each entry in ``mat_def.nuclides`` (framework field).
         Calls ``add_element()`` for each entry in ``mat_def.extra["elements"]`` (OpenMC-specific).
         """
-        mat = openmc.Material(name=mat_name)
+        mat = openmc.Material(material_id=mat_def.id, name=mat_name)
 
         if mat_def.density is not None:
             units = mat_def.density_units or "g/cm3"
@@ -481,10 +478,10 @@ class OpenMCProvider(AbstractProvider):
     Responsibilities
     ----------------
     * **Material registry** — ``initialize()`` loads all material defs from the
-      flowsheet and indexes them by ``friendly_material_id`` and name.
+      flowsheet and indexes them by ``id`` and name.
     * **Working-directory management** — OpenMC writes XML and HDF5 output to
       the current working directory.  The provider changes CWD to
-      ``<provider_output_dir>/<solver_config.output_path>`` before each run and
+            ``<provider_output_dir>`` before each run and
       restores it afterwards in a ``finally`` block.
     * **Cross-section override** — If ``provider_config.cross_sections`` or
       ``solver_cfg.cross_sections`` is set, ``OPENMC_CROSS_SECTIONS`` is
@@ -509,7 +506,7 @@ class OpenMCProvider(AbstractProvider):
     ) -> None:
         """Verify OpenMC is installed, store config, build material registry.
 
-        Material registry is keyed by both ``str(friendly_material_id)`` and
+        Material registry is keyed by both ``str(id)`` and
         name — same dual-key pattern as ``FestimProvider``.
         """
         try:
@@ -524,9 +521,6 @@ class OpenMCProvider(AbstractProvider):
         self._materials = {}
 
         for mat_name, mat_def in flowsheet_config.materials.items():
-            fid = mat_def.friendly_material_id
-            if fid is not None:
-                self._materials[str(fid)] = mat_def
             self._materials[mat_name] = mat_def
 
         self._initialized = True
@@ -650,7 +644,7 @@ class OpenMCProvider(AbstractProvider):
         )
 
         # --- Working directory management ---
-        run_dir = pathlib.Path(self._provider_output_dir) / solver_cfg.output_path
+        run_dir = pathlib.Path(self._provider_output_dir)
         run_dir.mkdir(parents=True, exist_ok=True)
         original_cwd = pathlib.Path.cwd()
 

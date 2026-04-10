@@ -7,23 +7,8 @@ where ``prop`` is T, P, F, or z_{comp}, all passed through ``_sanitize_name``.
 from __future__ import annotations
 
 from ..fmu._fmi_vars import _sanitize_name
-from ..fmu.builder import _get_outlets
+from ..utils.topology import TOPOLOGY_KEYS, get_inlets, get_outlets
 from . import unit_equations as ueq
-
-
-# ---------------------------------------------------------------------------
-# Topology helpers
-# ---------------------------------------------------------------------------
-
-_TOPOLOGY_KEYS = {"type", "in", "out", "out_liq", "out_vap"}
-
-
-def _get_inlet_streams(unit_cfg: dict) -> list[str]:
-    """Return list of inlet stream names (handles single-string or list)."""
-    raw = unit_cfg.get("in", [])
-    if isinstance(raw, list):
-        return raw
-    return [raw]
 
 
 def _collect_all_streams(config: dict) -> list[str]:
@@ -39,9 +24,9 @@ def _collect_all_streams(config: dict) -> list[str]:
     for s in config.get("streams", {}):
         _add(s)
     for unit_cfg in config.get("units", {}).values():
-        for s in _get_inlet_streams(unit_cfg):
+        for s in get_inlets(unit_cfg):
             _add(s)
-        for s in _get_outlets(unit_cfg):
+        for s in get_outlets(unit_cfg):
             _add(s)
     return ordered
 
@@ -53,7 +38,7 @@ def _collect_unit_params(config: dict) -> dict[str, dict]:
         params = {
             k: v
             for k, v in unit_cfg.items()
-            if k not in _TOPOLOGY_KEYS and isinstance(v, (int, float))
+            if k not in TOPOLOGY_KEYS and isinstance(v, (int, float))
         }
         if params:
             result[unit_name] = params
@@ -209,8 +194,8 @@ def build_model_source(
     lines.append("  // ---- Unit equations ----")
     for unit_name, unit_cfg in config.get("units", {}).items():
         unit_type = unit_cfg.get("type", "")
-        inlets = _get_inlet_streams(unit_cfg)
-        outlets = _get_outlets(unit_cfg)
+        inlets = get_inlets(unit_cfg)
+        outlets = get_outlets(unit_cfg)
 
         # Multi-inlet mixing → virtual merged stream
         merged_inlet: str
@@ -278,7 +263,7 @@ def _collect_merged_declarations(config: dict, comps: list[str]) -> list[str]:
     """Emit variable declarations for virtual merged-inlet streams."""
     decls: list[str] = []
     for unit_name, unit_cfg in config.get("units", {}).items():
-        inlets = _get_inlet_streams(unit_cfg)
+        inlets = get_inlets(unit_cfg)
         if len(inlets) <= 1:
             continue
         merged = f"__merged_{_sanitize_name(unit_name)}"

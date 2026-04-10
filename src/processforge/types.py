@@ -28,7 +28,7 @@ class MaterialDef:
         mat.get("D_0")                               # unified accessor
     """
 
-    friendly_material_id: int
+    id: int
     density: Optional[float] = None
     density_units: Optional[str] = None
     temperature: Optional[float] = None
@@ -38,7 +38,7 @@ class MaterialDef:
 
     _KNOWN_FIELDS: frozenset = field(
         default=frozenset({
-            "friendly_material_id", "density", "density_units",
+            "id", "density", "density_units",
             "temperature", "depletable", "nuclides",
         }),
         init=False,
@@ -54,7 +54,7 @@ class MaterialDef:
         goes into ``extra`` for provider-specific access.
         """
         known_keys = frozenset({
-            "friendly_material_id", "density", "density_units",
+            "id", "density", "density_units",
             "temperature", "depletable", "nuclides",
         })
         known = {k: v for k, v in d.items() if k in known_keys}
@@ -68,7 +68,7 @@ class MaterialDef:
         whether the field is a typed attribute or a provider-specific extra.
         """
         known_keys = frozenset({
-            "friendly_material_id", "density", "density_units",
+            "id", "density", "density_units",
             "temperature", "depletable", "nuclides",
         })
         if key in known_keys:
@@ -174,16 +174,20 @@ class FestimProviderConfig:
     Flowsheet JSON example::
 
         "providers": {
-            "festim": {"type": "festim"}
+            "festim": {"type": "festim", "output_dir": "outputs/festim_2d"}
         }
     """
 
     type: str = "festim"
+    output_dir: str = "output"
     materials: dict = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, d: dict) -> "FestimProviderConfig":
-        return cls(materials=d.get("materials", {}))
+        return cls(
+            output_dir=d.get("output_dir", "output"),
+            materials=d.get("materials", {}),
+        )
 
 
 @dataclass
@@ -380,3 +384,59 @@ class SimulationResult:
     def as_dict(self) -> dict:
         """Flat dict for flowsheet result storage."""
         return {"status": self.status, "sim_type": self.sim_type, **self.scalars}
+
+
+@dataclass
+class RunInfo:
+    """Provenance metadata for a simulation run.
+
+    This structure is written to the Zarr ``run_info`` group by
+    ``save_results_zarr`` and is produced by ``build_run_info``.
+    """
+
+    git_hash: str
+    timestamp: str
+    python_version: str
+    platform: str
+    processforge_version: str
+    mode: str
+    backend: str
+    pkg_versions: dict[str, str] = field(default_factory=dict)
+    x0: Optional[list[float]] = None
+    var_names: Optional[list[str]] = None
+
+    def as_dict(self) -> dict:
+        """Dict view for compatibility with older call sites."""
+        return {
+            "git_hash": self.git_hash,
+            "timestamp": self.timestamp,
+            "python_version": self.python_version,
+            "platform": self.platform,
+            "processforge_version": self.processforge_version,
+            "mode": self.mode,
+            "backend": self.backend,
+            "pkg_versions": dict(self.pkg_versions),
+            "x0": list(self.x0) if self.x0 is not None else None,
+            "var_names": list(self.var_names) if self.var_names is not None else None,
+        }
+
+
+@dataclass
+class SnapshotState:
+    """Typed snapshot payload loaded from a .pfstate store."""
+
+    config: dict
+    x: list[float]
+    var_names: list[str] = field(default_factory=list)
+    snapshot_id: str = ""
+    timestamp: str = ""
+
+    def as_dict(self) -> dict:
+        """Dict view for compatibility with older call sites."""
+        return {
+            "config": self.config,
+            "x": list(self.x),
+            "var_names": list(self.var_names),
+            "snapshot_id": self.snapshot_id,
+            "timestamp": self.timestamp,
+        }

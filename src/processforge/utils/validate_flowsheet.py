@@ -288,14 +288,14 @@ def _check_material_semantics(config):
 
     Checks:
     1. density_units values are valid OpenMC units (when materials section is present).
-    2. friendly_material_id values are unique across all materials.
+    2. id values are unique across all materials.
     3. material_mixes component names resolve to entries in materials.
     4. material_mixes fraction sum equals 1.0 (only when all fractions are provided).
     5. Stream z-keys resolve to defined materials (when materials section is present).
-    6. Every unit must have a material field referencing a valid friendly_material_id.
+    6. Every unit must have a material field referencing a valid id.
     """
     materials = config.get("materials", {})
-    valid_ids = {mat_def["friendly_material_id"] for mat_def in materials.values()}
+    valid_ids = {mat_def["id"] for mat_def in materials.values()}
 
     if materials:
         all_material_names = set(materials.keys())
@@ -310,8 +310,8 @@ def _check_material_semantics(config):
                     f"Must be one of: {sorted(_VALID_DENSITY_UNITS)}"
                 )
 
-        # 2. friendly_material_id uniqueness
-        ids = [mat_def["friendly_material_id"] for mat_def in materials.values()]
+        # 2. id uniqueness
+        ids = [mat_def["id"] for mat_def in materials.values()]
         if len(ids) != len(set(ids)):
             seen, dupes = set(), set()
             for i in ids:
@@ -319,7 +319,7 @@ def _check_material_semantics(config):
                     dupes.add(i)
                 seen.add(i)
             raise ValueError(
-                f"❌ Duplicate friendly_material_id values found: {sorted(dupes)}"
+                f"❌ Duplicate id values found: {sorted(dupes)}"
             )
 
         # 3. friendly_material_mix_id uniqueness
@@ -389,14 +389,14 @@ def _check_material_semantics(config):
                     f"which does not match any friendly_material_mix_id in material_mixes."
                 )
 
-    # 7. Every unit must reference a valid friendly_material_id
+    # 7. Every unit must reference a valid id
     hint = " (no materials section defined)" if not materials else ""
     for unit_name, unit_def in config.get("units", {}).items():
         mat_id = unit_def.get("material")
         if mat_id not in valid_ids:
             raise ValueError(
                 f"❌ Unit '{unit_name}' references material id {mat_id}, "
-                f"which does not match any friendly_material_id in materials{hint}."
+                f"which does not match any id in materials{hint}."
             )
 
     return True
@@ -421,7 +421,7 @@ def _check_provider_material_props(config: dict) -> None:
 
     # Build id → (name, MaterialDef) lookup
     id_to_mat = {
-        mat_dict["friendly_material_id"]: (mat_name, MaterialDef.from_dict(mat_dict))
+        mat_dict["id"]: (mat_name, MaterialDef.from_dict(mat_dict))
         for mat_name, mat_dict in materials.items()
     }
 
@@ -479,7 +479,7 @@ def _check_openmc_unit_config(config: dict) -> None:
     materials = config.get("materials", {})
     # Build id → (name, raw dict) lookup for material validation
     id_to_mat_raw = {
-        mat_dict["friendly_material_id"]: (mat_name, mat_dict)
+        mat_dict["id"]: (mat_name, mat_dict)
         for mat_name, mat_dict in materials.items()
     }
 
@@ -534,7 +534,7 @@ def _check_openmc_unit_config(config: dict) -> None:
                 # Build a dict compatible with the Pydantic Material model
                 pydantic_dict = {
                     "name": mat_name,
-                    "friendly_material_id": mat_raw["friendly_material_id"],
+                    "id": mat_raw["id"],
                     "density": mat_raw.get("density", 1.0),
                     "density_units": mat_raw.get("density_units", "g/cm3"),
                     "nuclides": [

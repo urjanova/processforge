@@ -18,6 +18,26 @@ from .utils.flowsheet_diagram import draw_flowsheet
 from .state import StateManager
 
 
+def _require_existing_file(path: str, label: str = "Flowsheet file") -> None:
+    """Fail fast with a consistent message when an input path is missing."""
+    if not os.path.exists(path):
+        logger.error(f"{label} '{path}' not found.")
+        raise SystemExit(1)
+
+
+def _validate_runtime_flowsheet(path: str) -> dict:
+    """Validate flowsheet config and attach source path for runtime providers."""
+    try:
+        config = validate_flowsheet(path)
+    except Exception as e:
+        logger.error(f"Failed to validate flowsheet file '{path}': {e}")
+        raise SystemExit(1)
+
+    # Added after schema validation so additionalProperties:false doesn't reject it.
+    config["_config_path"] = path
+    return config
+
+
 def _cmd_init(args):
     """Initialise the .processforge/ project directory."""
     root = args.path or "."
@@ -60,21 +80,8 @@ def _cmd_init(args):
 def _cmd_run(args):
     """Run a process simulation from a flowsheet JSON file."""
     fname = args.flowsheet
-    if not os.path.exists(fname):
-        logger.error(f"Flowsheet file '{fname}' not found.")
-        raise SystemExit(1)
-
-    try:
-        config = validate_flowsheet(fname)
-    except SystemExit:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to validate flowsheet file '{fname}': {e}")
-        raise SystemExit(1)
-
-    # Stash the config file path for providers that need it (e.g. ModelicaProvider).
-    # Added after schema validation so additionalProperties:false doesn't reject it.
-    config["_config_path"] = fname
+    _require_existing_file(fname)
+    config = _validate_runtime_flowsheet(fname)
 
     base_name = os.path.splitext(os.path.basename(fname))[0]
 
@@ -106,7 +113,7 @@ def _cmd_run(args):
         results = fs.run()
         run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
 
-    zarr_path = save_results_zarr(
+    save_results_zarr(
         results,
         os.path.join("outputs", f"{base_name}_results.zarr"),
         run_info=run_info,
@@ -119,9 +126,7 @@ def _cmd_run(args):
 def _cmd_export_fmu(args):
     """Export a flowsheet as an FMI 2.0 co-simulation FMU."""
     fname = args.flowsheet
-    if not os.path.exists(fname):
-        logger.error(f"Flowsheet file '{fname}' not found.")
-        raise SystemExit(1)
+    _require_existing_file(fname)
 
     from .fmu import build_fmu  # local import — pythonfmu is optional
 
@@ -139,9 +144,7 @@ def _cmd_export_fmu(args):
 def _cmd_export_modelica(args):
     """Transpile a flowsheet to Modelica and optionally compile via OMPython."""
     fname = args.flowsheet
-    if not os.path.exists(fname):
-        logger.error(f"Flowsheet file '{fname}' not found.")
-        raise SystemExit(1)
+    _require_existing_file(fname)
 
     from .modelica import transpile, compile_modelica
     from .modelica.transpiler import _derive_model_name
@@ -169,11 +172,9 @@ def _cmd_export_modelica(args):
 def _cmd_diagram(args):
     """Generate a flowsheet diagram from a JSON file."""
     fname = args.flowsheet
-    if not os.path.exists(fname):
-        logger.error(f"Flowsheet file '{fname}' not found.")
-        raise SystemExit(1)
+    _require_existing_file(fname)
 
-    with open(fname, "r") as f:
+    with open(fname, "r", encoding="utf-8") as f:
         flowsheet_schema = json.load(f)
 
     output_dir = args.output_dir or "diagrams"
@@ -246,9 +247,7 @@ def _print_structural_diff(diff: dict) -> None:
 def _cmd_plan(args):
     """Parse a PCL or JSON flowsheet, run validators, DOF analysis, structural diff, and emit a Mermaid diagram."""
     fname = args.flowsheet
-    if not os.path.exists(fname):
-        logger.error(f"File '{fname}' not found.")
-        raise SystemExit(1)
+    _require_existing_file(fname, label="File")
 
     # Step 1: Load config
     if fname.endswith(".pcl"):
@@ -342,19 +341,8 @@ def _cmd_plan(args):
 def _cmd_apply(args):
     """Apply flowsheet: drift detection, warm-start, homotopy fallback, convergence guardrails."""
     fname = args.flowsheet
-    if not os.path.exists(fname):
-        logger.error(f"Flowsheet file '{fname}' not found.")
-        raise SystemExit(1)
-
-    try:
-        config = validate_flowsheet(fname)
-    except SystemExit:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to validate flowsheet file '{fname}': {e}")
-        raise SystemExit(1)
-
-    config["_config_path"] = fname
+    _require_existing_file(fname)
+    config = _validate_runtime_flowsheet(fname)
     base_name = os.path.splitext(os.path.basename(fname))[0]
 
     sim_cfg = config.get("simulation", {})
