@@ -506,8 +506,7 @@ class OpenMCProvider(AbstractProvider):
     ) -> None:
         """Verify OpenMC is installed, store config, build material registry.
 
-        Material registry is keyed by both ``str(id)`` and
-        name — same dual-key pattern as ``FestimProvider``.
+        Material registry is keyed by material name.
         """
         try:
             import openmc  # noqa: F401
