@@ -8,7 +8,7 @@
     "openmc": {
       "type": "openmc",
       "output_dir": "outputs/openmc/msre_run",
-      "cross_sections": "/home/hrishiballal/Documents/Github/urjanova/processforge/tmp_files/cross_sections/cross_sections.xml"
+      "cross_sections": "tmp_files/cross_sections/cross_sections.xml"
     }
   },
   "materials": {
