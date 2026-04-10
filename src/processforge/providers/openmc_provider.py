@@ -372,7 +372,7 @@ def register_openmc_sim_type(name: str, strategy_cls: type) -> None:
     _SIM_TYPE_REGISTRY[name] = strategy_cls
 
 
-def get_registered_sim_types() -> dict:
+def get_registered_sim_types() -> dict[str, type]:
     """Return a view of the currently registered OpenMC sim_type → strategy mapping.
 
     Use this function (rather than accessing ``_SIM_TYPE_REGISTRY`` directly) so

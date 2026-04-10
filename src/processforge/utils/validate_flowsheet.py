@@ -452,7 +452,7 @@ def _check_provider_material_props(config: dict) -> None:
         raise ValueError("\n".join(errors))
 
 
-def _get_openmc_sim_type_registry() -> dict:
+def _get_openmc_sim_type_registry() -> dict[str, type]:
     """Return a snapshot of registered OpenMC sim types from the provider module.
 
     Importing ``openmc_provider`` is safe at validation time because it does not
