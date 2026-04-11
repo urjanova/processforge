@@ -24,6 +24,9 @@ USER $MAMBA_USER
 # Port used by the API server (pf-serve / python -m processforge.api.serve)
 EXPOSE 8080
 
-# Default command: CLI mode. To start the API server instead, run:
-#   docker run -p 8080:8080 <image> pf-serve
-ENTRYPOINT ["/usr/local/bin/_entrypoint.sh", "python", "-m", "processforge"]
+# Execute commands inside the activated conda environment. Default to CLI mode.
+# Examples:
+#   docker run --rm <image>                        # runs processforge
+#   docker run --rm -p 8090:8080 <image> pf-serve # runs API server
+ENTRYPOINT ["/usr/local/bin/_entrypoint.sh"]
+CMD ["processforge"]
