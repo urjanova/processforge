@@ -1,0 +1,13 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.db
+.venv/
+outputs/
+*.h5
+*.xdmf
+*.zarr
+.ipynb_checkpoints/

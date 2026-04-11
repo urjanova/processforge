@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "processforge"
-version = "0.2.21"
+version = "0.2.22"
 description = "A Python-based process simulation framework for chemical engineering applications."
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -37,6 +37,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "boto3>=1.34",
+    "s3fs>=2024.3",
+    "pydantic>=2.0",
+]
 eo = [
     "pyomo>=6.7",
 ]
@@ -77,6 +84,7 @@ Issues = "https://github.com/urjanova/processforge/issues"
 [project.scripts]
 processforge = "processforge.simulate:main"
 pf = "processforge.simulate:main"
+pf-serve = "processforge.api.serve:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

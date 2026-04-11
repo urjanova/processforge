@@ -126,6 +126,33 @@ def save_results_zarr(results, fname="results.zarr", run_info: RunInfo | dict | 
     return store_path
 
 
+def save_results_zarr_s3(results, s3_uri: str, run_info: RunInfo | dict | None = None):
+    """Write simulation results directly to an S3-backed Zarr store.
+
+    Requires ``s3fs`` (``pip install s3fs``) and AWS credentials available via
+    the standard environment variables (``AWS_ACCESS_KEY_ID``,
+    ``AWS_SECRET_ACCESS_KEY``, ``AWS_DEFAULT_REGION``) or an attached IAM role.
+
+    Args:
+        results:  Stream result dict as returned by ``Flowsheet.run()``
+                  or ``EOFlowsheet.run()``.
+        s3_uri:   Destination URI, e.g. ``s3://my-bucket/prefix/results.zarr``.
+        run_info: Optional provenance metadata (same as :func:`save_results_zarr`).
+    """
+    import s3fs  # noqa: F401 – registers the s3:// protocol with fsspec
+
+    store = zarr.storage.FsspecStore.from_url(s3_uri)
+    root = zarr.group(store=store, overwrite=True)
+    mode = "dynamic" if _is_dynamic(results) else "steady"
+    root.attrs["mode"] = mode
+    for stream_name, stream_data in results.items():
+        stream_group = root.create_group(stream_name)
+        _store_stream(stream_group, stream_data)
+    if run_info is not None:
+        _store_run_info(root, run_info)
+    logger.info(f"Saved Zarr results to {s3_uri}")
+
+
 def plot_results(results, fname="results.png"):
     os.makedirs("outputs", exist_ok=True)
     streams = list(results.keys())

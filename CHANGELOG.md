@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.22] - 2026-04-11
+
+### Added 
+- Added `save_results_zarr_s3` for direct Zarr result export to S3.
+- Added optional `api` dependencies with `fastapi`, `uvicorn`, `boto3`, `s3fs`, and `pydantic`.
+- Added `pf-serve` CLI entry point for serving Processforge APIs.
+- Added cloud/Docker run instructions to the README.
+
+
 ## [0.2.21] - 2026-04-07
 
 ### Added 
