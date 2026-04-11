@@ -15,7 +15,7 @@ WORKDIR /app
 COPY --chown=$MAMBA_USER:$MAMBA_USER . .
 
 # Install processforge and API dependencies from local source
-RUN pip install -e ".[api]"
+RUN micromamba run -n base python -m pip install -e ".[api]"
 
 # Ensure the conda environment is activated for the entrypoint
 ARG MAMBA_DOCKERFILE_COMMAND=activate
