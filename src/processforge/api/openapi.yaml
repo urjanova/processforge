@@ -1,0 +1,195 @@
+openapi: 3.1.0
+info:
+  title: ProcessForge API
+  version: "1.0.0"
+  description: API for submitting and monitoring ProcessForge flowsheet runs.
+servers:
+  - url: /
+    description: Relative base URL
+paths:
+  /api/v1/health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      operationId: health
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /api/v1/run:
+    post:
+      tags:
+        - Jobs
+      summary: Submit a new flowsheet run
+      operationId: runFlowsheet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunRequest"
+      responses:
+        "202":
+          description: Job accepted for background execution
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunAcceptedResponse"
+        "422":
+          description: Validation error in request payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /api/v1/jobs/{job_id}:
+    get:
+      tags:
+        - Jobs
+      summary: Get status for a submitted job
+      operationId: getJob
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: Unique identifier of the job
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatus"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Validation error in path parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          const: ok
+        version:
+          type: string
+      required:
+        - status
+        - version
+    RunRequest:
+      type: object
+      properties:
+        flowsheet:
+          type: object
+          additionalProperties: true
+          description: Flowsheet configuration payload
+        s3_bucket:
+          type: string
+          description: Destination S3 bucket for outputs
+        s3_prefix:
+          anyOf:
+            - type: string
+            - type: "null"
+          default: null
+          description: Optional key prefix for job outputs
+      required:
+        - flowsheet
+        - s3_bucket
+    RunAcceptedResponse:
+      type: object
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          const: queued
+        status_url:
+          type: string
+      required:
+        - job_id
+        - status
+        - status_url
+    JobStatus:
+      type: object
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum:
+            - queued
+            - running
+            - complete
+            - failed
+        s3_urls:
+          anyOf:
+            - type: object
+              additionalProperties: true
+            - type: "null"
+          default: null
+        error:
+          anyOf:
+            - type: string
+            - type: "null"
+          default: null
+        started_at:
+          type: string
+        completed_at:
+          anyOf:
+            - type: string
+            - type: "null"
+          default: null
+      required:
+        - job_id
+        - status
+        - s3_urls
+        - error
+        - started_at
+        - completed_at
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+        - detail
+    ValidationError:
+      type: object
+      properties:
+        loc:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: integer
+        msg:
+          type: string
+        type:
+          type: string
+      required:
+        - loc
+        - msg
+        - type
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationError"
+      required:
+        - detail
