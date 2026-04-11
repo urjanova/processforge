@@ -30,3 +30,34 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/${{ github.repository }}:latest
+
+      - name: Ensure GHCR package is public
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GHCR_PAT != '' && secrets.GHCR_PAT || github.token }}
+          script: |
+            const owner = context.repo.owner;
+            const packageName = context.repo.repo.toLowerCase();
+
+            const { data: ownerData } = await github.rest.users.getByUsername({
+              username: owner,
+            });
+
+            const endpoint = ownerData.type === "Organization"
+              ? "PATCH /orgs/{org}/packages/container/{package_name}/visibility"
+              : "PATCH /user/packages/container/{package_name}/visibility";
+
+            try {
+              const params = ownerData.type === "Organization"
+                ? { org: owner, package_name: packageName, visibility: "public" }
+                : { package_name: packageName, visibility: "public" };
+
+              await github.request(endpoint, params);
+              core.info(`Set GHCR package '${packageName}' visibility to public.`);
+            } catch (error) {
+              core.setFailed(
+                "Could not set package visibility to public. " +
+                "If GITHUB_TOKEN lacks access, add a GHCR_PAT secret with package admin scope. " +
+                `Details: ${error.message}`
+              );
+            }
