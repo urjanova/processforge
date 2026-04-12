@@ -7,9 +7,10 @@ import boto3
 from loguru import logger
 
 import os
+import shutil
 import tempfile
 from processforge.provenance import build_dynamic_x0, build_run_info
-from processforge.result import save_results_zarr_s3
+from processforge.result import save_results_zarr
 from processforge.utils.validate_flowsheet import validate_flowsheet_dict
 
 
@@ -75,10 +76,6 @@ def run_job_sync(
         validate_flowsheet_dict(flowsheet)
         results, run_info = _run_simulation(flowsheet)
 
-        zarr_uri = f"s3://{s3_bucket}/{s3_prefix}/results.zarr"
-        save_results_zarr_s3(results, zarr_uri, run_info=run_info)
-        logger.info(f"[{job_id}] Zarr written to {zarr_uri}")
-
         s3_client = boto3.client(
             "s3",
             aws_access_key_id=os.environ.get("S3_ACCESS_KEY"),
@@ -86,6 +83,20 @@ def run_job_sync(
             endpoint_url=os.environ.get("S3_ENDPOINT_URL"),
             region_name=os.environ.get("S3_REGION_NAME", "ams3"),
         )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_zarr_path = os.path.join(tmpdir, "results.zarr")
+            save_results_zarr(results, local_zarr_path, run_info=run_info)
+
+            zip_base_name = os.path.join(tmpdir, "results")
+            shutil.make_archive(zip_base_name, "zip", root_dir=tmpdir, base_dir="results.zarr")
+            zip_path = f"{zip_base_name}.zip"
+
+            zip_s3_key = f"{s3_prefix}/results.zip"
+            s3_client.upload_file(zip_path, s3_bucket, zip_s3_key)
+            zarr_uri = f"s3://{s3_bucket}/{zip_s3_key}"
+
+        logger.info(f"[{job_id}] Zipped Zarr written to {zarr_uri}")
         output_urls = _upload_outputs_dir(s3_client, s3_bucket, s3_prefix)
 
         logger.remove(logger_id)
