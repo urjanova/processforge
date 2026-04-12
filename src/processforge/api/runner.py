@@ -60,6 +60,14 @@ def run_job_sync(
     This is called from an async background task via asyncio.to_thread so
     the FastAPI event loop remains free to handle status-poll requests.
     """
+    import os
+    import tempfile
+    
+    log_file = tempfile.NamedTemporaryFile(delete=False, suffix=".log")
+    log_file.close()
+    
+    logger_id = logger.add(log_file.name)
+
     jobs_store[job_id]["status"] = "running"
     jobs_store[job_id]["started_at"] = datetime.datetime.utcnow().isoformat() + "Z"
 
@@ -81,6 +89,13 @@ def run_job_sync(
         )
         output_urls = _upload_outputs_dir(s3_client, s3_bucket, s3_prefix)
 
+        logger.remove(logger_id)
+        
+        log_s3_key = f"{s3_prefix}/run.log"
+        s3_client.upload_file(log_file.name, s3_bucket, log_s3_key)
+        log_uri = f"s3://{s3_bucket}/{log_s3_key}"
+        os.unlink(log_file.name)
+
         jobs_store[job_id].update(
             {
                 "status": "complete",
@@ -88,11 +103,14 @@ def run_job_sync(
                 "s3_urls": {
                     "zarr": zarr_uri,
                     "outputs": output_urls,
+                    "log": log_uri,
                 },
             }
         )
     except Exception as exc:
         logger.exception(f"[{job_id}] Job failed: {exc}")
+        logger.remove(logger_id)
+        
         jobs_store[job_id].update(
             {
                 "status": "failed",
@@ -100,3 +118,21 @@ def run_job_sync(
                 "error": str(exc),
             }
         )
+        
+        try:
+            log_s3_key = f"{s3_prefix}/run.log"
+            s3_client = boto3.client(
+                "s3",
+                aws_access_key_id=os.environ.get("S3_ACCESS_KEY"),
+                aws_secret_access_key=os.environ.get("S3_SECRET_KEY"),
+                endpoint_url=os.environ.get("S3_ENDPOINT_URL"),
+                region_name=os.environ.get("S3_REGION_NAME", "ams3"),
+            )
+            s3_client.upload_file(log_file.name, s3_bucket, log_s3_key)
+            log_uri = f"s3://{s3_bucket}/{log_s3_key}"
+            jobs_store[job_id].setdefault("s3_urls", {})["log"] = log_uri
+        except Exception as e:
+            logger.error(f"Failed to upload log file: {e}")
+        finally:
+            if os.path.exists(log_file.name):
+                os.unlink(log_file.name)
