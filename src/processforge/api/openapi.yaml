@@ -138,6 +138,18 @@ components:
         s3_urls:
           anyOf:
             - type: object
+              properties:
+                zarr:
+                  type: string
+                  description: S3 URI for the generated Zarr store
+                outputs:
+                  type: array
+                  items:
+                    type: string
+                  description: S3 URIs for all files in the outputs directory
+                log:
+                  type: string
+                  description: S3 URI for the execution log file
               additionalProperties: true
             - type: "null"
           default: null
