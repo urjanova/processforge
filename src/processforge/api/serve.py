@@ -3,13 +3,13 @@
 Usage::
 
     # Via registered script
-    pf-serve [--host 0.0.0.0] [--port 8080]
+    pf-serve [--host 0.0.0.0] [--port 9000]
 
     # Or directly
-    python -m processforge.api.serve [--host 0.0.0.0] [--port 8080]
+    python -m processforge.api.serve [--host 0.0.0.0] [--port 9000]
 
     # Or via Docker (override entrypoint)
-    docker run -p 8080:8080 ghcr.io/urjanova/processforge:latest pf-serve
+    docker run -p 9000:9000 ghcr.io/urjanova/processforge:latest pf-serve
 
 AWS credentials are read from the standard environment variables
 (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION) or from an
@@ -27,7 +27,7 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--host", default="0.0.0.0", help="Bind host")
-    parser.add_argument("--port", type=int, default=8080, help="Bind port")
+    parser.add_argument("--port", type=int, default=9000, help="Bind port")
     args = parser.parse_args()
 
     import uvicorn

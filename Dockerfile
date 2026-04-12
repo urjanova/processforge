@@ -22,11 +22,11 @@ ARG MAMBA_DOCKERFILE_COMMAND=activate
 USER $MAMBA_USER
 
 # Port used by the API server (pf-serve / python -m processforge.api.serve)
-EXPOSE 8080
+EXPOSE 9000
 
 # Execute commands inside the activated conda environment. Default to CLI mode.
 # Examples:
 #   docker run --rm <image>                        # runs processforge
-#   docker run --rm -p 8090:8080 <image> pf-serve # runs API server
+#   docker run --rm -p 9000:9000 <image> pf-serve # runs API server
 ENTRYPOINT ["/usr/local/bin/_entrypoint.sh"]
 CMD ["processforge"]

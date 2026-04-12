@@ -353,7 +353,7 @@ docker pull ghcr.io/urjanova/processforge:latest
 Run a simulation and map an output folder:
 
 ```Bash
-  docker run -p 8080:8080 \
+  docker run -p 9000:9000 \
     -e AWS_ACCESS_KEY_ID=... \
     -e AWS_SECRET_ACCESS_KEY=... \
     -e AWS_DEFAULT_REGION=us-east-1 \
