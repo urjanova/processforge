@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.2.23] - 2026-04-12
+
+### Changed 
+ - Updated the `pf-serve` CLI command to bind to port 9000 instead of 8080, and updated the README instructions accordingly. This change was made to avoid potential conflicts with other services commonly using port 8080 and to provide a more unique default port for Processforge's API server.
+ - Added S3 endpoint and region environment variables to the README Docker run instructions, ensuring users can easily configure their S3-compatible storage for results export when running the API server in a containerized environment. This enhances the flexibility and usability of the API server for users with different S3 setups. 
 
 ## [0.2.22] - 2026-04-11
 

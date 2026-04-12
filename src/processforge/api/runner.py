@@ -71,7 +71,14 @@ def run_job_sync(
         save_results_zarr_s3(results, zarr_uri, run_info=run_info)
         logger.info(f"[{job_id}] Zarr written to {zarr_uri}")
 
-        s3_client = boto3.client("s3")
+        import os
+        s3_client = boto3.client(
+            "s3",
+            aws_access_key_id=os.environ.get("S3_ACCESS_KEY"),
+            aws_secret_access_key=os.environ.get("S3_SECRET_KEY"),
+            endpoint_url=os.environ.get("S3_ENDPOINT_URL"),
+            region_name=os.environ.get("S3_REGION_NAME", "ams3"),
+        )
         output_urls = _upload_outputs_dir(s3_client, s3_bucket, s3_prefix)
 
         jobs_store[job_id].update(

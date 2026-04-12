@@ -19,6 +19,20 @@ app = FastAPI(title="ProcessForge API", version=_version)
 _jobs: dict[str, dict] = {}
 
 
+@app.on_event("startup")
+async def startup_event():
+    import os
+    required_env_vars = [
+        "S3_ACCESS_KEY",
+        "S3_SECRET_KEY",
+        "S3_ENDPOINT_URL",
+        "S3_BUCKET_NAME",
+    ]
+    missing = [v for v in required_env_vars if not os.environ.get(v)]
+    if missing:
+        raise RuntimeError(f"Missing required S3 environment variables: {', '.join(missing)}")
+
+
 async def _run_job_in_thread(
     job_id: str,
     flowsheet: dict,

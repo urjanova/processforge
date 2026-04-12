@@ -140,8 +140,23 @@ def save_results_zarr_s3(results, s3_uri: str, run_info: RunInfo | dict | None =
         run_info: Optional provenance metadata (same as :func:`save_results_zarr`).
     """
     import s3fs  # noqa: F401 – registers the s3:// protocol with fsspec
+    import os
 
-    store = zarr.storage.FsspecStore.from_url(s3_uri)
+    storage_options = {
+        "key": os.environ.get("S3_ACCESS_KEY"),
+        "secret": os.environ.get("S3_SECRET_KEY"),
+    }
+
+    client_kwargs = {}
+    if endpoint := os.environ.get("S3_ENDPOINT_URL"):
+        client_kwargs["endpoint_url"] = endpoint
+    if region := os.environ.get("S3_REGION_NAME", "ams3"):
+        client_kwargs["region_name"] = region
+
+    if client_kwargs:
+        storage_options["client_kwargs"] = client_kwargs
+
+    store = zarr.storage.FsspecStore.from_url(s3_uri, storage_options=storage_options)
     root = zarr.group(store=store, overwrite=True)
     mode = "dynamic" if _is_dynamic(results) else "steady"
     root.attrs["mode"] = mode

@@ -21,6 +21,11 @@ from __future__ import annotations
 import argparse
 
 
+import uvicorn
+
+from processforge.api.app import app
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Start the ProcessForge FastAPI server",
@@ -29,11 +34,6 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0", help="Bind host")
     parser.add_argument("--port", type=int, default=9000, help="Bind port")
     args = parser.parse_args()
-
-    import uvicorn
-
-    from processforge.api.app import app
-
     uvicorn.run(app, host=args.host, port=args.port, workers=1)
 
 
