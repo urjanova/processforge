@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed 
 - Updated to zip and upload zarr file to S3 instead of entire directory via pf-serve
+- Updated `pf-serve` with new port exposed
 
 ## [0.2.23] - 2026-04-12
 
