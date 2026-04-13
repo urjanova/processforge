@@ -21,6 +21,14 @@ A Python-based process simulation framework for coupling different simulation en
 
 ## Features
 
+### Plan / Apply Workflow
+- **`pf init`**: Initialises the `.processforge/` project directory and `outputs/` folder. Run once per project.
+- **`pf plan`**: Validates the flowsheet (schema, DOF, Pint unit consistency), performs a structural diff against the last saved state (`+` added, `~` modified, `-` removed units), and generates a Mermaid diagram — all without running the solver.
+- **`pf apply`**: Solves the flowsheet using the last converged state as a warm start. Falls back automatically to a step-wise homotopy/continuation solver if the direct Newton solve fails. Topology changes (added/removed units) trigger a cold start with a warning.
+- **Snapshot Versioning**: Every successful `apply` creates a new numbered snapshot in `.pfstate/snapshots/`. Previous snapshots are never deleted, enabling rollback to any prior converged design.
+- **Convergence Guardrails**: If both the direct solve and homotopy fail, the engine auto-reverts `latest` to the last good snapshot and writes a divergence debug report (`*_divergence.json`) with the final residual norm, drifted parameters, and solver statistics.
+- **Dynamic t=0 from State**: `pf run` (dynamic mode) automatically loads the latest `.pfstate` converged values as the initial conditions for time-integration, replacing arbitrary feed defaults with a physically meaningful starting point.
+
 ### Core Capabilities
 - Steady-state EO (equation-oriented) and dynamic process simulations
 - Thermodynamic property calculations using CoolProp
@@ -50,14 +58,6 @@ A Python-based process simulation framework for coupling different simulation en
 - JSON schema validation for flowsheet configurations
 - Connectivity checks (inlet sources, unused outlets, unreachable units)
 - Comprehensive logging for debugging
-
-### Plan / Apply Workflow
-- **`pf init`**: Initialises the `.processforge/` project directory and `outputs/` folder. Run once per project.
-- **`pf plan`**: Validates the flowsheet (schema, DOF, Pint unit consistency), performs a structural diff against the last saved state (`+` added, `~` modified, `-` removed units), and generates a Mermaid diagram — all without running the solver.
-- **`pf apply`**: Solves the flowsheet using the last converged state as a warm start. Falls back automatically to a step-wise homotopy/continuation solver if the direct Newton solve fails. Topology changes (added/removed units) trigger a cold start with a warning.
-- **Snapshot Versioning**: Every successful `apply` creates a new numbered snapshot in `.pfstate/snapshots/`. Previous snapshots are never deleted, enabling rollback to any prior converged design.
-- **Convergence Guardrails**: If both the direct solve and homotopy fail, the engine auto-reverts `latest` to the last good snapshot and writes a divergence debug report (`*_divergence.json`) with the final residual norm, drifted parameters, and solver statistics.
-- **Dynamic t=0 from State**: `pf run` (dynamic mode) automatically loads the latest `.pfstate` converged values as the initial conditions for time-integration, replacing arbitrary feed defaults with a physically meaningful starting point.
 
 ## Available Unit Operations
 
