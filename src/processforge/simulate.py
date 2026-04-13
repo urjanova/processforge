@@ -17,6 +17,7 @@ from .result import (
 from .utils.flowsheet_diagram import draw_flowsheet
 from .state import StateManager
 
+from .utils.mermaid_diagram import generate_mermaid
 
 def _require_existing_file(path: str, label: str = "Flowsheet file") -> None:
     """Fail fast with a consistent message when an input path is missing."""
@@ -192,32 +193,32 @@ def _cmd_diagram(args):
 
 
 def _print_dof_report(report) -> None:
-    logger.info("=== DOF Analysis ===")
+    logger.info("=== Degrees of Freedom Analysis ===")
     if report.component_names:
         logger.info(f"Components: {', '.join(report.component_names)}  (N_c = {report.n_components})")
     else:
-        logger.warning("No components found in feed streams — DOF analysis may be incomplete.")
+        logger.warning("No components found in feed streams — Degrees of Freedom analysis may be incomplete.")
 
     for r in report.per_unit:
         icon = "✅" if r.status == "determined" else ("⚠️" if r.status == "under-specified" else "❌")
         logger.info(
             f"  {r.unit_name:<8} {f'[{r.unit_type}]':<8} "
-            f"unknowns={r.n_unknowns}  equations={r.n_equations}  "
-            f"DOF={r.dof}  {icon} {r.status}"
+            f"variables={r.n_variables}  equations={r.n_equations}  "
+            f"Degrees of Freedom={r.dof}  {icon} {r.status}"
         )
         for issue in r.issues:
             logger.warning(f"    → {r.unit_name}: {issue}")
 
     logger.info(f"Feed stream specs:  {report.feed_stream_specs}")
-    logger.info(f"Total unknowns:     {report.total_unknowns}")
+    logger.info(f"Total variables:    {report.total_variables}")
     logger.info(f"Total equations:    {report.total_equations} (unit) + {report.feed_stream_specs} (feed) = {report.total_equations + report.feed_stream_specs}")
 
     if report.system_dof == 0:
-        logger.info("System DOF: 0  ✅ Exactly determined — ready to solve")
+        logger.info("System Degrees of Freedom: 0  ✅ Exactly determined — ready to solve")
     elif report.system_dof > 0:
-        logger.warning(f"System DOF: {report.system_dof}  ⚠️  Under-specified — add {report.system_dof} more spec(s)")
+        logger.warning(f"System Degrees of Freedom: {report.system_dof}  ⚠️  Under-specified — add {report.system_dof} more spec(s)")
     else:
-        logger.error(f"System DOF: {report.system_dof}  ❌ Over-specified — remove {abs(report.system_dof)} spec(s)")
+        logger.warning(f"System Degrees of Freedom: {report.system_dof}  ❌ Over-specified — remove {-report.system_dof} spec(s)")
 
 
 def _print_unit_mismatches(mismatches) -> None:
@@ -312,9 +313,9 @@ def _cmd_plan(args):
 
     # Step 6b: Warm-start and homotopy eligibility
     logger.info("=== Warm-Start Status ===")
-    if state is not None:
-        snap_id = state.get("snapshot_id", "unknown")
-        snap_ts = state.get("timestamp", "")
+    if state is not None:        
+        snap_id = state.snapshot_id
+        snap_ts = state.timestamp
         logger.info(f"  Warm-start available : Yes  (snapshot {snap_id}, {snap_ts})")
         topology_ok = diff is None or not bool(diff.get("added") or diff.get("removed"))
         logger.info(
@@ -326,7 +327,6 @@ def _cmd_plan(args):
 
     # Step 7: Mermaid diagram
     if not args.no_diagram:
-        from .utils.mermaid_diagram import generate_mermaid
         output_dir = args.output_dir or "diagrams"
         out_path = os.path.join(output_dir, f"{base_name}_plan.mmd")
         generate_mermaid(config, output_path=out_path)

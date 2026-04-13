@@ -3,6 +3,7 @@
   "title": "Processforge Flowsheet Configuration Schema",
   "type": "object",
   "required": [
+    "providers",
     "streams",
     "units",
     "simulation"
@@ -10,7 +11,8 @@
   "properties": {
     "providers": {
       "type": "object",
-      "description": "Named provider declarations (Terraform-inspired). Omit to use CoolProp defaults.",
+      "description": "Named provider declarations (Terraform-inspired). At least one provider must be specified.",
+      "minProperties": 1,
       "patternProperties": {
         "^[a-zA-Z0-9_]+$": {
           "type": "object",

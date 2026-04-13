@@ -47,6 +47,13 @@ from loguru import logger
 from .base import AbstractProvider
 from .registry import register_provider
 
+
+def _resolve_omc_path(path: Optional[str]) -> Optional[str]:
+    """Expand environment variables (e.g. ``${OPENMC_DATA_ROOT}``) in a path string."""
+    if path is None:
+        return None
+    return os.path.expandvars(path)
+
 if TYPE_CHECKING:
     from processforge.types import (
         FlowsheetConfig,
@@ -414,7 +421,7 @@ class _EigenvalueDAGMCStrategy(OpenMCSimStrategy):
             )
 
         omc_materials = openmc.Materials(list(materials_map.values()))
-        dagmc_univ = openmc.DAGMCUniverse(solver_cfg.dagmc_path)
+        dagmc_univ = openmc.DAGMCUniverse(_resolve_omc_path(solver_cfg.dagmc_path))
         geometry = openmc.Geometry(dagmc_univ)
         source = helpers.build_source(openmc, solver_cfg.source_box)
         settings = helpers.build_settings(openmc, solver_cfg, source)
@@ -449,7 +456,7 @@ class _FixedSourceDAGMCStrategy(OpenMCSimStrategy):
             )
 
         omc_materials = openmc.Materials(list(materials_map.values()))
-        dagmc_univ = openmc.DAGMCUniverse(solver_cfg.dagmc_path)
+        dagmc_univ = openmc.DAGMCUniverse(_resolve_omc_path(solver_cfg.dagmc_path))
         geometry = openmc.Geometry(dagmc_univ)
         source = helpers.build_source(openmc, solver_cfg.source_box)
 
@@ -657,7 +664,7 @@ class OpenMCProvider(AbstractProvider):
         original_cwd = pathlib.Path.cwd()
 
         # --- Cross-section override ---
-        xs_path = solver_cfg.cross_sections or self._cross_sections
+        xs_path = _resolve_omc_path(solver_cfg.cross_sections or self._cross_sections)
         original_xs = os.environ.get("OPENMC_CROSS_SECTIONS")
         if xs_path:
             os.environ["OPENMC_CROSS_SECTIONS"] = str(xs_path)

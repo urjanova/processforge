@@ -13,7 +13,7 @@ Provides steady-state and dynamic process simulation capabilities including:
 from .flowsheet import Flowsheet
 from .provenance import build_run_info
 from .solver import Solver
-from .thermo import get_enthalpy_molar, get_Cp_molar, get_K_values, rachford_rice
+from .thermo import rachford_rice
 from .utils.validate_flowsheet import validate_flowsheet
 from .result import (
     plot_results,
@@ -36,9 +36,6 @@ __all__ = [
     "EOFlowsheet",
     "EOSolver",
     "Solver",
-    "get_enthalpy_molar",
-    "get_Cp_molar",
-    "get_K_values",
     "rachford_rice",
     "validate_flowsheet",
     "plot_results",

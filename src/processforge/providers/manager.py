@@ -43,10 +43,15 @@ def build_provider_map(
     Returns:
         Mapping of provider name → initialised ``AbstractProvider`` instance.
     """
-    # Step 1: always seed with the built-in CoolProp fallback.
+    # Step 1: always try to seed with the built-in CoolProp fallback.
     coolprop = CoolPropProvider()
-    coolprop.initialize(CoolPropProviderConfig(), flowsheet_config)
-    provider_map: dict = {_BUILTIN_DEFAULT_KEY: coolprop}
+    try:
+        coolprop.initialize(CoolPropProviderConfig(), flowsheet_config)
+        provider_map: dict = {_BUILTIN_DEFAULT_KEY: coolprop}
+    except ImportError as e:
+        logger.debug(f"Skipping implicit CoolProp fallback: {e}")
+        provider_map: dict = {}
+        coolprop = None
 
     # Step 2: instantiate every declared provider.
     for name, cfg in providers_config.items():
@@ -69,7 +74,7 @@ def build_provider_map(
             )
         provider_map[_DEFAULT_KEY] = provider_map[user_default]
         logger.info(f"Default provider set to '{user_default}'")
-    else:
+    elif coolprop is not None:
         provider_map[_DEFAULT_KEY] = coolprop
 
     return provider_map

@@ -14,6 +14,7 @@ A Python-based process simulation framework for coupling different simulation en
 - [Flowsheet Configuration](#flowsheet-configuration)
 - [Quick Start Examples](#quick-start-examples)
 - [Plan / Apply Workflow](#plan--apply-workflow-detail)
+- [Running on the cloud](#running-on-the-cloud)
 - [Project Structure](#project-structure)
 - [Dependencies](#dependencies)
 - [License](#license)
@@ -78,11 +79,15 @@ A Python-based process simulation framework for coupling different simulation en
 ### From PyPI
 
 ```bash
-# pip
+# pip (core features)
 pip install processforge
 
-# uv
+# uv (core features)
 uv add processforge
+
+# with CoolProp thermodynamics (required for Heater, Flash)
+pip install "processforge[coolprop]"
+uv add "processforge[coolprop]"
 ```
 
 ### With EO solver backends (optional)
@@ -343,26 +348,98 @@ If both the direct Newton solve and the homotopy fallback fail to converge:
 2. A `*_divergence.json` report is written with the drifted parameters, final `||F||`, homotopy step history, and the last `x` vector for debugging.
 
 
-## Running on the cloud 
+## Running on the cloud
+
 To run a simulation on any cloud provider (AWS EC2, Google Cloud, etc.) with Docker installed:
 
 Pull the image:
-```
+```bash
 docker pull ghcr.io/urjanova/processforge:latest
 ```
+
 Run a simulation and map an output folder:
 
-```Bash
-  docker run -p 8080:8080 \
-    -e S3_ACCESS_KEY='XXXXXX' \
-    -e S3_SECRET_KEY='YYYYYYYYY' \
-    -e S3_ENDPOINT_URL='https://processforge-files.ams3.s3.com' \
-    -e S3_REGION_NAME='ams3' \
-    -e S3_BUCKET_NAME='Dev' \
-    ghcr.io/urjanova/processforge:latest \
-    pf-serve
+```bash
+docker run -p 8080:8080 \
+  -e S3_ACCESS_KEY='XXXXXX' \
+  -e S3_SECRET_KEY='YYYYYYYYY' \
+  -e S3_ENDPOINT_URL='https://processforge-files.ams3.s3.com' \
+  -e S3_REGION_NAME='ams3' \
+  -e S3_BUCKET_NAME='Dev' \
+  ghcr.io/urjanova/processforge:latest \
+  pf-serve
 ```
+
 (Ensure you provide your S3-compatible credentials and endpoint URL; output and results will be synced directly to the specified bucket.)
+
+### OpenMC data files in containers
+
+OpenMC simulations require two external data assets:
+
+| Asset | Typical size | Managed via |
+|-------|-------------|-------------|
+| Cross-section library (`cross_sections.xml` + HDF5 data) | 100 MB – 5 GB | `OPENMC_DATA_URL` |
+| DAGMC geometry file (`.h5m`) | Tens of MB | `OPENMC_DAGMC_URL` |
+
+The container includes a startup script (`scripts/fetch_openmc_data.sh`) that downloads these files on first start and caches them on a persistent volume. Subsequent starts skip the download.
+
+**Paths in flowsheet JSON support environment variable expansion**, so use `${OPENMC_DATA_ROOT}/...` instead of hardcoded local paths:
+
+```json
+"providers": {
+  "openmc": {
+    "type": "openmc",
+    "cross_sections": "${OPENMC_DATA_ROOT}/cross_sections/cross_sections.xml"
+  }
+},
+"units": {
+  "reactor": {
+    "solver_config": {
+      "dagmc_path": "${OPENMC_DATA_ROOT}/geometry/my_model.h5m"
+    }
+  }
+}
+```
+
+#### Docker (local or cloud VM)
+
+Mount a local directory containing your data files:
+
+```bash
+docker run --rm \
+  -v /path/to/openmc_data:/data \
+  ghcr.io/urjanova/processforge:latest \
+  processforge run /app/flowsheets/openmc/msre_eigenvalue.json
+```
+
+If the data does not yet exist locally, let the container download it on first run:
+
+```bash
+docker run --rm \
+  -v openmc_data:/data \
+  -e OPENMC_DATA_URL=https://your-host.com/endfb-viii.0-hdf5.tar.gz \
+  -e OPENMC_DAGMC_URL=https://your-host.com/msre_simple.h5m \
+  ghcr.io/urjanova/processforge:latest \
+  processforge run /app/flowsheets/openmc/msre_eigenvalue.json
+```
+
+#### Railway
+
+1. **Attach a Railway Volume** to your service and mount it at `/data` (5 GB recommended for ENDF/B-VIII.0).
+2. **Set environment variables** in the Railway dashboard:
+
+   | Variable | Value |
+   |----------|-------|
+   | `OPENMC_DATA_ROOT` | `/data` |
+   | `OPENMC_DATA_URL` | URL to cross-section `.tar.gz` archive |
+   | `OPENMC_DAGMC_URL` | URL to DAGMC `.h5m` geometry file |
+
+3. `OPENMC_CROSS_SECTIONS` is exported automatically by the startup script — do not set it manually.
+
+On first deploy the script downloads data to the volume. Subsequent deploys skip the download.
+
+> **Cross-section data sources:** Pre-built ENDF/B-VIII.0 HDF5 libraries are available from the [OpenMC data releases page](https://github.com/openmc-dev/data/releases). Hosting the archive on S3/R2/Backblaze in the same region as your Railway service gives the fastest download on first deploy.
+
 ## Logo credit
 Google Gemini / Nano Banana
 

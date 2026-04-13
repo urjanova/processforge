@@ -8,7 +8,7 @@
     "openmc": {
       "type": "openmc",
       "output_dir": "outputs/openmc/msre_run",
-      "cross_sections": "tmp_files/cross_sections/cross_sections.xml"
+      "cross_sections": "${OPENMC_DATA_ROOT}/cross_sections/cross_sections.xml"
     }
   },
   "materials": {
@@ -80,7 +80,7 @@
       "material":3,
       "sim_type": "eigenvalue_dagmc",
       "solver_config": {
-        "dagmc_path": "/home/hrishiballal/Documents/Github/urjanova/processforge/tmp_files/geometry/msre_simple.h5m",
+        "dagmc_path": "${OPENMC_DATA_ROOT}/geometry/msre_simple.h5m",
         "batches": 20,
         "inactive": 5,
         "particles": 20000,

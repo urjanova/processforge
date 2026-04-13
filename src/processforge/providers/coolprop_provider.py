@@ -22,20 +22,53 @@ class CoolPropProvider(AbstractProvider):
         provider_config: "CoolPropProviderConfig",
         flowsheet_config: "FlowsheetConfig",
     ) -> None:
-        # CoolProp needs no warm-up; nothing to do.
-        pass
+        try:
+            import CoolProp.CoolProp as CP
+            self.CP = CP
+        except ImportError:
+            raise ImportError(
+                "CoolProp is not installed. To use the CoolProp thermodynamics provider, "
+                "please install it by running `pip install \"processforge[coolprop]\"`"
+            )
 
     def get_thermo_properties(self, stream: dict) -> dict:
-        """Delegate to the existing CoolProp-backed thermo functions."""
-        from processforge.thermo import get_enthalpy_molar, get_Cp_molar, get_K_values
+        """Calculate thermodynamic properties using CoolProp."""
+        from loguru import logger
 
         z = stream["z"]
         T = stream["T"]
         P = stream["P"]
+
+        H = 0.0
+        Cp = 0.0
+        for comp, frac in z.items():
+            if frac <= 0.0:
+                continue
+            
+            try:
+                H += frac * self.CP.PropsSI("HMOLAR", "T", T, "P", P, comp)
+            except ValueError:
+                logger.warning(f"Component '{comp}' not found in CoolProp. Enthalpy contribution is 0.")
+
+            try:
+                Cp += frac * self.CP.PropsSI("Cpmolar", "T", T, "P", P, comp)
+            except ValueError:
+                logger.warning(f"Component '{comp}' not found in CoolProp. Cp contribution is 0.")
+
+        Ks = {}
+        for comp in z.keys():
+            try:
+                fugL = self.CP.PropsSI("fugL", "T", T, "P", P, comp)
+                fugV = self.CP.PropsSI("fugV", "T", T, "P", P, comp)
+                Ks[comp] = fugL / fugV if fugV != 0 else 1.0
+            except Exception:
+                logger.warning(f"Could not calculate K-value for '{comp}'. Using fallback K=1.0.")
+                Ks[comp] = 1.0
+
         return {
-            "H": get_enthalpy_molar(z, T, P),
-            "Cp": get_Cp_molar(z, T, P),
-            "K_values": get_K_values(list(z.keys()), T, P),
+            "H": H,
+            "Cp": Cp,
+            "K_values": Ks,
         }
 
     def compute_unit(

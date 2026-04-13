@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.optimize import brentq
-from ..thermo import get_enthalpy_molar
 from ..eo.units.heater_eo import HeaterEOMixin
 
 
@@ -75,11 +74,11 @@ class Heater(HeaterEOMixin):
 
         # Route enthalpy calls through provider when available
         provider = getattr(self, "_provider", None)
+        if provider is None:
+            raise RuntimeError(f"Unit '{self.name}' requires a thermodynamic provider to compute enthalpy.")
 
         def _H(T_val):
-            if provider is not None:
-                return provider.get_thermo_properties({"z": z, "T": T_val, "P": P})["H"]
-            return get_enthalpy_molar(z, T_val, P)
+            return provider.get_thermo_properties({"z": z, "T": T_val, "P": P})["H"]
 
         # Enthalpy in
         H_in = _H(T_in)

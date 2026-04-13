@@ -27,7 +27,6 @@ keywords = ["process", "simulation", "chemical", "engineering", "flowsheet"]
 dependencies = [
     "numpy>=2.0",
     "scipy>=1.14",
-    "coolprop>=6.6",
     "matplotlib>=3.9",
     "loguru>=0.7",
     "jsonschema>=4.20",
@@ -60,6 +59,9 @@ modelica = [
 ]
 cantera = [
     "cantera>=3.0",
+]
+coolprop = [
+    "coolprop>=6.6",
 ]
 pcl = [
     "pint>=0.24",

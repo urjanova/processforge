@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 class UnitDOFResult:
     unit_name: str
     unit_type: str
-    n_unknowns: int
+    n_variables: int
     n_equations: int
     dof: int
     status: str          # "determined" | "under-specified" | "over-specified"
@@ -19,7 +19,7 @@ class SystemDOFReport:
     n_components: int
     component_names: list[str]
     feed_stream_specs: int
-    total_unknowns: int
+    total_variables: int
     total_equations: int
     system_dof: int
     per_unit: list[UnitDOFResult] = field(default_factory=list)
@@ -41,7 +41,7 @@ _UNIT_REQUIRED: dict[str, list] = {
     "IdealGasReactor": ["residence_time"],
 }
 
-# Units that produce two outlet streams (affects unknowns count)
+# Units that produce two outlet streams (affects variables count)
 _TWO_OUTLET_UNITS = frozenset({"Flash"})
 
 
@@ -101,13 +101,13 @@ def analyze_dof(config: dict) -> SystemDOFReport:
     feed_stream_specs = len(config.get("streams", {})) * vars_per_stream
 
     per_unit: list[UnitDOFResult] = []
-    total_unknowns = 0
+    total_variables = 0
     total_equations = 0
 
     for unit_name, unit_cfg in config.get("units", {}).items():
         unit_type = unit_cfg.get("type", "")
         n_outlets = 2 if unit_type in _TWO_OUTLET_UNITS else 1
-        unknowns = n_outlets * vars_per_stream
+        variables = n_outlets * vars_per_stream
         equations = n_outlets * vars_per_stream  # each unit fully determines its outlets
 
         issues = _check_required(unit_cfg, unit_type, sim_mode)
@@ -126,18 +126,18 @@ def analyze_dof(config: dict) -> SystemDOFReport:
         per_unit.append(UnitDOFResult(
             unit_name=unit_name,
             unit_type=unit_type,
-            n_unknowns=unknowns,
+            n_variables=variables,
             n_equations=equations,
             dof=dof,
             status=status,
             issues=issues,
         ))
 
-        total_unknowns += unknowns
+        total_variables += variables
         total_equations += equations
 
     # System DOF = total missing required parameters across all units.
-    # Feed streams are boundary conditions (fully given), not unknowns.
+    # Feed streams are boundary conditions (fully given), not variables.
     # Each unit fully determines its outlets when all required params are present,
     # so the system is determined iff every unit has DOF=0.
     system_dof = sum(r.dof for r in per_unit)
@@ -146,7 +146,7 @@ def analyze_dof(config: dict) -> SystemDOFReport:
         n_components=n_c,
         component_names=component_names,
         feed_stream_specs=feed_stream_specs,
-        total_unknowns=total_unknowns,
+        total_variables=total_variables,
         total_equations=total_equations,
         system_dof=system_dof,
         per_unit=per_unit,

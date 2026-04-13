@@ -213,15 +213,30 @@ class ModelicaProviderConfig:
 class OpenMCProviderConfig:
     """Configuration for the OpenMC Monte Carlo neutronics provider.
 
+    Paths support environment variable expansion (``${VAR}`` / ``$VAR``), which
+    is the recommended way to manage data files in Docker and Railway deployments.
+
     Flowsheet JSON example::
 
         "providers": {
             "openmc": {
                 "type": "openmc",
                 "output_dir": "outputs/openmc",
-                "cross_sections": "/path/to/cross_sections.xml"
+                "cross_sections": "${OPENMC_DATA_ROOT}/cross_sections/cross_sections.xml"
             }
         }
+
+    Container deployment pattern:
+
+    * Set ``OPENMC_DATA_ROOT`` to the mount point of your data volume (default ``/data``).
+    * Set ``OPENMC_DATA_URL`` to download a cross-section ``.tar.gz`` archive on first start.
+    * Set ``OPENMC_DAGMC_URL`` to download a DAGMC geometry ``.h5m`` file on first start.
+    * ``OPENMC_CROSS_SECTIONS`` is exported automatically by the startup script — do not
+      set it manually when using ``OPENMC_DATA_URL``.
+
+    Local usage::
+
+        OPENMC_DATA_ROOT=/path/to/openmc_data processforge run flowsheet.json
     """
 
     type: str = "openmc"

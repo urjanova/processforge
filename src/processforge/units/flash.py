@@ -85,11 +85,13 @@ class Flash(FlashEOMixin):
 
         # Route K-value calculation through provider when available
         provider = getattr(self, "_provider", None)
-        if provider is not None:
-            props = provider.get_thermo_properties({"z": z, "T": T, "P": P})
-            Ks = props.get("K_values", thermo.get_K_values(z.keys(), T, P))
-        else:
-            Ks = thermo.get_K_values(z.keys(), T, P)
+        if provider is None:
+            raise RuntimeError(f"Unit '{self.name}' requires a thermodynamic provider to compute K_values.")
+            
+        props = provider.get_thermo_properties({"z": z, "T": T, "P": P})
+        if "K_values" not in props:
+            raise RuntimeError(f"Provider attached to unit '{self.name}' did not return K_values.")
+        Ks = props["K_values"]
 
         # Solve for vapor fraction β
         beta = thermo.rachford_rice(z, Ks)

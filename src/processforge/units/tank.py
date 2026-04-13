@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.integrate import solve_ivp
-from ..thermo import get_enthalpy_molar, get_Cp_molar
 from dataclasses import dataclass
 from .provider_mixin import ProviderMixin
 
@@ -42,12 +41,9 @@ class Tank(ProviderMixin):
     def _get_thermo_properties(self, z: dict, T: float, P: float) -> dict:
         """Route thermo calls through the attached provider when available."""
         provider = getattr(self, "_provider", None)
-        if provider is not None:
-            return provider.get_thermo_properties({"z": z, "T": T, "P": P})
-        return {
-            "H": get_enthalpy_molar(z, T, P),
-            "Cp": get_Cp_molar(z, T, P),
-        }
+        if provider is None:
+            raise RuntimeError(f"Unit '{self.name}' requires a thermodynamic provider to compute enthalpy and Cp.")
+        return provider.get_thermo_properties({"z": z, "T": T, "P": P})
 
     def _run_impl(self, inlet):
         """
@@ -143,7 +139,7 @@ class Tank(ProviderMixin):
         H_out = props_out["H"]  # J/mol
 
         # Cp mix
-        Cp_mix = props_out.get("Cp", get_Cp_molar(x, T, self.P))  # J/mol/K
+        Cp_mix = props_out.get("Cp", 1e-6)  # J/mol/K (fallback or from provider)
         if Cp_mix <= 0:
             Cp_mix = 1e-6
 
