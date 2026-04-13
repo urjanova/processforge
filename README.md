@@ -423,23 +423,6 @@ docker run --rm \
   processforge run /app/flowsheets/openmc/msre_eigenvalue.json
 ```
 
-#### Railway
-
-1. **Attach a Railway Volume** to your service and mount it at `/data` (5 GB recommended for ENDF/B-VIII.0).
-2. **Set environment variables** in the Railway dashboard:
-
-   | Variable | Value |
-   |----------|-------|
-   | `OPENMC_DATA_ROOT` | `/data` |
-   | `OPENMC_DATA_URL` | URL to cross-section `.tar.gz` archive |
-   | `OPENMC_DAGMC_URL` | URL to DAGMC `.h5m` geometry file |
-
-3. `OPENMC_CROSS_SECTIONS` is exported automatically by the startup script — do not set it manually.
-
-On first deploy the script downloads data to the volume. Subsequent deploys skip the download.
-
-> **Cross-section data sources:** Pre-built ENDF/B-VIII.0 HDF5 libraries are available from the [OpenMC data releases page](https://github.com/openmc-dev/data/releases). Hosting the archive on S3/R2/Backblaze in the same region as your Railway service gives the fastest download on first deploy.
-
 ## Logo credit
 Google Gemini / Nano Banana
 
