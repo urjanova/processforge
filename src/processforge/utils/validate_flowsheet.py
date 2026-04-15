@@ -103,6 +103,21 @@ def _get_unit_inlets(unit_config):
     return [inlet] if inlet else []
 
 
+def _get_unit_outlets(unit_config):
+    """Return outlet stream name(s) as a list, handling string or list for 'out'."""
+    outlets = []
+    out = unit_config.get("out")
+    if isinstance(out, list):
+        outlets.extend(out)
+    elif out is not None:
+        outlets.append(out)
+    for key in ("retentate_out", "permeate_out"):
+        val = unit_config.get(key)
+        if val is not None:
+            outlets.append(val)
+    return outlets
+
+
 # Unit types that run standalone FEM/neutronics simulations — no mandatory
 # inlet or outlet stream.  They are exempt from stream connectivity rules.
 _SOLVER_UNIT_TYPES = frozenset({"SolverUnit"})
@@ -112,10 +127,7 @@ def _collect_produced_streams(config: dict) -> set:
     """Return all stream names produced by any unit (out, retentate_out, permeate_out)."""
     produced = set()
     for unit in config["units"].values():
-        for key in ("out", "retentate_out", "permeate_out"):
-            val = unit.get(key)
-            if val is not None:
-                produced.add(val)
+        produced.update(_get_unit_outlets(unit))
     return produced
 
 
@@ -145,7 +157,7 @@ def check_stream_connectivity(config):
             # Standalone simulation units — no stream connectivity required
             continue
         inlets = _get_unit_inlets(unit)
-        has_outlet = unit.get("out") or unit.get("retentate_out")
+        has_outlet = bool(_get_unit_outlets(unit))
         if not inlets or not has_outlet:
             raise ValueError(f"❌ Unit '{name}' missing 'in' or 'out' field.")
         consumed_streams.update(inlets)
@@ -174,14 +186,12 @@ def _check_unused_outlets(config, consumed_streams, defined_streams):
     """Warn about outlet streams not consumed by any downstream unit."""
     all_known_consumers = consumed_streams | defined_streams
     for name, unit in config["units"].items():
-        outlet = unit.get("out")
-        if outlet is None:
-            continue
-        if outlet not in all_known_consumers:
-            logger.warning(
-                f"⚠️  Outlet '{outlet}' from unit '{name}' is not consumed "
-                f"by any downstream unit."
-            )
+        for outlet in _get_unit_outlets(unit):
+            if outlet not in all_known_consumers:
+                logger.warning(
+                    f"⚠️  Outlet '{outlet}' from unit '{name}' is not consumed "
+                    f"by any downstream unit."
+                )
 
 
 def _check_unreachable_units(config, defined_streams):
@@ -197,15 +207,13 @@ def _check_unreachable_units(config, defined_streams):
             if ucfg.get("type") in _SOLVER_UNIT_TYPES:
                 continue
             if any(i in reachable for i in _get_unit_inlets(ucfg)):
-                for key in ("out", "retentate_out", "permeate_out"):
-                    val = ucfg.get(key)
-                    if val:
-                        reachable.add(val)
+                for outlet in _get_unit_outlets(ucfg):
+                    reachable.add(outlet)
 
     unreachable = [
         u for u, cfg in config["units"].items()
         if cfg.get("type") not in _SOLVER_UNIT_TYPES
-        and not any(cfg.get(k) in reachable for k in ("out", "retentate_out", "permeate_out"))
+        and not any(o in reachable for o in _get_unit_outlets(cfg))
     ]
     if unreachable:
         raise ValueError(
@@ -228,17 +236,15 @@ def _check_pipe_linkage(config):
     Festim and SolverUnit types are also valid sources and are exempt from
     the linkage requirement themselves.
     """
-    pipe_like_outputs = {
-        u.get("out") for u in config["units"].values()
-        if u.get("type") in _PIPE_LIKE_UNIT_TYPES and u.get("out")
-    }
+    pipe_like_outputs = set()
+    for u in config["units"].values():
+        if u.get("type") in _PIPE_LIKE_UNIT_TYPES:
+            pipe_like_outputs.update(_get_unit_outlets(u))
+
     festim_outputs = set()
     for u in config["units"].values():
         if u.get("type") in _FESTIM_UNIT_TYPES:
-            for key in ("out", "retentate_out", "permeate_out"):
-                val = u.get(key)
-                if val:
-                    festim_outputs.add(val)
+            festim_outputs.update(_get_unit_outlets(u))
 
     feed_streams = set(config["streams"].keys())
     valid_inputs = feed_streams | pipe_like_outputs | festim_outputs
