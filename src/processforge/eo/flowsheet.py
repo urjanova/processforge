@@ -98,7 +98,6 @@ class EOFlowsheet:
                     logger.info(f"EOFlowsheet: running standalone SolverUnit '{unit_name}'")
                     unit_result = unit._run_impl({})
                     results[unit_name] = unit_result
-                    manager._unit_scalars[unit_name] = unit_result
 
             logger.info("EOFlowsheet: simulation complete.")
             return results

@@ -1,4 +1,5 @@
 """Flowsheet configuration validation: schema and graph-based connectivity checks."""
+from dataclasses import dataclass
 import json
 from jsonschema import validate, ValidationError
 from loguru import logger
@@ -8,6 +9,33 @@ from .._schema import load_flowsheet_schema
 _VALID_DENSITY_UNITS = frozenset({
     "g/cm3", "g/cc", "kg/m3", "atom/b-cm", "atom/cm3", "sum", "macro"
 })
+
+
+@dataclass
+class ConvergenceSignalConfig:
+    """Configuration for provider-aware homotopy convergence signal."""
+
+    signal_key: str
+    target: float
+    tolerance: float | None = None
+    provider: str | None = None
+
+    def to_jsonschema(self) -> dict:
+        """Serialize to JSON schema for validation."""
+        schema = {
+            "type": "object",
+            "required": ["signal_key", "target"],
+            "properties": {
+                "signal_key": {"type": "string"},
+                "target": {"type": "number"},
+                "tolerance": {"type": "number", "minimum": 0, "maximum": 1},
+                "provider": {"type": "string", "enum": ["openmc", "festim"]},
+            },
+        }
+        if self.tolerance is not None:
+            schema["properties"]["tolerance"]["minimum"] = 0
+            schema["properties"]["tolerance"]["maximum"] = 1
+        return schema
 
 
 def _validate_config_impl(config: dict, source_name: str) -> dict:
@@ -624,38 +652,25 @@ def _resolve_material_mix_streams(config: dict) -> dict:
 
 def _check_convergence_signal(config: dict) -> None:
     """Validate the convergence_signal configuration in simulation block."""
+    from jsonschema import validate as jsonschema_validate
+
     sim = config.get("simulation", {})
     conv_signal = sim.get("convergence_signal")
     if not conv_signal:
         return
 
-    signal_key = conv_signal.get("signal_key")
-    target = conv_signal.get("target")
-    provider = conv_signal.get("provider")
-    tolerance = conv_signal.get("tolerance")
+    schema = ConvergenceSignalConfig(
+        signal_key="",  # placeholder for schema generation
+        target=0.0,
+    ).to_jsonschema()
+    jsonschema_validate(instance=conv_signal, schema=schema)
 
-    if signal_key is None or target is None:
-        raise ValueError(
-            "❌ convergence_signal requires both 'signal_key' and 'target' fields."
-        )
-
-    if provider is not None and provider not in ("openmc", "festim"):
-        raise ValueError(
-            f"❌ convergence_signal provider must be 'openmc' or 'festim', got '{provider}'"
-        )
-
-    if tolerance is not None and (tolerance <= 0 or tolerance > 1):
-        raise ValueError(
-            f"❌ convergence_signal tolerance must be in (0, 1], got {tolerance}"
-        )
-
-    if provider is None:
-        providers_in_use = set()
-        for unit_cfg in config.get("units", {}).values():
-            prov = unit_cfg.get("provider")
-            if prov in ("openmc", "festim"):
-                providers_in_use.add(prov)
-
+    if conv_signal.get("provider") is None:
+        providers_in_use = {
+            unit_cfg.get("provider")
+            for unit_cfg in config.get("units", {}).values()
+            if unit_cfg.get("provider") in ("openmc", "festim")
+        }
         if not providers_in_use:
             raise ValueError(
                 "❌ convergence_signal expects at least one SolverUnit with provider "

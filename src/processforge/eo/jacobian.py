@@ -44,7 +44,7 @@ class GlobalJacobianManager:
         # Cached derived structures — invalidated when streams are registered
         self._cached_column_groups: list[list[int]] | None = None
         self._stream_by_offset: dict[int, str] | None = None
-        self._unit_scalars: dict[str, dict] = {}
+        self._results: dict[str, dict] | None = None
 
     # ------------------------------------------------------------------
     # Registration API (called by EOFlowsheet.build())
@@ -318,15 +318,27 @@ class GlobalJacobianManager:
         Returns the same ``{stream_name: {"T": ..., "P": ..., "flowrate": ...,
         "z": {...}}}`` format as ``Flowsheet.run()``.
         """
-        return {
+        results = {
             name: sv.to_vector_slice(x)
             for name, sv in self._streams.items()
         }
+        self._results = results
+        return results
 
     @property
     def scalars(self) -> dict[str, dict]:
         """Return scalars collected from SolverUnit runs."""
-        return self._unit_scalars
+        if self._results is None:
+            return {}
+        return self.scalars_from_results(self._results)
+
+    def scalars_from_results(self, results: dict[str, dict]) -> dict[str, dict]:
+        """Extract scalars from unit results dict."""
+        return {
+            k: v
+            for k, v in results.items()
+            if isinstance(v, dict) and "status" in v
+        }
 
     # ------------------------------------------------------------------
     # Internal helpers
