@@ -262,7 +262,12 @@ class Flowsheet:
             inlet = self._get_merged_inlet(results, cfg)
             unit_out = unit.run(inlet)
             if "out" in cfg:
-                results[cfg["out"]] = unit_out
+                out_val = cfg["out"]
+                if isinstance(out_val, list):
+                    for stream_name in out_val:
+                        results[stream_name] = unit_out
+                else:
+                    results[out_val] = unit_out
             else:
                 for out_key in ["retentate_out", "permeate_out"]:
                     if out_key in cfg and out_key in unit_out:
@@ -365,7 +370,12 @@ class Flowsheet:
                 inlet = self._get_merged_inlet(results, cfg)
                 unit_out = unit.run(inlet)
                 if "out" in cfg:
-                    results[cfg["out"]] = unit_out
+                    out_val = cfg["out"]
+                    if isinstance(out_val, list):
+                        for stream_name in out_val:
+                            results[stream_name] = unit_out
+                    else:
+                        results[out_val] = unit_out
                 else:
                     for out_key in ["retentate_out", "permeate_out"]:
                         if out_key in cfg and out_key in unit_out:
@@ -676,7 +686,10 @@ class Flowsheet:
             cfg = self.config["units"][unit_name]
             inlet_name = cfg["in"]
             outlets = self._get_unit_outlets(unit_name)
-            inlet_stream_ts = results[inlet_name]
+            if isinstance(inlet_name, list):
+                inlet_stream_ts = self._merge_inlet_timeseries(inlet_name, results, num_steps, t_eval)
+            else:
+                inlet_stream_ts = results[inlet_name]
 
             if hasattr(unit, "run_dynamic"):
                 logger.info(f"Simulating dynamic unit {unit_name}")
@@ -820,6 +833,57 @@ class Flowsheet:
         self.results = results
         logger.info("Dynamic simulation with recycle completed")
         return results
+
+    def _merge_inlet_timeseries(self, inlet_names, results, num_steps, t_eval):
+        """Merge multiple inlet timeseries into one by flow-weighted averaging T/P/z and summing flowrate."""
+        merged = {
+            "time": t_eval.tolist(),
+            "T": [],
+            "P": [],
+            "flowrate": [],
+            "z": {},
+        }
+        # Collect all component names across inlets
+        for name in inlet_names:
+            for comp in results.get(name, {}).get("z", {}):
+                if comp not in merged["z"]:
+                    merged["z"][comp] = []
+
+        for i in range(num_steps):
+            total_flow = 0.0
+            t_sum = 0.0
+            p_sum = 0.0
+            z_sum = {comp: 0.0 for comp in merged["z"]}
+
+            for name in inlet_names:
+                ts = results.get(name, {})
+                flow = ts.get("flowrate", [0.0] * num_steps)
+                f = flow[i] if i < len(flow) else 0.0
+                total_flow += f
+
+                t_vals = ts.get("T", [298.15] * num_steps)
+                t_sum += (t_vals[i] if i < len(t_vals) else 298.15) * f
+
+                p_vals = ts.get("P", [101325] * num_steps)
+                p_sum += (p_vals[i] if i < len(p_vals) else 101325) * f
+
+                for comp in merged["z"]:
+                    comp_ts = ts.get("z", {}).get(comp, [0.0] * num_steps)
+                    z_sum[comp] += (comp_ts[i] if i < len(comp_ts) else 0.0) * f
+
+            merged["flowrate"].append(total_flow)
+            if total_flow > 0:
+                merged["T"].append(t_sum / total_flow)
+                merged["P"].append(p_sum / total_flow)
+                for comp in merged["z"]:
+                    merged["z"][comp].append(z_sum[comp] / total_flow)
+            else:
+                merged["T"].append(298.15)
+                merged["P"].append(101325)
+                for comp in merged["z"]:
+                    merged["z"][comp].append(0.0)
+
+        return merged
 
     def _get_inlet_snapshot(self, results, unit_cfg, step):
         """Get inlet stream snapshot for a specific timestep, handling multiple inlets."""

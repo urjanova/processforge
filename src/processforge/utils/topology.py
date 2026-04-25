@@ -21,4 +21,6 @@ def get_outlets(unit_cfg: dict) -> list[str]:
             outlets.append(unit_cfg["out_vap"])
         return outlets
     out = unit_cfg.get("out")
+    if isinstance(out, list):
+        return out
     return [out] if out else []
