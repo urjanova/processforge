@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Union
 
+import numpy as np
+
 
 @dataclass
 class MaterialDef:
@@ -445,6 +447,9 @@ class SnapshotState:
     var_names: list[str] = field(default_factory=list)
     snapshot_id: str = ""
     timestamp: str = ""
+    metadata: dict = field(default_factory=dict)
+    x_delta: np.ndarray = field(default_factory=lambda: np.array([]))
+    parent_snapshot_id: str | None = None
 
     def as_dict(self) -> dict:
         """Dict view for compatibility with older call sites."""
@@ -454,4 +459,7 @@ class SnapshotState:
             "var_names": list(self.var_names),
             "snapshot_id": self.snapshot_id,
             "timestamp": self.timestamp,
+            "metadata": self.metadata,
+            "x_delta": self.x_delta.tolist() if len(self.x_delta) else [],
+            "parent_snapshot_id": self.parent_snapshot_id,
         }

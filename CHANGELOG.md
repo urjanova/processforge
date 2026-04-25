@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.26] - 2026-04-25
+
+### Added
+- Added run metadata tracking in `.pfstate` checkpoints (version, flowsheet hash, solver settings).
+- Added metadata validation on checkpoint load to detect incompatible solver configurations.
+- Added incremental checkpointing in `.pfstate` - saves deltas from parent snapshot when topology unchanged.
+- Added `reconstruct_from_deltas()` method to rebuild full state from incremental checkpoint chain.
+- Added `convergence_signal` configuration in `simulation` block for provider-aware homotopy convergence.
+- Added default convergence signals: `k_eff` → target 1.0 for OpenMC, `flux` for FESTIM.
+- Added `ConvergenceSignal` dataclass with configurable `signal_key`, `target`, `tolerance`, and `provider`.
+- Added intermediate checkpointing in homotopy solver - saves best intermediate result for fallback on failure.
+- Added `_unit_scalars` storage in `GlobalJacobianManager` for tracking SolverUnit scalar results.
+- Added validation for `convergence_signal` in flowsheet validation.
+
+### Changed
+- Refactored `_DEFAULT_SIGNALS` dictionary to use `ConvergenceSignal` dataclass instances.
+
+
 ## [0.2.25] - 2026-04-13
 
 ### Changed 

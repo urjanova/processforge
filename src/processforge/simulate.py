@@ -1,10 +1,12 @@
 import argparse
 import json
 import os
+import sys
 import time
-
+import hashlib
 from loguru import logger
 
+from . import __version__ as _pf_version
 from .utils.validate_flowsheet import validate_flowsheet, validate_flowsheet_dict
 from .flowsheet import Flowsheet
 from .eo import EOFlowsheet
@@ -37,6 +39,21 @@ def _validate_runtime_flowsheet(path: str) -> dict:
     # Added after schema validation so additionalProperties:false doesn't reject it.
     config["_config_path"] = path
     return config
+
+
+def _build_run_metadata(config: dict, solver_tol: float, solver_max_iter: int, backend: str) -> dict:
+    """Build run metadata for checkpoint storage."""
+    config_bytes = json.dumps(config, sort_keys=True).encode("utf-8")
+    flowsheet_hash = hashlib.sha256(config_bytes).hexdigest()[:16]
+    return {
+        "version": _pf_version,
+        "flowsheet_hash": flowsheet_hash,
+        "solver_settings": {
+            "tol": solver_tol,
+            "max_iter": solver_max_iter,
+            "backend": backend,
+        },
+    }
 
 
 def _cmd_init(args):
@@ -372,7 +389,11 @@ def _cmd_apply(args):
 
     # Parameter drift (only meaningful when topology is unchanged)
     drifted: list[str] = []
+    current_metadata = _build_run_metadata(config, args.tolerance, args.max_iter, args.backend)
     if state is not None and not topology_changed:
+        mismatches = sm.validate_metadata(current_metadata, state)
+        if mismatches:
+            logger.warning(f"⚠️ Metadata mismatch: {mismatches}")
         drifted = sm.detect_drift(config, state)
         if not drifted:
             logger.info("✅ No drift detected. System is already at the desired state.")
@@ -391,7 +412,11 @@ def _cmd_apply(args):
     elapsed = time.perf_counter() - t0
 
     if fs.converged:
-        snapshot_id = sm.save_state(config, fs.x_converged, fs.var_names)
+        snapshot_id = sm.save_state(
+            config, fs.x_converged, fs.var_names,
+            metadata=current_metadata,
+            parent_snapshot_id=state.snapshot_id if state is not None and not topology_changed else None,
+        )
         run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
         zarr_path = os.path.join(outputs_dir, f"{base_name}_results.zarr")
         save_results_zarr(results, zarr_path, run_info=run_info)
@@ -423,7 +448,11 @@ def _cmd_apply(args):
             teardown_providers(tmp_fs._provider_map)
 
         if hom_converged:
-            sm.save_state(config, x_hom, fs.var_names)
+            sm.save_state(
+                config, x_hom, fs.var_names,
+                metadata=current_metadata,
+                parent_snapshot_id=state.snapshot_id if state is not None and not topology_changed else None,
+            )
             run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
             save_results_zarr(
                 results,

@@ -45,15 +45,23 @@ class StateManager:
         config: dict,
         x_converged: np.ndarray,
         var_names: list[str],
+        metadata: dict | None = None,
+        parent_snapshot_id: str | None = None,
     ) -> str:
         """Create a new numbered snapshot and update the ``latest`` pointer.
+
+        Args:
+            config: Flowsheet configuration dict.
+            x_converged: Converged state vector.
+            var_names: Variable names corresponding to x.
+            metadata: Optional run metadata (solver settings, version, flowsheet hash, etc.).
+            parent_snapshot_id: If set, store only delta from this parent snapshot.
 
         Returns:
             The snapshot directory name (e.g. ``"0002_2026-04-06T13:30:00Z"``).
         """
         os.makedirs(self._snapshots_dir, exist_ok=True)
 
-        # Determine next snapshot number
         existing = self._list_snapshot_dirs()
         next_num = len(existing) + 1
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -66,11 +74,21 @@ class StateManager:
         root.attrs["var_names"] = list(var_names)
         root.attrs["timestamp"] = ts
         root.attrs["snapshot_id"] = snapshot_name
-        
+        root.attrs["metadata"] = json.dumps(metadata or {})
+        root.attrs["parent_snapshot_id"] = parent_snapshot_id
+
         x_data = np.asarray(x_converged, dtype=float)
         root.create_dataset("x", data=x_data, shape=x_data.shape)
 
-        # Update latest pointer
+        if parent_snapshot_id and existing:
+            parent_state = self._load_snapshot_by_id(parent_snapshot_id)
+            if parent_state is not None:
+                parent_x = np.asarray(parent_state.x, dtype=float)
+                if parent_x.shape == x_data.shape:
+                    delta = x_data - parent_x
+                    delta_array = np.asarray(delta, dtype=float)
+                    root.create_dataset("x_delta", data=delta_array, shape=delta_array.shape)
+
         with open(self._latest_file, "w", encoding="utf-8") as f:
             f.write(snapshot_name)
 
@@ -85,9 +103,13 @@ class StateManager:
         with open(self._latest_file, encoding="utf-8") as f:
             latest_name = f.read().strip()
 
-        snapshot_path = os.path.join(self._snapshots_dir, latest_name)
+        return self._load_snapshot_by_id(latest_name)
+
+    def _load_snapshot_by_id(self, snapshot_id: str) -> SnapshotState | None:
+        """Load a snapshot by its ID. Handles both full deltas and incremental."""
+        snapshot_path = os.path.join(self._snapshots_dir, snapshot_id)
         if not os.path.exists(snapshot_path):
-            logger.warning(f"Latest snapshot '{latest_name}' not found on disk.")
+            logger.warning(f"Snapshot '{snapshot_id}' not found on disk.")
             return None
 
         try:
@@ -96,15 +118,25 @@ class StateManager:
             config = json.loads(root.attrs["config"])
             x = root["x"][:]
             var_names = list(root.attrs["var_names"])
+            metadata = json.loads(root.attrs.get("metadata", "{}"))
+            parent_id = root.attrs.get("parent_snapshot_id")
+
+            x_delta = np.array([], dtype=float)
+            if "x_delta" in root:
+                x_delta = root["x_delta"][:]
+
             return SnapshotState(
                 config=config,
                 x=np.asarray(x, dtype=float).tolist(),
                 var_names=var_names,
-                snapshot_id=root.attrs.get("snapshot_id", latest_name),
+                snapshot_id=root.attrs.get("snapshot_id", snapshot_id),
                 timestamp=root.attrs.get("timestamp", ""),
+                metadata=metadata,
+                x_delta=np.asarray(x_delta, dtype=float),
+                parent_snapshot_id=parent_id,
             )
         except Exception as exc:
-            logger.warning(f"Failed to load snapshot '{latest_name}': {exc}")
+            logger.warning(f"Failed to load snapshot '{snapshot_id}': {exc}")
             return None
 
     def list_snapshots(self) -> list[dict]:
@@ -156,6 +188,39 @@ class StateManager:
             f.write(target_name)
         logger.info(f"Rolled back to snapshot {target_name}")
         return True
+
+    def validate_metadata(self, current_metadata: dict, state: SnapshotState | dict) -> list[str]:
+        """Validate current run metadata against saved state metadata.
+
+        Returns list of mismatches (empty if compatible).
+        """
+        saved_metadata = state.metadata if isinstance(state, SnapshotState) else state.get("metadata", {})
+        mismatches = []
+
+        for key in {"version", "flowsheet_hash", "solver_settings"}:
+            current_val = current_metadata.get(key)
+            saved_val = saved_metadata.get(key)
+            if current_val is not None and saved_val is not None and current_val != saved_val:
+                mismatches.append(f"{key}: checkpoint={saved_val}, current={current_val}")
+
+        return mismatches
+
+    def reconstruct_from_deltas(self, state: SnapshotState) -> np.ndarray:
+        """Reconstruct full x vector from incremental checkpoint + parent chain."""
+        if state.parent_snapshot_id is None or len(state.x_delta) == 0:
+            return np.asarray(state.x, dtype=float)
+
+        parent = self._load_snapshot_by_id(state.parent_snapshot_id)
+        if parent is None:
+            return np.asarray(state.x, dtype=float)
+
+        parent_x = self.reconstruct_from_deltas(parent)
+        current_x = np.asarray(state.x, dtype=float)
+
+        if parent_x.shape == current_x.shape:
+            return parent_x + current_x
+
+        return current_x
 
     # ------------------------------------------------------------------
     # Drift & structural diff
