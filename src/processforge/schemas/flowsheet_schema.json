@@ -417,6 +417,31 @@
         "dt": {
           "type": "number",
           "description": "Time step for dynamic simulation"
+        },
+        "convergence_signal": {
+          "type": "object",
+          "description": "Provider-specific convergence signal for homotopy fallback. Defaults to k_eff for OpenMC, flux for FESTIM.",
+          "properties": {
+            "signal_key": {
+              "type": "string",
+              "description": "Scalar key to monitor for convergence (e.g. 'k_eff', 'flux', 'temperature')"
+            },
+            "target": {
+              "type": "number",
+              "description": "Target value to approach (e.g. 1.0 for k_eff)"
+            },
+            "tolerance": {
+              "type": "number",
+              "default": 0.01,
+              "description": "Acceptance tolerance relative to target"
+            },
+            "provider": {
+              "type": "string",
+              "enum": ["openmc", "festim"],
+              "description": "Provider to apply this signal to. If omitted, applies to all providers."
+            }
+          },
+          "required": ["signal_key", "target"]
         }
       },
       "additionalProperties": true

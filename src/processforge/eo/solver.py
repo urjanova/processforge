@@ -1,7 +1,8 @@
 """EOSolver: selects and runs the appropriate EO backend."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 from loguru import logger
@@ -12,6 +13,14 @@ from ..types import SnapshotState
 
 if TYPE_CHECKING:
     from .jacobian import GlobalJacobianManager
+
+
+@dataclass
+class ConvergenceSignal:
+    signal_key: str
+    target: Optional[float] = None
+    tolerance: float = 0.01
+    provider: Optional[str] = None
 
 _BACKENDS: dict[str, type[AbstractEOBackend]] = {
     "scipy": ScipyBackend,
@@ -114,18 +123,6 @@ def solve_with_homotopy(
     old_config = state.config if isinstance(state, SnapshotState) else state["config"]
     current_config = fs.config
 
-    # Standard solve first
-    from loguru import logger
-    import numpy as np
-    
-    x0 = np.array(state.x if isinstance(state, SnapshotState) else state["x"])
-    x_sol, converged, stats = solver.solve(manager, x0)
-    if converged:
-        logger.info("Standard solver converged with previous state's warm guess.")
-        return x_sol, converged, stats
-        
-    logger.warning("Standard solve failed. Invoking Homotopy 'step-wise apply' solver...")
-    
     def update_config_value(cfg, path, value):
         from copy import deepcopy
         parts = path.split('.')
@@ -143,6 +140,44 @@ def solve_with_homotopy(
             d = d[p]
         return d.get(parts[-1], None)
 
+    convergence_signal = current_config.get("simulation", {}).get("convergence_signal")
+    _DEFAULT_SIGNALS = {
+        "openmc": ConvergenceSignal(signal_key="k_eff", target=1.0, tolerance=0.01),
+        "festim": ConvergenceSignal(signal_key="flux", target=None, tolerance=0.01),
+    }
+    provider = current_config.get("units", {}).get(
+        list(current_config.get("units", {}).keys())[0], {}
+    ).get("provider", "openmc") if current_config.get("units") else None
+    
+    active_signal = None
+    if convergence_signal:
+        provider_filter = convergence_signal.get("provider")
+        if provider_filter is None or provider_filter == provider:
+            active_signal = ConvergenceSignal(**convergence_signal)
+    elif provider in _DEFAULT_SIGNALS:
+        active_signal = _DEFAULT_SIGNALS[provider]
+    
+    if active_signal:
+        logger.info(
+            f"Homotopy convergence signal: {active_signal.signal_key} "
+            f"target={active_signal.target}"
+        )
+
+    import numpy as np
+    x_sol, converged, stats = solver.solve(manager, x0)
+
+    if not isinstance(state, SnapshotState):
+        x0 = np.array(state["x"])
+    else:
+        x0 = np.array(state.x)
+
+    x_sol, converged, stats = solver.solve(manager, x0)
+    if converged:
+        logger.info("Standard solver converged with previous state's warm guess.")
+        return x_sol, converged, stats
+        
+    logger.warning("Standard solve failed. Invoking Homotopy 'step-wise apply' solver...")
+    
     drifts = []
     for d in drifted:
         old_val = get_config_value(old_config, d)
@@ -154,7 +189,10 @@ def solve_with_homotopy(
         logger.error("No continuous numerical parameters to interpolate. Homotopy fails.")
         return x_sol, False, stats
 
-    x_current = np.array(state.x if isinstance(state, SnapshotState) else state["x"])
+    x_current = x0.copy()
+    best_x = x_current.copy()
+    best_residual = float('inf')
+    best_step = 0
     
     from copy import deepcopy
     interpolated_config = deepcopy(old_config)
@@ -181,13 +219,41 @@ def solve_with_homotopy(
             step_solver = EOSolver(backend=fs.backend, tol=solver.tol, max_iter=solver.max_iter)
             x_current, step_converged, s_stats = step_solver.solve(step_manager, step_x0)
             
+            current_residual = s_stats.get('final_norm', float('inf'))
+            
+            if active_signal and active_signal.target is not None:
+                signal_key = active_signal.signal_key
+                signal_target = active_signal.target
+                signal_tol = active_signal.tolerance
+                all_scalars = {}
+                for unit_name, unit_scalars in step_manager.scalars.items():
+                    all_scalars.update(unit_scalars)
+                signal_val = all_scalars.get(signal_key)
+                if signal_val is not None:
+                    rel_error = abs(signal_val - signal_target) / signal_target
+                    logger.info(f"  {signal_key}={signal_val:.4f}, target={signal_target}, rel_error={rel_error:.4f}")
+                    if rel_error < signal_tol:
+                        logger.info(f"  Converged via convergence signal at step {step}")
+                        best_x = x_current.copy()
+                        best_residual = current_residual
+                        best_step = step
+                        break
+            
             if not step_converged:
                 logger.error(f"Homotopy failed to converge at step {step} (alpha={alpha:.1f})")
+                if best_step > 0:
+                    logger.info(f"Reverting to best checkpoint at step {best_step}")
+                    x_current = best_x.copy()
                 return x_current, False, s_stats
+            
+            if current_residual < best_residual:
+                best_residual = current_residual
+                best_x = x_current.copy()
+                best_step = step
+                
         finally:
             teardown_providers(step_fs._provider_map)
             
     logger.info("Homotopy step-wise solve successfully reached target config.")
-    # Re-run the final step exactly on current manager to populate the outer variables identically.
     x_sol, conv, stats = solver.solve(manager, x_current)
     return x_sol, conv, stats

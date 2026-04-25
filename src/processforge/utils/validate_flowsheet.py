@@ -12,11 +12,7 @@ _VALID_DENSITY_UNITS = frozenset({
 
 def _validate_config_impl(config: dict, source_name: str) -> dict:
     """
-    Run all validation checks on an already-loaded config dict.
-
-    Args:
-        config:      Flowsheet configuration dict.
-        source_name: Display name used in log/error messages (file path or '<dict>').
+    Validate a flowsheet configuration dict.
 
     Returns:
         The validated (and material-mix-resolved) config dict.
@@ -34,6 +30,7 @@ def _validate_config_impl(config: dict, source_name: str) -> dict:
     _check_provider_material_props(config)
     _check_openmc_unit_config(config)
     _resolve_material_mix_streams(config)
+    _check_convergence_signal(config)
     return config
 
 
@@ -617,3 +614,44 @@ def _resolve_material_mix_streams(config: dict) -> dict:
             }
 
     return config
+
+
+def _check_convergence_signal(config: dict) -> None:
+    """Validate the convergence_signal configuration in simulation block."""
+    sim = config.get("simulation", {})
+    conv_signal = sim.get("convergence_signal")
+    if not conv_signal:
+        return
+
+    signal_key = conv_signal.get("signal_key")
+    target = conv_signal.get("target")
+    provider = conv_signal.get("provider")
+    tolerance = conv_signal.get("tolerance")
+
+    if signal_key is None or target is None:
+        raise ValueError(
+            "❌ convergence_signal requires both 'signal_key' and 'target' fields."
+        )
+
+    if provider is not None and provider not in ("openmc", "festim"):
+        raise ValueError(
+            f"❌ convergence_signal provider must be 'openmc' or 'festim', got '{provider}'"
+        )
+
+    if tolerance is not None and (tolerance <= 0 or tolerance > 1):
+        raise ValueError(
+            f"❌ convergence_signal tolerance must be in (0, 1], got {tolerance}"
+        )
+
+    if provider is None:
+        providers_in_use = set()
+        for unit_cfg in config.get("units", {}).values():
+            prov = unit_cfg.get("provider")
+            if prov in ("openmc", "festim"):
+                providers_in_use.add(prov)
+
+        if not providers_in_use:
+            raise ValueError(
+                "❌ convergence_signal expects at least one SolverUnit with provider "
+                "'openmc' or 'festim' in the flowsheet when provider is not specified."
+            )
