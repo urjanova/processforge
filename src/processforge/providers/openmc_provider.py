@@ -392,17 +392,16 @@ def get_registered_sim_types() -> dict[str, type]:
 # Built-in strategies
 # ---------------------------------------------------------------------------
 
-class _EigenvalueDAGMCStrategy(OpenMCSimStrategy):
-    """Eigenvalue (k-eff) simulation using DAGMC CAD geometry from a ``.h5m`` file.
+class _DAGMCStrategyBase(OpenMCSimStrategy):
+    """Shared build logic for all DAGMC-based simulations.
 
-    Corresponds to the MSRE reference script:
-    - Geometry: ``openmc.DAGMCUniverse(h5m_filepath)``
-    - Source:   ``openmc.stats.Box`` + ``Isotropic`` angle
-    - Settings: eigenvalue mode
-    - Tallies:  ``RegularMesh`` tallies
-
-    ``solver_config`` must contain ``dagmc_path`` and ``source_box``.
+    Subclasses only need to supply ``_sim_type_name()`` for error messages.
+    ``_FixedSourceDAGMCStrategy`` additionally overrides ``build()`` to force
+    ``run_mode = "fixed source"`` before delegating to this base.
     """
+
+    @abstractmethod
+    def _sim_type_name(self) -> str: ...
 
     def build(
         self,
@@ -411,13 +410,14 @@ class _EigenvalueDAGMCStrategy(OpenMCSimStrategy):
         materials_map: dict,
         helpers: OpenMCBuildHelpers,
     ) -> tuple:
+        sim_type = self._sim_type_name()
         if not solver_cfg.dagmc_path:
             raise ValueError(
-                "sim_type='eigenvalue_dagmc' requires 'dagmc_path' in solver_config"
+                f"sim_type='{sim_type}' requires 'dagmc_path' in solver_config"
             )
         if solver_cfg.source_box is None:
             raise ValueError(
-                "sim_type='eigenvalue_dagmc' requires 'source_box' in solver_config"
+                f"sim_type='{sim_type}' requires 'source_box' in solver_config"
             )
 
         omc_materials = openmc.Materials(list(materials_map.values()))
@@ -432,12 +432,21 @@ class _EigenvalueDAGMCStrategy(OpenMCSimStrategy):
         return omc_materials, geometry, settings, tallies
 
 
-class _FixedSourceDAGMCStrategy(OpenMCSimStrategy):
+class _EigenvalueDAGMCStrategy(_DAGMCStrategyBase):
+    """Eigenvalue (k-eff) simulation using DAGMC CAD geometry from a ``.h5m`` file."""
+
+    def _sim_type_name(self) -> str:
+        return "eigenvalue_dagmc"
+
+
+class _FixedSourceDAGMCStrategy(_DAGMCStrategyBase):
     """Fixed-source simulation using DAGMC CAD geometry.
 
-    Identical setup to :class:`_EigenvalueDAGMCStrategy` but forces
-    ``run_mode = "fixed source"`` regardless of the ``solver_config`` value.
+    Forces ``run_mode = "fixed source"`` regardless of the ``solver_config`` value.
     """
+
+    def _sim_type_name(self) -> str:
+        return "fixed_source_dagmc"
 
     def build(
         self,
@@ -446,28 +455,8 @@ class _FixedSourceDAGMCStrategy(OpenMCSimStrategy):
         materials_map: dict,
         helpers: OpenMCBuildHelpers,
     ) -> tuple:
-        if not solver_cfg.dagmc_path:
-            raise ValueError(
-                "sim_type='fixed_source_dagmc' requires 'dagmc_path' in solver_config"
-            )
-        if solver_cfg.source_box is None:
-            raise ValueError(
-                "sim_type='fixed_source_dagmc' requires 'source_box' in solver_config"
-            )
-
-        omc_materials = openmc.Materials(list(materials_map.values()))
-        dagmc_univ = openmc.DAGMCUniverse(_resolve_omc_path(solver_cfg.dagmc_path))
-        geometry = openmc.Geometry(dagmc_univ)
-        source = helpers.build_source(openmc, solver_cfg.source_box)
-
-        # Force run_mode to "fixed source" regardless of JSON value
         fixed_cfg = dataclasses.replace(solver_cfg, run_mode="fixed source")
-        settings = helpers.build_settings(openmc, fixed_cfg, source)
-
-        tally_objs = [helpers.build_mesh_tally(openmc, t) for t in solver_cfg.mesh_tallies]
-        tallies = openmc.Tallies(tally_objs) if tally_objs else openmc.Tallies()
-
-        return omc_materials, geometry, settings, tallies
+        return super().build(openmc, fixed_cfg, materials_map, helpers)
 
 
 # Register built-ins at module load
@@ -772,7 +761,7 @@ class OpenMCProvider(AbstractProvider):
                         f"from tally {tally_cfg.tally_id}: {exc}"
                     )
 
-        sp._f.close()  # explicitly release HDF5 file handle
+        del sp
         return scalars, metadata
 
 

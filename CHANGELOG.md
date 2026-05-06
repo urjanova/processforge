@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.27] - 2026-05-06
+
+### Changed
+- Refactored OpenMC DAGMC strategies (`_EigenvalueDAGMCStrategy`, `_FixedSourceDAGMCStrategy`) to share common build logic via `_DAGMCStrategyBase`, reducing duplication.
+- Removed private API usage (`sp._f.close()`) in OpenMC result extraction, replacing it with explicit `del sp` to rely on standard garbage collection for HDF5 handle cleanup.
+
+
 ## [0.2.26] - 2026-04-25
 
 ### Added
