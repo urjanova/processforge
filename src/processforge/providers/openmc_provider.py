@@ -2,9 +2,10 @@
 
 Architecture (mirrors festim_provider.py three layers)
 ------------------------------------------------------
-1. **Dataclasses** (``OpenMCNuclide``, ``OpenMCElement``, ``OpenMCMeshTally``,
-   ``OpenMCSourceBox``, ``OpenMCSolverConfig``) parse the opaque ``solver_config``
-   JSON dict into typed, self-documenting objects.
+1. **Pydantic models** (``SourceBox``, ``MeshTallyConfig``, ``SolverConfig``) in
+   :mod:`processforge.schemas.openmc.openmc_model` parse the opaque
+   ``solver_config`` JSON dict into typed, validated objects.  No manual
+   ``from_dict()`` translation needed.
 
 2. **Strategy registry** (``OpenMCSimStrategy`` + ``register_openmc_sim_type``)
    Each ``sim_type`` string maps to a strategy class.  New simulation types are
@@ -20,7 +21,7 @@ Architecture (mirrors festim_provider.py three layers)
 Adding a new sim_type::
 
     from processforge.providers.openmc_provider import (
-        OpenMCSimStrategy, OpenMCSolverConfig, OpenMCBuildHelpers,
+        OpenMCSimStrategy, SolverConfig, OpenMCBuildHelpers,
         register_openmc_sim_type,
     )
 
@@ -34,18 +35,17 @@ Adding a new sim_type::
 
 from __future__ import annotations
 
-import dataclasses
 import math
 import os
 import pathlib
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Optional
 
 from loguru import logger
 
 from .base import AbstractProvider
 from .registry import register_provider
+from processforge.schemas.openmc.openmc_model import MeshTallyConfig, SolverConfig, SourceBox
 
 
 def _resolve_omc_path(path: Optional[str]) -> Optional[str]:
@@ -64,172 +64,8 @@ if TYPE_CHECKING:
     )
 
 
-# ---------------------------------------------------------------------------
-# OpenMC-specific solver config dataclasses
-# ---------------------------------------------------------------------------
-
-@dataclass
-class OpenMCNuclide:
-    """A single nuclide entry used with ``material.add_nuclide()``.
-
-    name:         OpenMC nuclide identifier, e.g. ``"Li7"``, ``"U235"``, ``"He4"``
-    percent:      atom or weight fraction (non-negative)
-    percent_type: ``"ao"`` (atom) | ``"wo"`` (weight)
-    """
-
-    name: str
-    percent: float
-    percent_type: str = "ao"
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "OpenMCNuclide":
-        return cls(name=d["name"], percent=d["percent"], percent_type=d.get("percent_type", "ao"))
-
-
-@dataclass
-class OpenMCElement:
-    """A single element entry used with ``material.add_element()``.
-
-    element:      Periodic-table symbol, e.g. ``"C"``, ``"Ni"``, ``"Fe"``
-    percent:      atom or weight fraction (non-negative)
-    percent_type: ``"ao"`` | ``"wo"``
-    """
-
-    element: str
-    percent: float
-    percent_type: str = "ao"
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "OpenMCElement":
-        return cls(
-            element=d["element"],
-            percent=d["percent"],
-            percent_type=d.get("percent_type", "ao"),
-        )
-
-
-@dataclass
-class OpenMCMeshTally:
-    """A ``RegularMesh`` tally definition.
-
-    tally_id:    Integer identifier — must be unique across all tallies.
-    lower_left:  ``[x, y, z]`` of mesh lower-left corner in cm.
-    upper_right: ``[x, y, z]`` of mesh upper-right corner in cm.
-    dimension:   ``[nx, ny, nz]`` voxel counts.
-    scores:      List of score strings, e.g. ``["flux", "fission"]``.
-    nuclides:    Optional list of nuclide identifiers to score over.
-    estimator:   ``"tracklength"`` (default) | ``"analog"`` | ``"collision"``
-    """
-
-    tally_id: int
-    lower_left: List[float]
-    upper_right: List[float]
-    dimension: List[int]
-    scores: List[str] = field(default_factory=lambda: ["flux"])
-    name: Optional[str] = None
-    nuclides: Optional[List[str]] = None
-    estimator: str = "tracklength"
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "OpenMCMeshTally":
-        return cls(
-            tally_id=d["tally_id"],
-            lower_left=d["lower_left"],
-            upper_right=d["upper_right"],
-            dimension=d["dimension"],
-            scores=d.get("scores", ["flux"]),
-            name=d.get("name"),
-            nuclides=d.get("nuclides"),
-            estimator=d.get("estimator", "tracklength"),
-        )
-
-
-@dataclass
-class OpenMCSourceBox:
-    """Box source definition corresponding to ``openmc.stats.Box``.
-
-    lower_left:       ``[x, y, z]`` lower corner in cm.
-    upper_right:      ``[x, y, z]`` upper corner in cm.
-    only_fissionable: If ``True``, only sample source sites in fissionable regions.
-    """
-
-    lower_left: List[float]
-    upper_right: List[float]
-    only_fissionable: bool = True
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "OpenMCSourceBox":
-        return cls(
-            lower_left=d["lower_left"],
-            upper_right=d["upper_right"],
-            only_fissionable=d.get("only_fissionable", True),
-        )
-
-
-@dataclass
-class OpenMCSolverConfig:
-    """Typed representation of the ``solver_config`` block for OpenMC ``SolverUnit`` units.
-
-    Parsed from the opaque ``solver_config`` JSON dict by
-    ``OpenMCProvider.run_simulation()``.
-
-    Example flowsheet JSON::
-
-        "solver_config": {
-            "dagmc_path": "geometry/msre.h5m",
-            "batches": 20,
-            "inactive": 5,
-            "particles": 20000,
-            "run_mode": "eigenvalue",
-            "temperature_default": 900.0,
-            "source_box": {
-                "lower_left":  [-125, -125, 0],
-                "upper_right": [ 125,  125, 500],
-                "only_fissionable": true
-            },
-            "mesh_tallies": [
-                {
-                    "tally_id": 1,
-                    "name": "flux_tally",
-                    "lower_left":  [-125, -125, 90],
-                    "upper_right": [ 125,  125, 110],
-                    "dimension": [400, 400, 1],
-                    "scores": ["flux", "fission"]
-                }
-            ]
-        }
-    """
-
-    batches: int = 20
-    inactive: int = 5
-    particles: int = 1000
-    run_mode: str = "eigenvalue"
-    dagmc_path: Optional[str] = None
-    source_box: Optional[OpenMCSourceBox] = None
-    mesh_tallies: List[OpenMCMeshTally] = field(default_factory=list)
-    temperature_default: Optional[float] = None
-    cross_sections: Optional[str] = None
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "OpenMCSolverConfig":
-        """Parse a raw ``solver_config`` dict into typed OpenMC dataclasses."""
-        source_box = None
-        if "source_box" in d:
-            source_box = OpenMCSourceBox.from_dict(d["source_box"])
-
-        mesh_tallies = [OpenMCMeshTally.from_dict(t) for t in d.get("mesh_tallies", [])]
-
-        return cls(
-            batches=d.get("batches", 20),
-            inactive=d.get("inactive", 5),
-            particles=d.get("particles", 1000),
-            run_mode=d.get("run_mode", "eigenvalue"),
-            dagmc_path=d.get("dagmc_path"),
-            source_box=source_box,
-            mesh_tallies=mesh_tallies,
-            temperature_default=d.get("temperature_default"),
-            cross_sections=d.get("cross_sections"),
-        )
+# Backward-compat alias
+OpenMCSolverConfig = SolverConfig
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +114,7 @@ class OpenMCBuildHelpers:
         return mat
 
     @staticmethod
-    def build_mesh_tally(openmc, tally_cfg: OpenMCMeshTally) -> object:
+    def build_mesh_tally(openmc, tally_cfg: MeshTallyConfig) -> object:
         """Construct an ``openmc.Tally`` with a ``MeshFilter`` over a ``RegularMesh``."""
         mesh = openmc.RegularMesh()
         mesh.dimension = tally_cfg.dimension
@@ -296,7 +132,7 @@ class OpenMCBuildHelpers:
         return tally
 
     @staticmethod
-    def build_source(openmc, source_box: OpenMCSourceBox) -> object:
+    def build_source(openmc, source_box: SourceBox) -> object:
         """Construct an ``openmc.IndependentSource`` with a ``Box`` spatial distribution."""
         space = openmc.stats.Box(
             source_box.lower_left,
@@ -309,7 +145,7 @@ class OpenMCBuildHelpers:
         return source
 
     @staticmethod
-    def build_settings(openmc, solver_cfg: OpenMCSolverConfig, source: object) -> object:
+    def build_settings(openmc, solver_cfg: SolverConfig, source: object) -> object:
         """Construct an ``openmc.Settings`` object from solver config."""
         settings = openmc.Settings()
         settings.batches = solver_cfg.batches
@@ -348,8 +184,8 @@ class OpenMCSimStrategy(ABC):
     @abstractmethod
     def build(
         self,
-        openmc: object,
-        solver_cfg: OpenMCSolverConfig,
+        openmc,
+        solver_cfg: SolverConfig,
         materials_map: dict,
         helpers: OpenMCBuildHelpers,
     ) -> tuple:
@@ -406,7 +242,7 @@ class _DAGMCStrategyBase(OpenMCSimStrategy):
     def build(
         self,
         openmc,
-        solver_cfg: OpenMCSolverConfig,
+        solver_cfg: SolverConfig,
         materials_map: dict,
         helpers: OpenMCBuildHelpers,
     ) -> tuple:
@@ -451,11 +287,11 @@ class _FixedSourceDAGMCStrategy(_DAGMCStrategyBase):
     def build(
         self,
         openmc,
-        solver_cfg: OpenMCSolverConfig,
+        solver_cfg: SolverConfig,
         materials_map: dict,
         helpers: OpenMCBuildHelpers,
     ) -> tuple:
-        fixed_cfg = dataclasses.replace(solver_cfg, run_mode="fixed source")
+        fixed_cfg = solver_cfg.model_copy(update={"run_mode": "fixed source"})
         return super().build(openmc, fixed_cfg, materials_map, helpers)
 
 
@@ -528,7 +364,7 @@ class OpenMCProvider(AbstractProvider):
             self._materials[mat_name] = mat_def
 
         self._initialized = True
-        n_mats = len({id(v) for v in self._materials.values()})
+        n_mats = len({v.id for v in self._materials.values()})
         logger.info(
             f"OpenMCProvider initialized with {n_mats} material(s). "
             f"Registered sim_types: {sorted(_SIM_TYPE_REGISTRY)}"
@@ -622,7 +458,7 @@ class OpenMCProvider(AbstractProvider):
                 f"Built-in types: {sorted(_SIM_TYPE_REGISTRY)}"
             )
 
-        solver_cfg = OpenMCSolverConfig.from_dict(unit_config.solver_config or {})
+        solver_cfg = SolverConfig.model_validate(unit_config.solver_config or {})
 
         # Build openmc.Material objects for ALL registry materials — DAGMC
         # assigns materials by name so every declared material must be present.
@@ -630,7 +466,7 @@ class OpenMCProvider(AbstractProvider):
         materials_map: dict = {}
         seen_ids: set = set()
         for key, mdef in self._materials.items():
-            mid = id(mdef)
+            mid = mdef.id
             if mid in seen_ids:
                 continue
             seen_ids.add(mid)
@@ -691,7 +527,7 @@ class OpenMCProvider(AbstractProvider):
     def _extract_results(
         self,
         openmc,
-        solver_cfg: OpenMCSolverConfig,
+        solver_cfg: SolverConfig,
         run_dir: pathlib.Path,
     ) -> tuple:
         """Parse the statepoint file and return ``(scalars_dict, metadata_dict)``.

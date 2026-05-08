@@ -712,3 +712,74 @@ class OpenMCModel(BaseModel):
     materials: List[Material] = Field(description="List of materials in the model.")
     geometry: Geometry = Field(description="Geometry definition for the model.")
     tallies: Optional[List[Tally]] = Field(default=None, description="List of tallies in the model.")
+
+
+# ---------------------------------------------------------------------------
+# Provider solver-config models  (used at runtime by OpenMCProvider)
+# ---------------------------------------------------------------------------
+
+
+class SourceBox(BaseModel):
+    """Box source definition corresponding to ``openmc.stats.Box``.
+
+    ``lower_left`` / ``upper_right``: bounding-box corners in cm.
+    ``only_fissionable``: if ``True``, only sample in fissionable regions.
+    """
+
+    lower_left: List[float] = Field(description="[x, y, z] lower corner in cm.")
+    upper_right: List[float] = Field(description="[x, y, z] upper corner in cm.")
+    only_fissionable: bool = Field(
+        default=True,
+        description="If True, only sample source sites in fissionable regions.",
+    )
+
+
+class MeshTallyConfig(BaseModel):
+    """A ``RegularMesh`` tally definition used inside ``SolverConfig``.
+
+    ``tally_id`` is unique across all tallies.
+    ``estimator`` is one of ``"tracklength"``, ``"analog"``, ``"collision"``.
+    """
+
+    tally_id: int = Field(description="Integer identifier — must be unique across all tallies.")
+    lower_left: List[float] = Field(description="[x, y, z] of mesh lower-left corner in cm.")
+    upper_right: List[float] = Field(description="[x, y, z] of mesh upper-right corner in cm.")
+    dimension: List[int] = Field(description="[nx, ny, nz] voxel counts.")
+    scores: List[str] = Field(default=["flux"], description="Score strings, e.g. ``[\"flux\", \"fission\"]``.")
+    name: Optional[str] = Field(default=None, description="Optional descriptive name.")
+    nuclides: Optional[List[str]] = Field(
+        default=None,
+        description="Optional list of nuclide identifiers to score over.",
+    )
+    estimator: str = Field(
+        default="tracklength",
+        description="Estimator type: ``\"tracklength\"`` | ``\"analog\"`` | ``\"collision\"``.",
+    )
+
+
+class SolverConfig(BaseModel):
+    """Typed representation of the ``solver_config`` block for OpenMC ``SolverUnit`` units.
+
+    Parsed automatically from the opaque ``solver_config`` JSON dict — no manual
+    ``from_dict()`` translation needed.  This is the single source of truth used
+    by both validation and runtime code.
+    """
+
+    batches: int = Field(default=20, description="Number of simulation batches.")
+    inactive: int = Field(default=5, description="Number of inactive batches.")
+    particles: int = Field(default=1000, description="Particles per generation.")
+    run_mode: str = Field(default="eigenvalue", description="Run mode (eigenvalue, fixed source, …).")
+    dagmc_path: Optional[str] = Field(default=None, description="Path to DAGMC ``.h5m`` geometry file.")
+    source_box: Optional[SourceBox] = Field(default=None, description="Box source definition.")
+    mesh_tallies: List[MeshTallyConfig] = Field(
+        default_factory=list,
+        description="Mesh tally definitions.",
+    )
+    temperature_default: Optional[float] = Field(
+        default=None,
+        description="Default material temperature in Kelvin.",
+    )
+    cross_sections: Optional[str] = Field(
+        default=None,
+        description="Path to cross-section XML or H5 file (overrides ``OPENMC_CROSS_SECTIONS``).",
+    )

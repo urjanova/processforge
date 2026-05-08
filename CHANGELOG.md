@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.28] - 2026-05-08
+
+### Changed
+- Unified OpenMC solver config representations: replaced inline dataclasses (`OpenMCSolverConfig`, `OpenMCSourceBox`, `OpenMCMeshTally`) with Pydantic models (`SolverConfig`, `SourceBox`, `MeshTallyConfig`) in `schemas/openmc/openmc_model.py`, eliminating manual `from_dict()` translation layer.
+- Replaced `id(mdef)` with `mdef.id` for material deduplication in `OpenMCProvider`, using stable material IDs instead of Python object identity.
+
+### Removed
+- Removed unused `OpenMCNuclide` and `OpenMCElement` dataclasses from `openmc_provider.py`.
+
+
 ## [0.2.27] - 2026-05-06
 
 ### Changed
