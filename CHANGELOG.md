@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.2.29] - 2026-05-21
+
+### Removed
+- Removed the FESTIM provider (`FestimProvider`, `festim_provider.py`), `FestimMembrane` unit, and all associated flowsheet examples, schema entries, references, and validation logic. FESTIM is no longer a supported provider.
+
+
 ## [0.2.28] - 2026-05-08
 
 ### Changed

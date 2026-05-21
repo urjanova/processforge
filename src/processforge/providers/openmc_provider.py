@@ -1,7 +1,7 @@
 """OpenMC provider for Monte Carlo neutronics simulations.
 
-Architecture (mirrors festim_provider.py three layers)
-------------------------------------------------------
+Architecture (three-layer strategy pattern)
+-------------------------------------------
 1. **Pydantic models** (``SourceBox``, ``MeshTallyConfig``, ``SolverConfig``) in
    :mod:`processforge.schemas.openmc.openmc_model` parse the opaque
    ``solver_config`` JSON dict into typed, validated objects.  No manual

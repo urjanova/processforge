@@ -63,3 +63,5 @@ if [ -n "${OPENMC_DAGMC_URL:-}" ]; then
         echo "[processforge] Geometry ready at $DAGMC_FILE"
     fi
 fi
+
+exec "$@"

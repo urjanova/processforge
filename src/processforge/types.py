@@ -2,7 +2,7 @@
 
 These types form the contract between the processforge framework and providers.
 They contain only fields the framework itself understands; provider-specific
-properties (e.g. D_0/E_D for Festim, nuclides for OpenMC) travel in ``extra``.
+properties (e.g. nuclides for OpenMC) travel in ``extra``.
 
 Adding a new provider never requires changes to these dataclasses.
 """
@@ -19,14 +19,12 @@ class MaterialDef:
     """Framework-level representation of a material loaded from the flowsheet JSON.
 
     Fields mirror the schema's ``materials`` section. Provider-specific
-    properties (D_0/E_D for Festim, nuclides for OpenMC, …) are captured
-    in ``extra`` so providers can access them without the framework needing
-    to know about them.
+    properties (e.g. nuclides for OpenMC) are captured in ``extra`` so
+    providers can access them without the framework needing to know about them.
 
     Usage::
 
         mat = MaterialDef.from_dict(config["materials"]["tungsten"])
-        diffusivity = mat.extra.get("D_0")          # Festim field
         mat.get("D_0")                               # unified accessor
     """
 
@@ -88,7 +86,7 @@ class UnitConfig:
     Usage::
 
         ucfg = UnitConfig.from_dict(config["units"]["membrane"])
-        ucfg.type          # "FestimMembrane"
+        ucfg.type          # "SolverUnit"
         ucfg.sim_type      # "heat_2d"
         ucfg.solver_config # opaque dict passed to provider
     """
@@ -167,32 +165,6 @@ class CanteraProviderConfig:
 
 
 @dataclass
-class FestimProviderConfig:
-    """Configuration for the FESTIM hydrogen-transport provider.
-
-    ``materials`` holds inline material overrides that take priority over the
-    flowsheet's global ``materials`` section.
-
-    Flowsheet JSON example::
-
-        "providers": {
-            "festim": {"type": "festim", "output_dir": "outputs/festim_2d"}
-        }
-    """
-
-    type: str = "festim"
-    output_dir: str = "output"
-    materials: dict = field(default_factory=dict)
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "FestimProviderConfig":
-        return cls(
-            output_dir=d.get("output_dir", "output"),
-            materials=d.get("materials", {}),
-        )
-
-
-@dataclass
 class ModelicaProviderConfig:
     """Configuration for the OpenModelica FMU provider.
 
@@ -257,7 +229,6 @@ class OpenMCProviderConfig:
 ProviderConfig = Union[
     CoolPropProviderConfig,
     CanteraProviderConfig,
-    FestimProviderConfig,
     ModelicaProviderConfig,
     OpenMCProviderConfig,
 ]
@@ -265,7 +236,6 @@ ProviderConfig = Union[
 _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
     "coolprop": CoolPropProviderConfig,
     "cantera": CanteraProviderConfig,
-    "festim": FestimProviderConfig,
     "modelica": ModelicaProviderConfig,
     "openmc": OpenMCProviderConfig,
 }
@@ -311,7 +281,7 @@ class FlowsheetConfig:
         cfg = FlowsheetConfig.from_dict(raw)
         cfg.default_provider          # Optional[str]
         cfg.materials["tungsten"]     # MaterialDef
-        cfg.providers["festim"]       # FestimProviderConfig
+        cfg.providers["openmc"]       # OpenMCProviderConfig
     """
 
     providers: dict = field(default_factory=dict)   # dict[str, ProviderConfig]

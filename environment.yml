@@ -8,9 +8,7 @@ dependencies:
   - numpy>=2.0
   - scipy>=1.14
   - openmc
-  - festim
-  - fenics-dolfinx
-  - mpich 
+  - mpich
   - pyvista
   - pip:
       - fastapi>=0.110

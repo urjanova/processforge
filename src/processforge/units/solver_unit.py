@@ -6,7 +6,7 @@ It has no mandatory inlet or outlet process stream — it is not a
 stream-transforming unit.
 
 Any provider that implements ``run_simulation()`` can be paired with this
-unit type (Festim, OpenMC, future solvers).  Provider-specific configuration
+unit type (OpenMC, future solvers).  Provider-specific configuration
 lives in the flowsheet JSON ``solver_config`` key and is passed through to
 the provider opaquely as part of a :class:`~processforge.types.UnitConfig`.
 
@@ -15,14 +15,12 @@ Flowsheet JSON example::
     "units": {
         "fem_2d": {
             "type": "SolverUnit",
-            "provider": "festim",
-            "sim_type": "heat_2d",
+            "provider": "openmc",
+            "sim_type": "eigenvalue",
             "material": 10,
             "solver_config": {
                 "mesh": {"nx": 20, "ny": 20},
-                "boundary_conditions": [...],
-                "traps": [...],
-                "exports": [...]
+                "boundary_conditions": [...]
             }
         }
     }
@@ -49,7 +47,7 @@ class SolverUnit(ProviderMixin):
     solver, not a stream-transforming unit.
 
     Any provider that implements ``run_simulation()`` can be used here
-    (Festim, OpenMC, future solvers).  Provider-specific configuration
+    (OpenMC, future solvers).  Provider-specific configuration
     lives in the JSON ``solver_config`` key and is passed through to the
     provider opaquely as part of a typed ``UnitConfig``.
 

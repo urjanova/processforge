@@ -143,7 +143,6 @@ def solve_with_homotopy(
     convergence_signal = current_config.get("simulation", {}).get("convergence_signal")
     _DEFAULT_SIGNALS = {
         "openmc": ConvergenceSignal(signal_key="k_eff", target=1.0, tolerance=0.01),
-        "festim": ConvergenceSignal(signal_key="flux", target=None, tolerance=0.01),
     }
     provider = current_config.get("units", {}).get(
         list(current_config.get("units", {}).keys())[0], {}

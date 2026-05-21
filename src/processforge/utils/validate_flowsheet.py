@@ -29,7 +29,7 @@ class ConvergenceSignalConfig:
                 "signal_key": {"type": "string"},
                 "target": {"type": "number"},
                 "tolerance": {"type": "number", "minimum": 0, "maximum": 1},
-                "provider": {"type": "string", "enum": ["openmc", "festim"]},
+                "provider": {"type": "string", "enum": ["openmc"]},
             },
         }
         if self.tolerance is not None:
@@ -248,8 +248,8 @@ def _check_unreachable_units(config, defined_streams):
 
 _PIPE_LIKE_UNIT_TYPES = frozenset({"Pipes", "CSTR", "PFR", "IdealGasReactor"})
 
-# Festim/solver unit types that produce streams valid as downstream inputs
-_FESTIM_UNIT_TYPES = frozenset({"FestimMembrane", "SolverUnit"})
+# Solver unit types that produce streams valid as downstream inputs
+_SOLVER_OUTPUT_TYPES = frozenset({"SolverUnit"})
 
 
 def _check_pipe_linkage(config):
@@ -258,23 +258,23 @@ def _check_pipe_linkage(config):
 
     Reactor unit types (CSTR, PFR, IdealGasReactor) are treated as valid
     sources alongside Pipes units, since they similarly transform streams.
-    Festim and SolverUnit types are also valid sources and are exempt from
-    the linkage requirement themselves.
+    SolverUnit types are also valid sources and are exempt from the linkage
+    requirement themselves.
     """
     pipe_like_outputs = set()
     for u in config["units"].values():
         if u.get("type") in _PIPE_LIKE_UNIT_TYPES:
             pipe_like_outputs.update(_get_unit_outlets(u))
 
-    festim_outputs = set()
+    solver_outputs = set()
     for u in config["units"].values():
-        if u.get("type") in _FESTIM_UNIT_TYPES:
-            festim_outputs.update(_get_unit_outlets(u))
+        if u.get("type") in _SOLVER_OUTPUT_TYPES:
+            solver_outputs.update(_get_unit_outlets(u))
 
     feed_streams = set(config["streams"].keys())
-    valid_inputs = feed_streams | pipe_like_outputs | festim_outputs
+    valid_inputs = feed_streams | pipe_like_outputs | solver_outputs
 
-    exempt_types = _PIPE_LIKE_UNIT_TYPES | _FESTIM_UNIT_TYPES
+    exempt_types = _PIPE_LIKE_UNIT_TYPES | _SOLVER_OUTPUT_TYPES
     for name, unit in config["units"].items():
         if unit.get("type") in exempt_types:
             continue
@@ -282,7 +282,7 @@ def _check_pipe_linkage(config):
             if inlet not in valid_inputs:
                 raise ValueError(
                     f"❌ Unit '{name}' input '{inlet}' must come from a "
-                    f"feed stream or a Pipes / reactor / Festim unit output."
+                    f"feed stream or a Pipes / reactor / SolverUnit output."
                 )
 
 
@@ -440,7 +440,7 @@ def _check_provider_material_props(config: dict) -> None:
     class via the registry and calls ``cls.validate_material(mat_name, mat_def, unit_cfg)``.
 
     This function contains zero provider-specific logic — each provider
-    enforces its own material requirements (Festim: D_0/E_D; OpenMC: nuclides; etc.).
+    enforces its own material requirements (OpenMC: nuclides; etc.).
     Adding a new provider never requires changes here.
     """
     from processforge.providers.manager import _maybe_import_provider
@@ -669,10 +669,10 @@ def _check_convergence_signal(config: dict) -> None:
         providers_in_use = {
             unit_cfg.get("provider")
             for unit_cfg in config.get("units", {}).values()
-            if unit_cfg.get("provider") in ("openmc", "festim")
+            if unit_cfg.get("provider") in ("openmc",)
         }
         if not providers_in_use:
             raise ValueError(
                 "❌ convergence_signal expects at least one SolverUnit with provider "
-                "'openmc' or 'festim' in the flowsheet when provider is not specified."
+                "'openmc' in the flowsheet when provider is not specified."
             )

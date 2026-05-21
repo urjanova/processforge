@@ -46,7 +46,7 @@ class AbstractProvider(ABC):
 
         Args:
             provider_config: Typed config for this provider (e.g.
-                ``CanteraProviderConfig``, ``FestimProviderConfig``).
+                ``CanteraProviderConfig``).
             flowsheet_config: Typed representation of the full flowsheet config.
         """
 
@@ -116,7 +116,7 @@ class AbstractProvider(ABC):
         raise NotImplementedError(
             f"{type(self).__name__} does not implement run_simulation. "
             "Use SolverUnit only with providers that support standalone simulations "
-            "(e.g. festim, openmc)."
+            "(e.g. openmc)."
         )
 
     @classmethod
@@ -132,7 +132,7 @@ class AbstractProvider(ABC):
         Returning an empty list means the material is valid for this provider.
 
         Override in each provider to enforce provider-specific required fields.
-        For example, Festim requires D_0 and E_D; OpenMC requires nuclides.
+        For example, OpenMC requires nuclides.
 
         Args:
             mat_name: Key from the flowsheet ``materials`` section.

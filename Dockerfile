@@ -1,6 +1,12 @@
 # Use a lightweight Micromamba base
 FROM mambaorg/micromamba:1.5.8
 
+# gcc is required by DOLFINx/FEniCSx for JIT-compiling variational forms at runtime
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/*
+USER $MAMBA_USER
+
 # Copy the environment file into the container
 COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/environment.yml
 

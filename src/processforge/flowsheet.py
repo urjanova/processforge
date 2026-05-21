@@ -74,7 +74,6 @@ class Flowsheet:
         logger.info("Building units")
         from .units.cstr import CSTR
         from .units.pfr import PFR
-        from .units.festim_membrane import FestimMembrane
         from .units.solver_unit import SolverUnit
         unit_types: dict = {
             "Pump": Pump,
@@ -85,7 +84,6 @@ class Flowsheet:
             "CSTR": CSTR,
             "PFR": PFR,
             "IdealGasReactor": CSTR,
-            "FestimMembrane": FestimMembrane,
             "SolverUnit": SolverUnit,
         }
 
