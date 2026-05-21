@@ -204,7 +204,6 @@ class OpenMCProviderConfig:
 
     * Set ``OPENMC_DATA_ROOT`` to the mount point of your data volume (default ``/data``).
     * Set ``OPENMC_DATA_URL`` to download a cross-section ``.tar.gz`` archive on first start.
-    * Set ``OPENMC_DAGMC_URL`` to download a DAGMC geometry ``.h5m`` file on first start.
     * ``OPENMC_CROSS_SECTIONS`` is exported automatically by the startup script — do not
       set it manually when using ``OPENMC_DATA_URL``.
 

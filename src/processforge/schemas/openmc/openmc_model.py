@@ -734,6 +734,21 @@ class SourceBox(BaseModel):
     )
 
 
+class SourcePoint(BaseModel):
+    """Point source definition corresponding to ``openmc.stats.Point``.
+
+    ``xyz``: source location in cm.
+    ``energy_eV``: monoenergetic energy in eV (e.g. ``2.0e6`` for 2 MeV).
+    If ``None``, a Watt fission spectrum is used.
+    """
+
+    xyz: List[float] = Field(description="[x, y, z] source location in cm.")
+    energy_eV: Optional[float] = Field(
+        default=None,
+        description="Source energy in eV. None → Watt fission spectrum.",
+    )
+
+
 class MeshTallyConfig(BaseModel):
     """A ``RegularMesh`` tally definition used inside ``SolverConfig``.
 
@@ -769,8 +784,9 @@ class SolverConfig(BaseModel):
     inactive: int = Field(default=5, description="Number of inactive batches.")
     particles: int = Field(default=1000, description="Particles per generation.")
     run_mode: str = Field(default="eigenvalue", description="Run mode (eigenvalue, fixed source, …).")
-    dagmc_path: Optional[str] = Field(default=None, description="Path to DAGMC ``.h5m`` geometry file.")
-    source_box: Optional[SourceBox] = Field(default=None, description="Box source definition.")
+    source_point: Optional[SourcePoint] = Field(default=None, description="Point source definition (used by fixed_source_point sim_type).")
+    point_source_sphere_radius: float = Field(default=500.0, description="Radius (cm) of the bounding CSG sphere for point-source geometry.")
+    point_source_material: Optional[str] = Field(default=None, description="Material name (must match a flowsheet materials key) filling the sphere.")
     mesh_tallies: List[MeshTallyConfig] = Field(
         default_factory=list,
         description="Mesh tally definitions.",

@@ -2,10 +2,9 @@
 
 Architecture (three-layer strategy pattern)
 -------------------------------------------
-1. **Pydantic models** (``SourceBox``, ``MeshTallyConfig``, ``SolverConfig``) in
+1. **Pydantic models** (``SourceBox``, ``SourcePoint``, ``MeshTallyConfig``, ``SolverConfig``) in
    :mod:`processforge.schemas.openmc.openmc_model` parse the opaque
-   ``solver_config`` JSON dict into typed, validated objects.  No manual
-   ``from_dict()`` translation needed.
+   ``solver_config`` JSON dict into typed, validated objects.
 
 2. **Strategy registry** (``OpenMCSimStrategy`` + ``register_openmc_sim_type``)
    Each ``sim_type`` string maps to a strategy class.  New simulation types are
@@ -25,12 +24,12 @@ Adding a new sim_type::
         register_openmc_sim_type,
     )
 
-    class MyVolumeSim(OpenMCSimStrategy):
+    class MyCustomSim(OpenMCSimStrategy):
         def build(self, openmc, solver_cfg, materials_map, helpers):
             ...
             return openmc.Materials(...), openmc.Geometry(...), settings, tallies
 
-    register_openmc_sim_type("volume_dagmc", MyVolumeSim)
+    register_openmc_sim_type("my_custom_sim", MyCustomSim)
 """
 
 from __future__ import annotations
@@ -39,13 +38,13 @@ import math
 import os
 import pathlib
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
 from .base import AbstractProvider
 from .registry import register_provider
-from processforge.schemas.openmc.openmc_model import MeshTallyConfig, SolverConfig, SourceBox
+from processforge.schemas.openmc.openmc_model import MeshTallyConfig, SolverConfig, SourcePoint
 
 
 def _resolve_omc_path(path: Optional[str]) -> Optional[str]:
@@ -132,16 +131,15 @@ class OpenMCBuildHelpers:
         return tally
 
     @staticmethod
-    def build_source(openmc, source_box: SourceBox) -> object:
-        """Construct an ``openmc.IndependentSource`` with a ``Box`` spatial distribution."""
-        space = openmc.stats.Box(
-            source_box.lower_left,
-            source_box.upper_right,
-            only_fissionable=source_box.only_fissionable,
-        )
+    def build_point_source(openmc, source_point: SourcePoint) -> object:
+        """Construct an ``openmc.IndependentSource`` at a single point."""
         source = openmc.IndependentSource()
-        source.space = space
+        source.space = openmc.stats.Point(source_point.xyz)
         source.angle = openmc.stats.Isotropic()
+        if source_point.energy_eV is not None:
+            source.energy = openmc.stats.Discrete([source_point.energy_eV], [1.0])
+        else:
+            source.energy = openmc.stats.Watt()
         return source
 
     @staticmethod
@@ -228,16 +226,13 @@ def get_registered_sim_types() -> dict[str, type]:
 # Built-in strategies
 # ---------------------------------------------------------------------------
 
-class _DAGMCStrategyBase(OpenMCSimStrategy):
-    """Shared build logic for all DAGMC-based simulations.
+class _FixedSourcePointStrategy(OpenMCSimStrategy):
+    """Fixed-source point-source approximation using a simple CSG sphere geometry.
 
-    Subclasses only need to supply ``_sim_type_name()`` for error messages.
-    ``_FixedSourceDAGMCStrategy`` additionally overrides ``build()`` to force
-    ``run_mode = "fixed source"`` before delegating to this base.
+    No DAGMC file required. Models the plant as a single point source inside
+    a homogeneous sphere of a given radius and material — useful for broad-scale
+    dose/flux estimates where full CAD geometry is not needed.
     """
-
-    @abstractmethod
-    def _sim_type_name(self) -> str: ...
 
     def build(
         self,
@@ -246,21 +241,30 @@ class _DAGMCStrategyBase(OpenMCSimStrategy):
         materials_map: dict,
         helpers: OpenMCBuildHelpers,
     ) -> tuple:
-        sim_type = self._sim_type_name()
-        if not solver_cfg.dagmc_path:
+        if solver_cfg.source_point is None:
             raise ValueError(
-                f"sim_type='{sim_type}' requires 'dagmc_path' in solver_config"
+                "sim_type='fixed_source_point' requires 'source_point' in solver_config"
             )
-        if solver_cfg.source_box is None:
+
+        fill_name = solver_cfg.point_source_material
+        if fill_name is not None and fill_name not in materials_map:
             raise ValueError(
-                f"sim_type='{sim_type}' requires 'source_box' in solver_config"
+                f"point_source_material='{fill_name}' not found in materials map. "
+                f"Available: {sorted(materials_map)}"
             )
 
         omc_materials = openmc.Materials(list(materials_map.values()))
-        dagmc_univ = openmc.DAGMCUniverse(_resolve_omc_path(solver_cfg.dagmc_path))
-        geometry = openmc.Geometry(dagmc_univ)
-        source = helpers.build_source(openmc, solver_cfg.source_box)
-        settings = helpers.build_settings(openmc, solver_cfg, source)
+
+        sphere = openmc.Sphere(r=solver_cfg.point_source_sphere_radius, boundary_type="vacuum")
+        fill_mat = materials_map[fill_name] if fill_name else None
+        geometry = openmc.Geometry([
+            openmc.Cell(fill=fill_mat, region=-sphere),
+            openmc.Cell(region=+sphere),
+        ])
+
+        source = helpers.build_point_source(openmc, solver_cfg.source_point)
+        fixed_cfg = solver_cfg.model_copy(update={"run_mode": "fixed source"})
+        settings = helpers.build_settings(openmc, fixed_cfg, source)
 
         tally_objs = [helpers.build_mesh_tally(openmc, t) for t in solver_cfg.mesh_tallies]
         tallies = openmc.Tallies(tally_objs) if tally_objs else openmc.Tallies()
@@ -268,21 +272,16 @@ class _DAGMCStrategyBase(OpenMCSimStrategy):
         return omc_materials, geometry, settings, tallies
 
 
-class _EigenvalueDAGMCStrategy(_DAGMCStrategyBase):
-    """Eigenvalue (k-eff) simulation using DAGMC CAD geometry from a ``.h5m`` file."""
+class _EigenvalueCSGStrategy(OpenMCSimStrategy):
+    """Eigenvalue (criticality) simulation using a simple CSG sphere geometry.
 
-    def _sim_type_name(self) -> str:
-        return "eigenvalue_dagmc"
+    Computes k_eff for a homogeneous sphere of fissile material.  The initial
+    fission source is seeded from ``source_point``; OpenMC converges it over
+    ``inactive`` batches before accumulating statistics.
 
-
-class _FixedSourceDAGMCStrategy(_DAGMCStrategyBase):
-    """Fixed-source simulation using DAGMC CAD geometry.
-
-    Forces ``run_mode = "fixed source"`` regardless of the ``solver_config`` value.
+    No DAGMC file required — useful for quick criticality estimates of molten
+    salt or other homogeneous fissile compositions.
     """
-
-    def _sim_type_name(self) -> str:
-        return "fixed_source_dagmc"
 
     def build(
         self,
@@ -291,13 +290,40 @@ class _FixedSourceDAGMCStrategy(_DAGMCStrategyBase):
         materials_map: dict,
         helpers: OpenMCBuildHelpers,
     ) -> tuple:
-        fixed_cfg = solver_cfg.model_copy(update={"run_mode": "fixed source"})
-        return super().build(openmc, fixed_cfg, materials_map, helpers)
+        if solver_cfg.source_point is None:
+            raise ValueError(
+                "sim_type='eigenvalue_csg' requires 'source_point' in solver_config"
+            )
+
+        fill_name = solver_cfg.point_source_material
+        if fill_name is not None and fill_name not in materials_map:
+            raise ValueError(
+                f"point_source_material='{fill_name}' not found in materials map. "
+                f"Available: {sorted(materials_map)}"
+            )
+
+        omc_materials = openmc.Materials(list(materials_map.values()))
+
+        sphere = openmc.Sphere(r=solver_cfg.point_source_sphere_radius, boundary_type="vacuum")
+        fill_mat = materials_map[fill_name] if fill_name else None
+        geometry = openmc.Geometry([
+            openmc.Cell(fill=fill_mat, region=-sphere),
+            openmc.Cell(region=+sphere),
+        ])
+
+        source = helpers.build_point_source(openmc, solver_cfg.source_point)
+        eigenvalue_cfg = solver_cfg.model_copy(update={"run_mode": "eigenvalue"})
+        settings = helpers.build_settings(openmc, eigenvalue_cfg, source)
+
+        tally_objs = [helpers.build_mesh_tally(openmc, t) for t in solver_cfg.mesh_tallies]
+        tallies = openmc.Tallies(tally_objs) if tally_objs else openmc.Tallies()
+
+        return omc_materials, geometry, settings, tallies
 
 
 # Register built-ins at module load
-register_openmc_sim_type("eigenvalue_dagmc", _EigenvalueDAGMCStrategy)
-register_openmc_sim_type("fixed_source_dagmc", _FixedSourceDAGMCStrategy)
+register_openmc_sim_type("fixed_source_point", _FixedSourcePointStrategy)
+register_openmc_sim_type("eigenvalue_csg", _EigenvalueCSGStrategy)
 
 
 # ---------------------------------------------------------------------------
@@ -371,18 +397,7 @@ class OpenMCProvider(AbstractProvider):
         )
 
     def get_thermo_properties(self, stream: dict) -> dict:
-        """Delegate stream thermodynamics to CoolProp.
-
-        OpenMC handles neutronics only; enthalpy, Cp, and K-values use CoolProp.
-        """
-        from processforge.thermo import get_Cp_molar, get_enthalpy_molar, get_K_values
-
-        z, T, P = stream["z"], stream["T"], stream["P"]
-        return {
-            "H": get_enthalpy_molar(z, T, P),
-            "Cp": get_Cp_molar(z, T, P),
-            "K_values": get_K_values(list(z.keys()), T, P),
-        }
+        raise NotImplementedError("OpenMCProvider does not support stream thermodynamics.")
 
     def compute_unit(self, unit_type: str, config: dict, inlet: dict):
         """Return ``None`` — OpenMC uses ``run_simulation`` via ``SolverUnit``."""
@@ -460,8 +475,7 @@ class OpenMCProvider(AbstractProvider):
 
         solver_cfg = SolverConfig.model_validate(unit_config.solver_config or {})
 
-        # Build openmc.Material objects for ALL registry materials — DAGMC
-        # assigns materials by name so every declared material must be present.
+        # Build openmc.Material objects for all registry materials.
         helpers = OpenMCBuildHelpers()
         materials_map: dict = {}
         seen_ids: set = set()

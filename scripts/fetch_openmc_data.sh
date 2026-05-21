@@ -33,12 +33,14 @@ mkdir -p "$DATA_ROOT"
 # ---------------------------------------------------------------------------
 # Cross sections
 # ---------------------------------------------------------------------------
-XS_FILE="$DATA_ROOT/cross_sections.xml"
+XS_DIR="$DATA_ROOT/cross_sections"
+XS_FILE="$XS_DIR/cross_sections.xml"
 
 if [ -n "${OPENMC_DATA_URL:-}" ] && [ ! -f "$XS_FILE" ]; then
     echo "[processforge] Downloading cross sections from $OPENMC_DATA_URL ..."
     curl -fsSL "$OPENMC_DATA_URL" -o /tmp/openmc_data.tar.gz
-    tar -xzf /tmp/openmc_data.tar.gz -C "$DATA_ROOT" --strip-components=1
+    mkdir -p "$XS_DIR"
+    tar -xzf /tmp/openmc_data.tar.gz -C "$XS_DIR" --strip-components=1
     rm -f /tmp/openmc_data.tar.gz
     echo "[processforge] Cross sections ready at $XS_FILE"
 fi

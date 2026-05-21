@@ -501,10 +501,8 @@ def _check_openmc_unit_config(config: dict) -> None:
     1. ``sim_type`` is present.
     2. ``sim_type`` is registered in the provider's ``_SIM_TYPE_REGISTRY``
        (supports types added via :func:`~processforge.providers.openmc_provider.register_openmc_sim_type`).
-    3. DAGMC sim types require ``dagmc_path`` in ``solver_config``.
-    4. DAGMC sim types require ``source_box`` in ``solver_config``.
-    5. ``inactive`` must be less than ``batches`` (when both are provided).
-    6. Uses ``openmc_model.Material.model_validate()`` for deep Pydantic validation
+    3. ``inactive`` must be less than ``batches`` (when both are provided).
+    4. Uses ``openmc_model.Material.model_validate()`` for deep Pydantic validation
        of each material referenced by an OpenMC unit.
     """
     providers = config.get("providers", {})
@@ -544,18 +542,6 @@ def _check_openmc_unit_config(config: dict) -> None:
             continue
 
         sc = unit_cfg.get("solver_config") or {}
-
-        if sim_type.endswith("_dagmc") and not sc.get("dagmc_path"):
-            errors.append(
-                f"❌ Unit '{unit_name}' sim_type='{sim_type}' requires "
-                f"'dagmc_path' in solver_config."
-            )
-
-        if sim_type.endswith("_dagmc") and not sc.get("source_box"):
-            errors.append(
-                f"❌ Unit '{unit_name}' sim_type='{sim_type}' requires "
-                f"'source_box' in solver_config."
-            )
 
         batches = sc.get("batches", 0)
         inactive = sc.get("inactive", 0)
