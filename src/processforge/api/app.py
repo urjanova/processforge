@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import datetime
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 
-from processforge.api.models import JobStatus, RunRequest
+from processforge.api.models import JobStatus, RunRequest, RunResponse
 from processforge.api.runner import run_job_sync
 
 try:
@@ -14,13 +16,11 @@ try:
 except Exception:
     _version = "unknown"
 
-app = FastAPI(title="ProcessForge API", version=_version)
-
-_jobs: dict[str, dict] = {}
+_jobs: dict[str, JobStatus] = {}
 
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     import os
     required_env_vars = [
         "S3_ACCESS_KEY",
@@ -31,6 +31,10 @@ async def startup_event():
     missing = [v for v in required_env_vars if not os.environ.get(v)]
     if missing:
         raise RuntimeError(f"Missing required S3 environment variables: {', '.join(missing)}")
+    yield
+
+
+app = FastAPI(title="ProcessForge API", version=_version, lifespan=lifespan)
 
 
 async def _run_job_in_thread(
@@ -47,19 +51,16 @@ def health():
     return {"status": "ok", "version": _version}
 
 
-@app.post("/api/v1/run", status_code=202)
+@app.post("/api/v1/run", status_code=202, response_model=RunResponse)
 async def run_flowsheet(request: RunRequest, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
     prefix = request.s3_prefix or f"jobs/{job_id}"
 
-    _jobs[job_id] = {
-        "job_id": job_id,
-        "status": "queued",
-        "started_at": datetime.datetime.utcnow().isoformat() + "Z",
-        "completed_at": None,
-        "s3_urls": None,
-        "error": None,
-    }
+    _jobs[job_id] = JobStatus(
+        job_id=job_id,
+        status="queued",
+        started_at=datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+    )
 
     background_tasks.add_task(
         _run_job_in_thread,
@@ -69,11 +70,11 @@ async def run_flowsheet(request: RunRequest, background_tasks: BackgroundTasks):
         prefix,
     )
 
-    return {
-        "job_id": job_id,
-        "status": "queued",
-        "status_url": f"/api/v1/jobs/{job_id}",
-    }
+    return RunResponse(
+        job_id=job_id,
+        status="queued",
+        status_url=f"/api/v1/jobs/{job_id}",
+    )
 
 
 @app.get("/api/v1/jobs/{job_id}", response_model=JobStatus)

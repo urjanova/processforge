@@ -719,21 +719,6 @@ class OpenMCModel(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class SourceBox(BaseModel):
-    """Box source definition corresponding to ``openmc.stats.Box``.
-
-    ``lower_left`` / ``upper_right``: bounding-box corners in cm.
-    ``only_fissionable``: if ``True``, only sample in fissionable regions.
-    """
-
-    lower_left: List[float] = Field(description="[x, y, z] lower corner in cm.")
-    upper_right: List[float] = Field(description="[x, y, z] upper corner in cm.")
-    only_fissionable: bool = Field(
-        default=True,
-        description="If True, only sample source sites in fissionable regions.",
-    )
-
-
 class SourcePoint(BaseModel):
     """Point source definition corresponding to ``openmc.stats.Point``.
 

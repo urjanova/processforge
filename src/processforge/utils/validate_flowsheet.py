@@ -551,6 +551,14 @@ def _check_openmc_unit_config(config: dict) -> None:
                 f"must be less than 'batches' ({batches})."
             )
 
+        point_source_mat = sc.get("point_source_material")
+        if point_source_mat is not None and point_source_mat not in materials:
+            errors.append(
+                f"❌ Unit '{unit_name}': solver_config 'point_source_material'="
+                f"'{point_source_mat}' not found in materials. "
+                f"Available: {sorted(materials)}"
+            )
+
         # Deep Pydantic validation using the now-self-contained openmc_model.Material
         mat_id = unit_cfg.get("material")
         if mat_id in id_to_mat_raw:

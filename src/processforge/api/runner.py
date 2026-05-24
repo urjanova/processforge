@@ -9,6 +9,7 @@ from loguru import logger
 import os
 import shutil
 import tempfile
+from processforge.api.models import JobStatus
 from processforge.provenance import build_dynamic_x0, build_run_info
 from processforge.result import save_results_zarr
 from processforge.utils.validate_flowsheet import validate_flowsheet_dict
@@ -56,7 +57,7 @@ def run_job_sync(
     flowsheet: dict,
     s3_bucket: str,
     s3_prefix: str,
-    jobs_store: dict,
+    jobs_store: dict[str, JobStatus],
 ) -> None:
     """Run a simulation job synchronously and upload results to S3.
 
@@ -69,8 +70,9 @@ def run_job_sync(
 
     logger_id = logger.add(log_file.name)
 
-    jobs_store[job_id]["status"] = "running"
-    jobs_store[job_id]["started_at"] = datetime.datetime.utcnow().isoformat() + "Z"
+    job_entry = jobs_store[job_id]
+    job_entry.status = "running"
+    job_entry.started_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
     try:
         validate_flowsheet_dict(flowsheet)
@@ -106,28 +108,20 @@ def run_job_sync(
         log_uri = f"s3://{s3_bucket}/{log_s3_key}"
         os.unlink(log_file.name)
 
-        jobs_store[job_id].update(
-            {
-                "status": "complete",
-                "completed_at": datetime.datetime.utcnow().isoformat() + "Z",
-                "s3_urls": {
-                    "zarr": zarr_uri,
-                    "outputs": output_urls,
-                    "log": log_uri,
-                },
-            }
-        )
+        job_entry.status = "complete"
+        job_entry.completed_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+        job_entry.s3_urls = {
+            "zarr": zarr_uri,
+            "outputs": output_urls,
+            "log": log_uri,
+        }
     except Exception as exc:
         logger.exception(f"[{job_id}] Job failed: {exc}")
         logger.remove(logger_id)
 
-        jobs_store[job_id].update(
-            {
-                "status": "failed",
-                "completed_at": datetime.datetime.utcnow().isoformat() + "Z",
-                "error": str(exc),
-            }
-        )
+        job_entry.status = "failed"
+        job_entry.completed_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+        job_entry.error = str(exc)
 
         try:
             log_s3_key = f"{s3_prefix}/run.log"
@@ -140,7 +134,9 @@ def run_job_sync(
             )
             s3_client.upload_file(log_file.name, s3_bucket, log_s3_key)
             log_uri = f"s3://{s3_bucket}/{log_s3_key}"
-            jobs_store[job_id].setdefault("s3_urls", {})["log"] = log_uri
+            if job_entry.s3_urls is None:
+                job_entry.s3_urls = {}
+            job_entry.s3_urls["log"] = log_uri
         except Exception as e:
             logger.error(f"Failed to upload log file: {e}")
         finally:

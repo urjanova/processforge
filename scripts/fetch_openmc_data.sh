@@ -14,16 +14,12 @@
 #                      After download the script exports OPENMC_CROSS_SECTIONS
 #                      automatically — do not set that variable manually.
 #
-#   OPENMC_DAGMC_URL   URL to a single DAGMC .h5m geometry file. Downloaded
-#                      once to $OPENMC_DATA_ROOT/geometry/. The filename is
-#                      taken from the URL basename.
-#
 # Docker usage:
 #   docker run -v /host/openmc_data:/data processforge run flowsheet.json
 #
 # Railway usage:
-#   Attach a Railway Volume at /data, then set OPENMC_DATA_URL and
-#   OPENMC_DAGMC_URL in the Environment Variables tab. The script
+#   Attach a Railway Volume at /data, then set OPENMC_DATA_URL
+#   in the Environment Variables tab. The script
 #   downloads on first deploy; subsequent deploys skip the download.
 set -euo pipefail
 
@@ -49,21 +45,6 @@ fi
 # This works whether the data was just downloaded or was already present on the volume.
 if [ -f "$XS_FILE" ]; then
     export OPENMC_CROSS_SECTIONS="$XS_FILE"
-fi
-
-# ---------------------------------------------------------------------------
-# DAGMC geometry
-# ---------------------------------------------------------------------------
-if [ -n "${OPENMC_DAGMC_URL:-}" ]; then
-    DAGMC_DIR="$DATA_ROOT/geometry"
-    mkdir -p "$DAGMC_DIR"
-    # Strip query string to get a clean filename
-    DAGMC_FILE="$DAGMC_DIR/$(basename "${OPENMC_DAGMC_URL%%\?*}")"
-    if [ ! -f "$DAGMC_FILE" ]; then
-        echo "[processforge] Downloading DAGMC geometry from $OPENMC_DAGMC_URL ..."
-        curl -fsSL "$OPENMC_DAGMC_URL" -o "$DAGMC_FILE"
-        echo "[processforge] Geometry ready at $DAGMC_FILE"
-    fi
 fi
 
 exec "$@"

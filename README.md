@@ -350,78 +350,198 @@ If both the direct Newton solve and the homotopy fallback fail to converge:
 
 ## Running on the cloud
 
-To run a simulation on any cloud provider (AWS EC2, Google Cloud, etc.) with Docker installed:
+Processforge can run simulation jobs on any cloud VM with Docker installed. Two modes are available:
 
-Pull the image:
+- **Batch mode** — run a single flowsheet directly and store results locally or on S3.
+- **API server mode** — start `pf-serve` for programmatic flowsheet submission.
+
+### Prerequisites
+
 ```bash
 docker pull ghcr.io/urjanova/processforge:latest
 ```
 
-Run a simulation and map an output folder:
+### Step-by-step: Run a flowsheet via Docker (S3 results)
 
-```bash
-docker run -p 8080:8080 \
-  -e S3_ACCESS_KEY='XXXXXX' \
-  -e S3_SECRET_KEY='YYYYYYYYY' \
-  -e S3_ENDPOINT_URL='https://processforge-files.ams3.s3.com' \
-  -e S3_REGION_NAME='ams3' \
-  -e S3_BUCKET_NAME='Dev' \
-  ghcr.io/urjanova/processforge:latest \
-  pf-serve
-```
+This runs `pf apply` in the container and uploads results to an S3-compatible bucket.
 
-(Ensure you provide your S3-compatible credentials and endpoint URL; output and results will be synced directly to the specified bucket.)
+1. **Prepare your flowsheet JSON** — save it to a local file, e.g. `./flowsheets/my-flowsheet.json`.
 
-### OpenMC data files in containers
+2. **Set S3 environment variables** in your Docker run command.
 
-OpenMC simulations require two external data assets:
+3. **Run the container:**
+
+   ```bash
+   docker run --rm \
+     -v "$(pwd)/flowsheets:/app/flowsheets" \
+     -e S3_ACCESS_KEY='XXXXXX' \
+     -e S3_SECRET_KEY='YYYYYYYYY' \
+     -e S3_ENDPOINT_URL='https://processforge-files.ams3.digitaloceanspaces.com' \
+     -e S3_REGION_NAME='ams3' \
+     -e S3_BUCKET_NAME='my-bucket' \
+     ghcr.io/urjanova/processforge:latest \
+     pf apply /app/flowsheets/my-flowsheet.json
+   ```
+
+   Results (Zarr store, pfstate snapshots) are uploaded to S3 under the configured bucket.
+
+### Step-by-step: Run the API server (pf-serve)
+
+Start a persistent HTTP API that accepts flowsheet submissions:
+
+1. **Start the server:**
+
+   ```bash
+   docker run -d \
+     --name pf-api \
+     -p 9000:9000 \
+     -e S3_ACCESS_KEY='XXXXXX' \
+     -e S3_SECRET_KEY='YYYYYYYYY' \
+     -e S3_ENDPOINT_URL='https://processforge-files.nyc .digitaloceanspaces.com' \
+     -e S3_REGION_NAME='ams3' \
+     -e S3_BUCKET_NAME='my-bucket' \
+     ghcr.io/urjanova/processforge:latest \
+     pf-serve
+   ```
+
+2. **Submit a flowsheet via the API:**
+
+   ```bash
+   curl -X POST http://localhost:9000/run \
+     -H "Content-Type: application/json" \
+     -d @flowsheets/my-flowsheet.json
+   ```
+
+3. **Check job status** (replace `<job_id>` with the ID returned by the submission response):
+
+   ```bash
+   curl http://localhost:9000/status/<job_id>
+   ```
+
+4. **Retrieve results** — the results Zarr store and `.pfstate` snapshots are synced to your S3 bucket automatically on completion.
+
+   (Ensure you provide your S3-compatible credentials and endpoint URL; output and results will be synced directly to the specified bucket.)
+
+<h3 id="openmc-in-containers">Step-by-step: Run OpenMC simulations in Docker</h3>
+
+OpenMC simulations require nuclear cross-section data. The container's startup script (`scripts/fetch_openmc_data.sh`) downloads and caches these automatically.
 
 | Asset | Typical size | Managed via |
 |-------|-------------|-------------|
 | Cross-section library (`cross_sections.xml` + HDF5 data) | 100 MB – 5 GB | `OPENMC_DATA_URL` |
-| DAGMC geometry file (`.h5m`) | Tens of MB | `OPENMC_DAGMC_URL` |
 
-The container includes a startup script (`scripts/fetch_openmc_data.sh`) that downloads these files on first start and caches them on a persistent volume. Subsequent starts skip the download.
+**Step 1: Prepare a volume for cross-section data**
 
-**Paths in flowsheet JSON support environment variable expansion**, so use `${OPENMC_DATA_ROOT}/...` instead of hardcoded local paths:
+You can either:
+- Use a **named Docker volume** (data persists across container restarts):
+  ```bash
+  docker volume create openmc_data
+  ```
+- Use a **host directory**:
+  ```bash
+  mkdir -p /path/to/openmc_data
+  ```
+
+**Step 2: Write your OpenMC flowsheet**
+
+Use environment variable expansion so the container can find the cross-sections at runtime:
 
 ```json
-"providers": {
-  "openmc": {
-    "type": "openmc",
-    "cross_sections": "${OPENMC_DATA_ROOT}/cross_sections/cross_sections.xml"
-  }
-},
-"units": {
-  "reactor": {
-    "solver_config": {
-      "dagmc_path": "${OPENMC_DATA_ROOT}/geometry/my_model.h5m"
+{
+  "providers": {
+    "openmc": {
+      "type": "openmc",
+      "cross_sections": "${OPENMC_DATA_ROOT}/cross_sections/cross_sections.xml"
+    }
+  },
+  "units": {
+    "reactor": {
+      "type": "SolverUnit",
+      "provider": "openmc",
+      "sim_type": "eigenvalue_csg",
+      "solver_config": {
+        "source_point": { "xyz": [0.0, 0.0, 0.0] },
+        "point_source_material": "salt",
+        "point_source_sphere_radius": 200.0,
+        "mesh_tallies": [...]
+      }
     }
   }
 }
 ```
 
-#### Docker (local or cloud VM)
+The startup script exports `OPENMC_CROSS_SECTIONS` pointing to the downloaded library, so `${OPENMC_DATA_ROOT}` in your flowsheet is resolved automatically.
 
-Mount a local directory containing your data files:
+**Step 3: Run the simulation**
+
+```bash
+docker run --rm \
+  -v openmc_data:/data \
+  -e OPENMC_DATA_URL='https://your-host.com/endfb-viii.0-hdf5.tar.gz' \
+  ghcr.io/urjanova/processforge:latest \
+  pf run /app/flowsheets/openmc/msre_eigenvalue.json
+```
+
+The cross-sections are downloaded on first run and cached on the volume. Subsequent runs skip the download.
+
+**Step 4 (optional): Use pre-downloaded cross-sections**
+
+If you already have the library on your host machine, mount it directly and skip the download:
 
 ```bash
 docker run --rm \
   -v /path/to/openmc_data:/data \
   ghcr.io/urjanova/processforge:latest \
-  processforge run /app/flowsheets/openmc/msre_eigenvalue.json
+  pf run /app/flowsheets/openmc/msre_eigenvalue.json
 ```
 
-If the data does not yet exist locally, let the container download it on first run:
+The container checks for `cross_sections.xml` at the expected location and uses it if present.
 
-```bash
-docker run --rm \
-  -v openmc_data:/data \
-  -e OPENMC_DATA_URL=https://your-host.com/endfb-viii.0-hdf5.tar.gz \
-  -e OPENMC_DAGMC_URL=https://your-host.com/msre_simple.h5m \
-  ghcr.io/urjanova/processforge:latest \
-  processforge run /app/flowsheets/openmc/msre_eigenvalue.json
-```
+### Step-by-step: pf-serve with OpenMC cross-sections (local)
+
+Run the API server locally with OpenMC cross-section data so it can accept OpenMC flowsheet submissions.
+
+1. **Create a named volume for cross-sections:**
+
+   ```bash
+   docker volume create openmc_data
+   ```
+
+2. **Start pf-serve with the volume mounted and cross-section URL configured:**
+
+   ```bash
+   docker run -d \
+     --name pf-api \
+     -p 9000:9000 \
+     -v openmc_data:/data \
+     -e OPENMC_DATA_URL='https://your-host.com/endfb-viii.0-hdf5.tar.gz' \
+     ghcr.io/urjanova/processforge:latest \
+     pf-serve
+   ```
+
+   The startup script downloads cross-sections to the volume on first start. The server is ready once the container logs show the download completed.
+
+3. **Submit an OpenMC flowsheet to the API:**
+
+   ```bash
+   curl -X POST http://localhost:9000/run \
+     -H "Content-Type: application/json" \
+     -d @flowsheets/openmc/msre_eigenvalue.json
+   ```
+
+4. **Check the job status:**
+
+   ```bash
+   curl http://localhost:9000/status/<job_id>
+   ```
+
+5. **Stop the server when done:**
+
+   ```bash
+   docker stop pf-api && docker rm pf-api
+   ```
+
+   Results from completed jobs are stored inside the container; mount an output directory with `-v "$(pwd)/outputs:/app/outputs"` if you need them on the host.
 
 ## Logo credit
 Google Gemini / Nano Banana

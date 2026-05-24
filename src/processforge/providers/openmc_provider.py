@@ -2,7 +2,7 @@
 
 Architecture (three-layer strategy pattern)
 -------------------------------------------
-1. **Pydantic models** (``SourceBox``, ``SourcePoint``, ``MeshTallyConfig``, ``SolverConfig``) in
+1. **Pydantic models** (``SourcePoint``, ``MeshTallyConfig``, ``SolverConfig``) in
    :mod:`processforge.schemas.openmc.openmc_model` parse the opaque
    ``solver_config`` JSON dict into typed, validated objects.
 

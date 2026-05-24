@@ -16,6 +16,12 @@ class RunRequest(BaseModel):
     s3_prefix: str | None = None
 
 
+class RunResponse(BaseModel):
+    job_id: str
+    status: Literal["queued", "running", "complete", "failed"]
+    status_url: str
+
+
 class JobStatus(BaseModel):
     job_id: str
     status: Literal["queued", "running", "complete", "failed"]
