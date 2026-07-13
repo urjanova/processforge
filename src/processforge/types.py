@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Union
 
 import numpy as np
+from pydantic import BaseModel, ConfigDict
 
 
 @dataclass
@@ -432,3 +433,54 @@ class SnapshotState:
             "x_delta": self.x_delta.tolist() if len(self.x_delta) else [],
             "parent_snapshot_id": self.parent_snapshot_id,
         }
+
+
+class StreamTimeseries(BaseModel):
+    """Typed representation of a single stream's simulation timeseries.
+
+    Each stream carries scalar property lists (T, P, flowrate) and a
+    component-mole-fraction dict ``z``.  ``extra='allow'`` permits units to
+    attach additional properties (e.g. ``phase``, ``beta``) without breaking
+    the model.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    time: list[float] = []
+    T: list[float] = []
+    P: list[float] = []
+    flowrate: list[float] = []
+    z: dict[str, list[float]] = {}
+
+
+class MergedInletTimeseries(BaseModel):
+    """Result of flow-weighted merging of multiple inlet stream timeseries.
+
+    Carries the same shape as :class:`StreamTimeseries` but is produced
+    exclusively by ``Flowsheet._merge_inlet_timeseries``.  Dict-like
+    access (``[]``, ``.get()``, ``.items()``, ``in``) is supported so
+    downstream code that previously consumed plain dicts works unchanged.
+    """
+
+    time: list[float]
+    T: list[float]
+    P: list[float]
+    flowrate: list[float]
+    z: dict[str, list[float]]
+
+    # -- dict-compatible helpers for downstream consumers ------------------
+
+    def get(self, key: str, default=None):
+        return getattr(self, key) if key in self.model_fields else default
+
+    def items(self):
+        return ((name, getattr(self, name)) for name in self.model_fields)
+
+    def keys(self):
+        return self.model_fields.keys()
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.model_fields
+
+    def __iter__(self):
+        return iter(self.model_fields)

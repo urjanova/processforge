@@ -2,6 +2,7 @@ import copy
 
 from ..eo.units.valve_eo import ValveEOMixin
 from .provider_mixin import ProviderMixin
+from .registry import register_unit
 
 
 class Valve(ProviderMixin, ValveEOMixin):
@@ -35,3 +36,6 @@ class Valve(ProviderMixin, ValveEOMixin):
         outlet["T"] = inlet["T"]
         outlet["unit"] = "Valve"
         return outlet
+
+
+register_unit("Valve", Valve)

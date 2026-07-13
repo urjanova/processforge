@@ -4,6 +4,7 @@ from __future__ import annotations
 from loguru import logger
 
 from .provider_mixin import ProviderMixin
+from .registry import register_unit
 
 
 class PFR(ProviderMixin):
@@ -38,3 +39,6 @@ class PFR(ProviderMixin):
             "Declare a 'cantera' provider and set \"provider\": \"cantera\" on this unit."
         )
         return dict(inlet)
+
+
+register_unit("PFR", PFR)

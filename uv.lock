@@ -1885,15 +1885,17 @@ wheels = [
 
 [[package]]
 name = "processforge"
-version = "0.2.25"
+version = "0.2.34"
 source = { editable = "." }
 dependencies = [
+    { name = "coolprop" },
     { name = "graphviz" },
     { name = "jsonschema" },
     { name = "loguru" },
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "pydantic" },
     { name = "scipy" },
     { name = "zarr" },
 ]
@@ -1902,7 +1904,6 @@ dependencies = [
 api = [
     { name = "boto3" },
     { name = "fastapi" },
-    { name = "pydantic" },
     { name = "s3fs" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1948,6 +1949,7 @@ requires-dist = [
     { name = "build", marker = "extra == 'dev'" },
     { name = "cantera", marker = "extra == 'cantera'", specifier = ">=3.0" },
     { name = "casadi", marker = "extra == 'eo-casadi'", specifier = ">=3.6" },
+    { name = "coolprop", specifier = ">=7.2.0" },
     { name = "coolprop", marker = "extra == 'coolprop'", specifier = ">=6.6" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.110" },
     { name = "flake8", marker = "extra == 'dev'" },
@@ -1960,7 +1962,7 @@ requires-dist = [
     { name = "ompython", marker = "extra == 'modelica'", specifier = ">=4.0.0" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pint", marker = "extra == 'pcl'", specifier = ">=0.24" },
-    { name = "pydantic", marker = "extra == 'api'", specifier = ">=2.0" },
+    { name = "pydantic", specifier = ">=2.0" },
     { name = "pyomo", marker = "extra == 'eo'", specifier = ">=6.7" },
     { name = "pyomo", marker = "extra == 'eo-casadi'", specifier = ">=6.7" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },

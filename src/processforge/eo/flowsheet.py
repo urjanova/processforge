@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import TYPE_CHECKING
 
 import numpy as np
 from loguru import logger
+
+if TYPE_CHECKING:
+    from ..providers.manager import ProviderMap
 
 from .jacobian import GlobalJacobianManager
 from .solver import EOSolver
@@ -43,7 +47,7 @@ class EOFlowsheet:
             or sim_cfg.get("default_backend", "scipy")
         )
         self._unit_objects: dict = {}
-        self._provider_map: dict = {}
+        self._provider_map: ProviderMap | None = None
         self.solver_tol: float = 1e-6
         self.solver_max_iter: int = 50
 
@@ -141,55 +145,15 @@ class EOFlowsheet:
 
         return manager
 
-    def _build_units(self, provider_map: dict | None = None) -> dict:
-        """Instantiate unit objects using the same factory logic as Flowsheet."""
-        from processforge.units.pump import Pump
-        from processforge.units.valve import Valve
-        from processforge.units.strainer import Strainer
-        from processforge.units.pipes import Pipes
-        from processforge.units.heater import Heater
-        from processforge.units.flash import Flash
-        from processforge.units.solver_unit import SolverUnit
-
-        unit_types = {
-            "Pump": (Pump, "kwargs"),
-            "Valve": (Valve, "kwargs"),
-            "Strainer": (Strainer, "kwargs"),
-            "Pipes": (Pipes, "kwargs"),
-            "Heater": (Heater, "params"),
-            "Flash": (Flash, "params"),
-            "SolverUnit": (SolverUnit, "kwargs"),
-        }
-
-        from processforge.providers.manager import get_unit_provider
-        _pm = provider_map or {}
+    def _build_units(self, provider_map: ProviderMap | None = None) -> dict:
+        """Instantiate unit objects using the shared registry."""
+        from ..flowsheet import _build_unit, _merge_provider_types
+        _merge_provider_types(provider_map)
 
         units = {}
         for unit_name, unit_cfg in self.config["units"].items():
-            unit_type = unit_cfg["type"]
-            if unit_type not in unit_types:
-                raise ValueError(f"Unknown unit type '{unit_type}'.")
-            cls, style = unit_types[unit_type]
-
-            exclude = {"type", "in", "out", "provider"}
-            if unit_type == "Flash":
-                # Flash uses out_vap / out_liq — exclude both from kwargs
-                exclude |= {"out_vap", "out_liq"}
-
-            params = {k: v for k, v in unit_cfg.items() if k not in exclude}
-            if style == "params":
-                # Heater / Flash use __init__(name, params_dict)
-                unit = cls(unit_name, params)
-            else:
-                unit = cls(unit_name, **params)
-
-            # Attach provider so EO residuals can route thermo calls.
-            if _pm:
-                unit._provider = get_unit_provider(_pm, unit_cfg)
-
-            units[unit_name] = unit
-            logger.info(f"Built unit '{unit_name}' ({unit_type})")
-
+            units[unit_name] = _build_unit(unit_name, unit_cfg, provider_map)
+            logger.info(f"Built unit '{unit_name}' ({unit_cfg['type']})")
         return units
 
     def _check_provider_backend_compat(self) -> None:

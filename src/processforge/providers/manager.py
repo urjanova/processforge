@@ -11,7 +11,10 @@ pattern used for solver backends:
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from loguru import logger
+from pydantic import BaseModel, ConfigDict
 
 from processforge.types import CoolPropProviderConfig, FlowsheetConfig, ProviderConfig
 
@@ -22,13 +25,90 @@ _BUILTIN_DEFAULT_KEY = "__coolprop__"
 _DEFAULT_KEY = "__default__"
 
 
+class UnitProviderConfig(BaseModel):
+    """Thin wrapper around a unit's config dict for provider resolution.
+
+    Extracts only the ``provider`` key, which is all
+    :meth:`ProviderMap.resolve` needs.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    provider: Optional[str] = None
+
+
+class ProviderMap(BaseModel):
+    """Typed, dict-compatible container for initialised providers.
+
+    Supports the dict-like operations that existing call sites rely on
+    (``__getitem__``, ``__contains__``, ``__bool__``, ``.values()``)
+    while adding a :meth:`resolve` method for provider lookup.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    _providers: dict[str, object] = {}
+    _default: Optional[object] = None
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        object.__setattr__(self, "_providers", data.get("_providers", {}))
+        object.__setattr__(self, "_default", data.get("_default"))
+
+    # -- dict-like access ---------------------------------------------------
+
+    def __getitem__(self, key: str):
+        return self._providers[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._providers
+
+    def __bool__(self) -> bool:
+        return bool(self._providers)
+
+    def values(self):
+        return self._providers.values()
+
+    def keys(self):
+        return self._providers.keys()
+
+    def items(self):
+        return self._providers.items()
+
+    def get(self, key: str, default=None):
+        return self._providers.get(key, default)
+
+    # -- provider resolution ------------------------------------------------
+
+    def resolve(self, unit_config: UnitProviderConfig) -> object:
+        """Return the provider for a unit, falling back to the default.
+
+        Raises:
+            ValueError: If the unit references an undeclared provider name.
+        """
+        pname = unit_config.provider
+        if pname is not None:
+            if pname not in self._providers:
+                raise ValueError(
+                    f"Unit references provider '{pname}', which is not declared in "
+                    f"the 'providers' block. "
+                    f"Declared providers: {[k for k in self._providers if not k.startswith('__')]}"
+                )
+            return self._providers[pname]
+        if self._default is not None:
+            return self._default
+        raise ValueError(
+            "No provider specified and no default provider configured."
+        )
+
+
 def build_provider_map(
     providers_config: dict[str, ProviderConfig],
     flowsheet_config: FlowsheetConfig,
-) -> dict[str, "AbstractProvider"]:  # noqa: F821
+) -> ProviderMap:
     """Parse the ``providers`` block and return a ready-to-use provider map.
 
-    The returned dict always contains:
+    The returned :class:`ProviderMap` always contains:
 
     * ``"__coolprop__"`` — the built-in CoolProp fallback (always present).
     * One entry per named provider declared in ``providers_config``.
@@ -41,77 +121,53 @@ def build_provider_map(
         flowsheet_config: Typed representation of the full flowsheet config.
 
     Returns:
-        Mapping of provider name → initialised ``AbstractProvider`` instance.
+        Initialised :class:`ProviderMap`.
     """
     # Step 1: always try to seed with the built-in CoolProp fallback.
     coolprop = CoolPropProvider()
     try:
         coolprop.initialize(CoolPropProviderConfig(), flowsheet_config)
-        provider_map: dict = {_BUILTIN_DEFAULT_KEY: coolprop}
+        providers: dict = {_BUILTIN_DEFAULT_KEY: coolprop}
     except ImportError as e:
         logger.debug(f"Skipping implicit CoolProp fallback: {e}")
-        provider_map: dict = {}
+        providers = {}
         coolprop = None
 
     # Step 2: instantiate every declared provider.
     for name, cfg in providers_config.items():
         ptype = cfg.type
-        _maybe_import_provider(ptype)
         cls = get_provider_class(ptype)
         instance = cls()
         instance.initialize(cfg, flowsheet_config)
-        provider_map[name] = instance
+        providers[name] = instance
         logger.info(f"Initialized provider '{name}' (type='{ptype}')")
 
     # Step 3: resolve the active default.
+    default = None
     user_default = flowsheet_config.default_provider
     if user_default is not None:
-        if user_default not in provider_map:
+        if user_default not in providers:
             raise ValueError(
                 f"'default_provider' references '{user_default}', which is not "
                 f"declared in the 'providers' block. "
-                f"Declared providers: {[k for k in provider_map if not k.startswith('__')]}"
+                f"Declared providers: {[k for k in providers if not k.startswith('__')]}"
             )
-        provider_map[_DEFAULT_KEY] = provider_map[user_default]
+        default = providers[user_default]
         logger.info(f"Default provider set to '{user_default}'")
     elif coolprop is not None:
-        provider_map[_DEFAULT_KEY] = coolprop
+        default = coolprop
 
-    return provider_map
-
-
-def get_unit_provider(
-    provider_map: dict,
-    unit_config: dict,
-) -> "AbstractProvider":  # noqa: F821
-    """Resolve the provider for a specific unit.
-
-    Falls back to ``__default__`` (CoolProp, or user-declared default) when
-    the unit config contains no ``"provider"`` key.
-
-    Args:
-        provider_map: Map returned by :func:`build_provider_map`.
-        unit_config:  The unit's config dict from the flowsheet JSON.
-
-    Raises:
-        ValueError: If the unit references an undeclared provider name.
-    """
-    pname = unit_config.get("provider", _DEFAULT_KEY)
-    if pname not in provider_map:
-        raise ValueError(
-            f"Unit references provider '{pname}', which is not declared in "
-            f"the 'providers' block. "
-            f"Declared providers: {[k for k in provider_map if not k.startswith('__')]}"
-        )
-    return provider_map[pname]
+    return ProviderMap(_providers=providers, _default=default)
 
 
-def teardown_providers(provider_map: dict) -> None:
+def teardown_providers(provider_map: ProviderMap | None) -> None:
     """Call ``teardown()`` on every provider in the map.
 
     Errors during teardown are logged as warnings rather than raised so that
     all providers get a chance to clean up.
     """
+    if provider_map is None:
+        return
     seen: set[int] = set()
     for name, provider in provider_map.items():
         # Avoid calling teardown twice when __default__ aliases another entry.
@@ -123,14 +179,3 @@ def teardown_providers(provider_map: dict) -> None:
             provider.teardown()
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Provider '{name}' teardown raised: {exc}")
-
-
-def _maybe_import_provider(ptype: str) -> None:
-    """Lazily import optional provider modules so they self-register."""
-    if ptype == "cantera":
-        from . import cantera_provider  # noqa: F401
-    elif ptype == "modelica":
-        from . import modelica_provider  # noqa: F401
-    elif ptype == "openmc":
-        from . import openmc_provider  # noqa: F401
-    # "coolprop" is already in the registry from registry._seed_registry().

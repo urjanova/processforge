@@ -4,6 +4,7 @@ from __future__ import annotations
 from loguru import logger
 
 from .provider_mixin import ProviderMixin
+from .registry import register_unit
 
 
 class CSTR(ProviderMixin):
@@ -40,3 +41,7 @@ class CSTR(ProviderMixin):
             "Declare a 'cantera' provider and set \"provider\": \"cantera\" on this unit."
         )
         return dict(inlet)
+
+
+register_unit("CSTR", CSTR)
+register_unit("IdealGasReactor", CSTR)

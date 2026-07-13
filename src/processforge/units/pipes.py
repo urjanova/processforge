@@ -3,6 +3,7 @@ import math
 
 from ..eo.units.pipes_eo import PipesEOMixin
 from .provider_mixin import ProviderMixin
+from .registry import register_unit
 
 
 class Pipes(ProviderMixin, PipesEOMixin):
@@ -80,3 +81,6 @@ class Pipes(ProviderMixin, PipesEOMixin):
         dict: Outlet stream dictionary, same as run method.
         """
         return self.run(inlet_stream_ts)
+
+
+register_unit("Pipes", Pipes)

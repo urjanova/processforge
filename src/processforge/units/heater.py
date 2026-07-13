@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.optimize import brentq
 from ..eo.units.heater_eo import HeaterEOMixin
+from .registry import register_unit
 
 
 class Heater(HeaterEOMixin):
@@ -43,12 +44,12 @@ class Heater(HeaterEOMixin):
                 outlet stream for this heater.
     """
 
-    def __init__(self, name, params):
+    def __init__(self, name, **kwargs):
         self.name = name
-        self.inlet = params["in"]
-        self.outlet = params["out"]
-        self.duty = params.get("duty", 0.0)  # W
-        self.flowrate = params.get("flowrate", 1.0)  # mol/s (default 1)
+        self.inlet = kwargs["in"]
+        self.outlet = kwargs["out"]
+        self.duty = kwargs.get("duty", 0.0)  # W
+        self.flowrate = kwargs.get("flowrate", 1.0)  # mol/s (default 1)
 
     def run(self, streams):
         """
@@ -99,3 +100,6 @@ class Heater(HeaterEOMixin):
 
         streams[self.outlet] = {"T": T_out, "P": P, "z": z}
         return streams
+
+
+register_unit("Heater", Heater)

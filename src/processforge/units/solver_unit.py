@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Optional
 from loguru import logger
 
 from .provider_mixin import ProviderMixin
+from .registry import register_unit
 from processforge.types import UnitConfig
 
 if TYPE_CHECKING:
@@ -107,3 +108,6 @@ class SolverUnit(ProviderMixin):
         result = self._provider.run_simulation(unit_cfg, inlet)
         self._last_result = result
         return result.as_dict()
+
+
+register_unit("SolverUnit", SolverUnit)

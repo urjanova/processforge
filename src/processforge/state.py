@@ -78,7 +78,7 @@ class StateManager:
         root.attrs["parent_snapshot_id"] = parent_snapshot_id
 
         x_data = np.asarray(x_converged, dtype=float)
-        root.create_array("x", data=x_data, shape=x_data.shape)
+        root.create_array("x", data=x_data)
 
         if parent_snapshot_id and existing:
             parent_state = self._load_snapshot_by_id(parent_snapshot_id)
@@ -87,7 +87,7 @@ class StateManager:
                 if parent_x.shape == x_data.shape:
                     delta = x_data - parent_x
                     delta_array = np.asarray(delta, dtype=float)
-                    root.create_array("x_delta", data=delta_array, shape=delta_array.shape)
+                    root.create_array("x_delta", data=delta_array)
 
         with open(self._latest_file, "w", encoding="utf-8") as f:
             f.write(snapshot_name)

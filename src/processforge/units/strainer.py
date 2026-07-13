@@ -2,6 +2,7 @@ import copy
 
 from ..eo.units.strainer_eo import StrainerEOMixin
 from .provider_mixin import ProviderMixin
+from .registry import register_unit
 
 
 class Strainer(ProviderMixin, StrainerEOMixin):
@@ -40,3 +41,6 @@ class Strainer(ProviderMixin, StrainerEOMixin):
         outlet["T"] = inlet["T"]
         outlet["unit"] = "Strainer"
         return outlet
+
+
+register_unit("Strainer", Strainer)

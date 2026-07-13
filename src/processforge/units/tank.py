@@ -2,6 +2,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from dataclasses import dataclass
 from .provider_mixin import ProviderMixin
+from .registry import register_unit
 
 
 @dataclass
@@ -206,3 +207,6 @@ class Tank(ProviderMixin):
         outlet_ts["z"] = z_ts
 
         return outlet_ts
+
+
+register_unit("Tank", Tank)

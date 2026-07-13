@@ -443,7 +443,6 @@ def _check_provider_material_props(config: dict) -> None:
     enforces its own material requirements (OpenMC: nuclides; etc.).
     Adding a new provider never requires changes here.
     """
-    from processforge.providers.manager import _maybe_import_provider
     from processforge.providers.registry import get_provider_class
     from processforge.types import MaterialDef, UnitConfig
 
@@ -463,7 +462,6 @@ def _check_provider_material_props(config: dict) -> None:
             continue
         ptype = providers[provider_ref].get("type", "")
         try:
-            _maybe_import_provider(ptype)
             provider_cls = get_provider_class(ptype)
         except (ValueError, ImportError):
             # Provider not installed — skip (runtime error will surface later)

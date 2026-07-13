@@ -2,6 +2,7 @@ import copy
 
 from ..eo.units.pump_eo import PumpEOMixin
 from .provider_mixin import ProviderMixin
+from .registry import register_unit
 
 
 class Pump(ProviderMixin, PumpEOMixin):
@@ -56,3 +57,6 @@ class Pump(ProviderMixin, PumpEOMixin):
         outlet["power"] = power
         outlet["unit"] = "Pump"
         return outlet
+
+
+register_unit("Pump", Pump)

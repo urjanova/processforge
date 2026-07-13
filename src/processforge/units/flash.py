@@ -1,5 +1,6 @@
 from .. import thermo
 from ..eo.units.flash_eo import FlashEOMixin
+from .registry import register_unit
 
 
 class Flash(FlashEOMixin):
@@ -46,13 +47,12 @@ class Flash(FlashEOMixin):
                 outlet liquid and vapor streams.
     """
 
-
-    def __init__(self, name, params):
+    def __init__(self, name, **kwargs):
         self.name = name
-        self.inlet = params["in"]
-        self.out_vap = params["out_vap"]
-        self.out_liq = params["out_liq"]
-        self.P = params["P"]
+        self.inlet = kwargs["in"]
+        self.out_vap = kwargs["out_vap"]
+        self.out_liq = kwargs["out_liq"]
+        self.P = kwargs["P"]
 
     def run(self, streams):
         """Performs an isothermal flash calculation on an inlet stream.
@@ -110,3 +110,6 @@ class Flash(FlashEOMixin):
         streams[self.out_vap] = {"T": T, "P": P, "z": y, "phase": "vap", "beta": beta}
 
         return streams
+
+
+register_unit("Flash", Flash)

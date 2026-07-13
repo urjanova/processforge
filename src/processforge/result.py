@@ -37,10 +37,10 @@ def _store_stream(stream_group, stream_data):
             comp_group = stream_group.create_group("__composition__")
             for comp, comp_values in sorted(value.items()):
                 comp_arr = _ensure_array(comp_values)
-                comp_group.create_array(comp, data=comp_arr, shape=comp_arr.shape)
+                comp_group.create_array(comp, data=comp_arr)
             continue
         arr = _ensure_array(value)
-        stream_group.create_array(key, data=arr, shape=arr.shape)
+        stream_group.create_array(key, data=arr)
 
 
 def _normalize_run_info(run_info: RunInfo | dict) -> dict:
@@ -89,7 +89,7 @@ def _store_run_info(root, run_info: RunInfo | dict) -> None:
     if x0 is not None:
         x0_arr = np.asarray(x0, dtype=float)
         ig_group = ri_group.create_group("initial_guess")
-        ig_group.create_array("x0", data=x0_arr, shape=x0_arr.shape)
+        ig_group.create_array("x0", data=x0_arr)
         var_names = run_info_dict.get("var_names")
         if var_names:
             ig_group.attrs["var_names"] = list(var_names)

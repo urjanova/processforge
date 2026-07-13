@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.34] - 2026-07-13
+
+### Changed
+- Introduced a centralised unit type registry (`units/registry.py`) with `register_unit()` / `get_unit_class()` — all unit classes self-register at import time, eliminating hardcoded type maps.
+- Refactored `Flowsheet.build_units` into a compact dict-comprehension backed by the shared registry, removing the `UnitTypeRegistry` Pydantic wrapper class.
+- Refactored `EOFlowsheet._build_units` to reuse the same `_build_unit` factory and registry, unifying the two parallel implementations and eliminating the `(class, style)` dispatch tuple.
+- Standardised `Heater` and `Flash` constructors to accept `**kwargs` instead of a positional `params` dict, removing the last constructor-signature divergence across unit types.
+- Moved `_UNIT_META_KEYS` to module level in `flowsheet.py`.
+- Extracted `_DEFAULT_T` / `_DEFAULT_P` module-level constants replacing hardcoded magic numbers across `flowsheet.py`.
+- Replaced triplicated flow-weighted merge logic in `_get_merged_inlet`, `_get_inlet_snapshot`, and `_merge_inlet_timeseries` with a shared `_flow_weighted_merge_streams` static helper.
+- Vectorised `_merge_inlet_timeseries` with numpy to eliminate the per-timestep Python loop, and added type hints and an empty-list guard.
+- Added `StreamTimeseries` and `MergedInletTimeseries` Pydantic models in `types.py` for typed stream-timeseries data; `_merge_inlet_timeseries` now returns `MergedInletTimeseries` instead of a plain dict.
+
 ## [0.2.33] - 2026-07-13
 
 ### Added

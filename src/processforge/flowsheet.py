@@ -1,13 +1,55 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from loguru import logger
 import numpy as np
 from copy import deepcopy
 
-from .units.pump import Pump
-from .units.valve import Valve
-from .units.strainer import Strainer
-from .units.tank import Tank
-from .units.pipes import Pipes
+if TYPE_CHECKING:
+    from .providers.manager import ProviderMap
+
+from .providers.manager import build_provider_map, teardown_providers
+from .types import FlowsheetConfig, MergedInletTimeseries, StreamTimeseries
 from .solver import Solver
+from .providers.manager import UnitProviderConfig
+from .units.registry import get_unit_class
+
+_UNIT_META_KEYS = {"type", "in", "out", "material", "material_mix", "provider"}
+_DEFAULT_T = 298.15
+_DEFAULT_P = 101325.0
+
+
+def _build_unit(unit_name, unit_config, provider_map):
+    """Instantiate a single unit from its config dict."""
+    unit_type = unit_config["type"]
+    unit_class = get_unit_class(unit_type)
+    if not unit_class:
+        logger.error(f"Unknown unit type: {unit_type}")
+        raise ValueError(f"Unknown unit type: {unit_type}")
+    unit = unit_class(
+        unit_name,
+        **{k: v for k, v in unit_config.items() if k not in _UNIT_META_KEYS},
+    )
+    if "material" in unit_config:
+        unit.material = unit_config["material"]
+    if "material_mix" in unit_config:
+        unit.material_mix = unit_config["material_mix"]
+    if provider_map:
+        unit._provider = provider_map.resolve(UnitProviderConfig(**unit_config))
+    return unit
+
+
+def _merge_provider_types(provider_map):
+    """Register any extra unit types contributed by active providers."""
+    if not provider_map:
+        return
+    for provider in provider_map.values():
+        extra = getattr(provider, "unit_types", {})
+        if extra:
+            from .units.registry import register_unit
+            for name, cls in extra.items():
+                register_unit(name, cls)
 
 
 class Flowsheet:
@@ -70,53 +112,15 @@ class Flowsheet:
         self.tear_streams = set()
         self.has_recycles = False
 
-    def build_units(self, provider_map: dict | None = None):
+    def build_units(self, provider_map: ProviderMap | None = None):
         logger.info("Building units")
-        from .units.cstr import CSTR
-        from .units.pfr import PFR
-        from .units.solver_unit import SolverUnit
-        unit_types: dict = {
-            "Pump": Pump,
-            "Valve": Valve,
-            "Strainer": Strainer,
-            "Tank": Tank,
-            "Pipes": Pipes,
-            "CSTR": CSTR,
-            "PFR": PFR,
-            "IdealGasReactor": CSTR,
-            "SolverUnit": SolverUnit,
+        _merge_provider_types(provider_map=provider_map)
+        self.units = {
+            name: _build_unit(name, cfg, provider_map)
+            for name, cfg in self.config["units"].items()
         }
-
-        # Extend with any unit types registered by active providers.
-        if provider_map:
-            for provider in provider_map.values():
-                extra = getattr(provider, "unit_types", {})
-                unit_types.update(extra)
-
-        _UNIT_META_KEYS = {"type", "in", "out", "material", "material_mix", "provider"}
-
-        from .providers.manager import get_unit_provider
-        _pm = provider_map or {}
-
-        for unit_name, unit_config in self.config["units"].items():
-            unit_type = unit_config["type"]
-            unit_class = unit_types.get(unit_type)
-            if not unit_class:
-                logger.error(f"Unknown unit type: {unit_type}")
-                raise ValueError(f"Unknown unit type: {unit_type}")
-            unit = unit_class(
-                unit_name,
-                **{k: v for k, v in unit_config.items() if k not in _UNIT_META_KEYS},
-            )
-            if "material" in unit_config:
-                unit.material = unit_config["material"]
-            if "material_mix" in unit_config:
-                unit.material_mix = unit_config["material_mix"]
-            # Attach the resolved provider (default = CoolProp when no map supplied).
-            if _pm:
-                unit._provider = get_unit_provider(_pm, unit_config)
-            self.units[unit_name] = unit
-            logger.info(f"Built unit {unit_name} of type {unit_type}")
+        for name, unit in self.units.items():
+            logger.info(f"Built unit {name} of type {self.config['units'][name]['type']}")
 
     def _get_unit_inlets(self, unit_name):
         """Get inlet stream(s) for a unit, handling both single and multiple inlets."""
@@ -222,10 +226,8 @@ class Flowsheet:
         """
 
         logger.info("Starting simulation")
-        from .providers.manager import build_provider_map, teardown_providers
-        from .types import FlowsheetConfig
         flowsheet_cfg = FlowsheetConfig.from_dict(self.config)
-        provider_map = build_provider_map(flowsheet_cfg.providers, flowsheet_cfg)
+        provider_map = build_provider_map(providers_config=flowsheet_cfg.providers, flowsheet_config=flowsheet_cfg)
         try:
             self.build_units(provider_map=provider_map)
             mode = self.config.get("simulation", {}).get("mode", "steady")
@@ -275,46 +277,44 @@ class Flowsheet:
         logger.info("Steady-state simulation completed")
         return results
 
-    def _get_merged_inlet(self, results, unit_cfg):
-        """
-        Get the inlet stream for a unit, merging multiple inlets if needed.
-        For units with multiple inlets (like Tank with feed + recycle), this
-        merges the streams by summing flowrates and computing weighted averages.
-        """
-        inlets = unit_cfg.get("in")
-        if not inlets:
-            # Standalone units (SolverUnit) have no inlet stream
-            return {}
-        if isinstance(inlets, str):
-            return results.get(inlets, {})
+    @staticmethod
+    def _flow_weighted_merge_streams(streams: list[dict]) -> dict:
+        """Flow-weighted merge of single-timestep stream dicts into one.
 
-        # Multiple inlets - merge them
-        merged = {"T": 0.0, "P": 0.0, "flowrate": 0.0, "z": {}}
+        Computes total flowrate as the sum, and flow-weighted averages for
+        temperature, pressure, and mole fractions.
+        """
+        merged: dict = {"T": 0.0, "P": 0.0, "flowrate": 0.0, "z": {}}
         total_flow = 0.0
-        
-        for inlet_name in inlets:
-            stream = results.get(inlet_name, {})
+
+        for stream in streams:
             flow = stream.get("flowrate", 0.0)
             total_flow += flow
-            
-            # Weighted average for T and P
-            merged["T"] += stream.get("T", 298.15) * flow
-            merged["P"] += stream.get("P", 101325) * flow
-            
-            # Sum molar fractions weighted by flow
+            merged["T"] += stream.get("T", _DEFAULT_T) * flow
+            merged["P"] += stream.get("P", _DEFAULT_P) * flow
             for comp, frac in stream.get("z", {}).items():
-                if comp not in merged["z"]:
-                    merged["z"][comp] = 0.0
+                merged["z"].setdefault(comp, 0.0)
                 merged["z"][comp] += frac * flow
-        
+
         if total_flow > 0:
             merged["T"] /= total_flow
             merged["P"] /= total_flow
             for comp in merged["z"]:
                 merged["z"][comp] /= total_flow
-        
+
         merged["flowrate"] = total_flow
         return merged
+
+    def _get_merged_inlet(self, results: dict, unit_cfg: dict) -> dict:
+        """Get the inlet stream for a unit, merging multiple inlets if needed."""
+        inlets = unit_cfg.get("in")
+        if not inlets:
+            return {}
+        if isinstance(inlets, str):
+            return results.get(inlets, {})
+        return self._flow_weighted_merge_streams(
+            [results.get(name, {}) for name in inlets]
+        )
 
     def _run_steady_with_recycle(self, processing_order):
         """
@@ -755,8 +755,8 @@ class Flowsheet:
                     # Initialize with zeros/empty structure
                     results[outlet_name] = {
                         "time": t_eval.tolist(),
-                        "T": [298.15] * num_steps,
-                        "P": [101325] * num_steps,
+                        "T": [_DEFAULT_T] * num_steps,
+                        "P": [_DEFAULT_P] * num_steps,
                         "flowrate": [0.0] * num_steps,
                         "z": {comp: [0.0] * num_steps for comp in components},
                     }
@@ -832,93 +832,80 @@ class Flowsheet:
         logger.info("Dynamic simulation with recycle completed")
         return results
 
-    def _merge_inlet_timeseries(self, inlet_names, results, num_steps, t_eval):
+    @staticmethod
+    def _fill_row(
+        arr: np.ndarray, idx: int, src_list: list[float], num_steps: int
+    ) -> None:
+        """Copy up to *num_steps* values from *src_list* into row *idx* of *arr*."""
+        n: int = min(len(src_list), num_steps)
+        if n:
+            arr[idx, :n] = src_list[:n]
+
+    def _merge_inlet_timeseries(
+        self,
+        inlet_names: list[str],
+        results: dict[str, StreamTimeseries],
+        num_steps: int,
+        t_eval: "np.ndarray",
+    ) -> MergedInletTimeseries:
         """Merge multiple inlet timeseries into one by flow-weighted averaging T/P/z and summing flowrate."""
-        merged = {
-            "time": t_eval.tolist(),
-            "T": [],
-            "P": [],
-            "flowrate": [],
-            "z": {},
+        if not inlet_names:
+            raise ValueError("inlet_names must not be empty")
+
+        # Discover all component names across inlets
+        all_comps: list[str] = sorted(
+            {comp for name in inlet_names for comp in results.get(name, {}).get("z", {})}
+        )
+        n_inlets = len(inlet_names)
+
+        # Build numpy arrays: shape (n_inlets, num_steps)
+        flows = np.zeros((n_inlets, num_steps))
+        T_arr = np.full((n_inlets, num_steps), _DEFAULT_T)
+        P_arr = np.full((n_inlets, num_steps), _DEFAULT_P)
+        z_arrs: dict[str, np.ndarray] = {
+            comp: np.zeros((n_inlets, num_steps)) for comp in all_comps
         }
-        # Collect all component names across inlets
-        for name in inlet_names:
-            for comp in results.get(name, {}).get("z", {}):
-                if comp not in merged["z"]:
-                    merged["z"][comp] = []
 
-        for i in range(num_steps):
-            total_flow = 0.0
-            t_sum = 0.0
-            p_sum = 0.0
-            z_sum = {comp: 0.0 for comp in merged["z"]}
+        for idx, name in enumerate(inlet_names):
+            ts = results.get(name, {})
+            self._fill_row(arr=flows, idx=idx, src_list=ts.get("flowrate", []), num_steps=num_steps)
+            self._fill_row(arr=T_arr, idx=idx, src_list=ts.get("T", []), num_steps=num_steps)
+            self._fill_row(arr=P_arr, idx=idx, src_list=ts.get("P", []), num_steps=num_steps)
+            z_ts = ts.get("z", {})
+            for comp in all_comps:
+                self._fill_row(arr=z_arrs[comp], idx=idx, src_list=z_ts.get(comp, []), num_steps=num_steps)
 
-            for name in inlet_names:
-                ts = results.get(name, {})
-                flow = ts.get("flowrate", [0.0] * num_steps)
-                f = flow[i] if i < len(flow) else 0.0
-                total_flow += f
+        # Vectorized flow-weighted average
+        total_flow = flows.sum(axis=0)                       # (num_steps,)
+        safe_flow = np.where(total_flow > 0, total_flow, 1.0)
 
-                t_vals = ts.get("T", [298.15] * num_steps)
-                t_sum += (t_vals[i] if i < len(t_vals) else 298.15) * f
+        merged_T = np.where(total_flow > 0, (flows * T_arr).sum(axis=0) / safe_flow, _DEFAULT_T)
+        merged_P = np.where(total_flow > 0, (flows * P_arr).sum(axis=0) / safe_flow, _DEFAULT_P)
 
-                p_vals = ts.get("P", [101325] * num_steps)
-                p_sum += (p_vals[i] if i < len(p_vals) else 101325) * f
+        merged_z = {}
+        for comp in all_comps:
+            merged_z[comp] = np.where(
+                total_flow > 0, (flows * z_arrs[comp]).sum(axis=0) / safe_flow, 0.0
+            ).tolist()
 
-                for comp in merged["z"]:
-                    comp_ts = ts.get("z", {}).get(comp, [0.0] * num_steps)
-                    z_sum[comp] += (comp_ts[i] if i < len(comp_ts) else 0.0) * f
+        return MergedInletTimeseries(
+            time=t_eval.tolist(),
+            T=merged_T.tolist(),
+            P=merged_P.tolist(),
+            flowrate=total_flow.tolist(),
+            z=merged_z,
+        )
 
-            merged["flowrate"].append(total_flow)
-            if total_flow > 0:
-                merged["T"].append(t_sum / total_flow)
-                merged["P"].append(p_sum / total_flow)
-                for comp in merged["z"]:
-                    merged["z"][comp].append(z_sum[comp] / total_flow)
-            else:
-                merged["T"].append(298.15)
-                merged["P"].append(101325)
-                for comp in merged["z"]:
-                    merged["z"][comp].append(0.0)
-
-        return merged
-
-    def _get_inlet_snapshot(self, results, unit_cfg, step):
+    def _get_inlet_snapshot(self, results: dict, unit_cfg: dict, step: int) -> dict:
         """Get inlet stream snapshot for a specific timestep, handling multiple inlets."""
         inlets = unit_cfg.get("in")
         if isinstance(inlets, str):
             inlets = [inlets]
-        
-        if len(inlets) == 1:
-            stream_ts = results.get(inlets[0], {})
-            return self._extract_snapshot(stream_ts, step)
-        
-        # Multiple inlets - merge them
-        merged = {"T": 0.0, "P": 0.0, "flowrate": 0.0, "z": {}}
-        total_flow = 0.0
-        
-        for inlet_name in inlets:
-            stream_ts = results.get(inlet_name, {})
-            snapshot = self._extract_snapshot(stream_ts, step)
-            flow = snapshot.get("flowrate", 0.0)
-            total_flow += flow
-            
-            merged["T"] += snapshot.get("T", 298.15) * flow
-            merged["P"] += snapshot.get("P", 101325) * flow
-            
-            for comp, frac in snapshot.get("z", {}).items():
-                if comp not in merged["z"]:
-                    merged["z"][comp] = 0.0
-                merged["z"][comp] += frac * flow
-        
-        if total_flow > 0:
-            merged["T"] /= total_flow
-            merged["P"] /= total_flow
-            for comp in merged["z"]:
-                merged["z"][comp] /= total_flow
-        
-        merged["flowrate"] = total_flow
-        return merged
+
+        snapshots = [self._extract_snapshot(results.get(name, {}), step) for name in inlets]
+        if len(snapshots) == 1:
+            return snapshots[0]
+        return self._flow_weighted_merge_streams(snapshots)
 
     def _extract_snapshot(self, stream_ts, step):
         """Extract a single timestep snapshot from a timeseries."""
@@ -962,7 +949,7 @@ class Flowsheet:
         # Inlet properties
         F_in = inlet_snapshot.get("flowrate", 0.0)
         z_in = inlet_snapshot.get("z", {})
-        T_in = inlet_snapshot.get("T", 298.15)
+        T_in = inlet_snapshot.get("T", _DEFAULT_T)
         
         # Outlet flow (constant from Tank params)
         F_out = unit.outflow
