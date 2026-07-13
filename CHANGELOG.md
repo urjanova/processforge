@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.33] - 2026-07-13
+
+### Added
+- Added typed `FlowsheetConfig`, `UnitDef`, `StreamDef`, and `SimulationConfig` Pydantic models in `models.py` for request-level validation of flowsheet payloads.
+- Added thread-safe `JobStore` class replacing the raw in-memory dict for job state management.
+- Added HTTP request logging middleware via loguru.
+
+### Changed
+- Replaced `BackgroundTasks` with `asyncio.create_task` for background job execution, enabling task handle access for future cancellation/monitoring.
+- Refactored `runner.py` to accept a `JobStore` instance and use structured loguru logging with `job_id` context binding instead of manual f-string prefixes.
+- Deduplicated S3 client creation into a shared `_build_s3_client()` helper in `runner.py`.
+- `RunRequest.flowsheet` is now typed as `FlowsheetConfig` instead of a raw `dict`, catching invalid payloads at the API boundary.
+
 ## [0.2.32] - 2026-07-13
 
 ### Changed

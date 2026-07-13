@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-import datetime
+import asyncio
+import os
+import shutil
+import tempfile
 from pathlib import Path
+from typing import Any
 
 import boto3
 from loguru import logger
 
-import os
-import shutil
-import tempfile
-from processforge.api.models import JobStatus
+from processforge.api.models import JobStore
 from processforge.provenance import build_dynamic_x0, build_run_info
 from processforge.result import save_results_zarr
 from processforge.utils.validate_flowsheet import validate_flowsheet_dict
@@ -30,8 +31,18 @@ def _upload_outputs_dir(s3_client, bucket: str, prefix: str) -> list[str]:
             s3_client.upload_file(str(path), bucket, s3_key)
             uri = f"s3://{bucket}/{s3_key}"
             uploaded.append(uri)
-            logger.info(f"Uploaded {path} → {uri}")
+            logger.info("Uploaded {path} -> {uri}", path=path, uri=uri)
     return uploaded
+
+
+def _build_s3_client():
+    return boto3.client(
+        "s3",
+        aws_access_key_id=os.environ.get("S3_ACCESS_KEY"),
+        aws_secret_access_key=os.environ.get("S3_SECRET_KEY"),
+        endpoint_url=os.environ.get("S3_ENDPOINT_URL"),
+        region_name=os.environ.get("S3_REGION_NAME", "ams3"),
+    )
 
 
 def _run_simulation(config: dict):
@@ -52,39 +63,50 @@ def _run_simulation(config: dict):
     return results, run_info
 
 
-def run_job_sync(
+async def run_job(
     job_id: str,
     flowsheet: dict,
     s3_bucket: str,
     s3_prefix: str,
-    jobs_store: dict[str, JobStatus],
+    job_store: JobStore,
 ) -> None:
-    """Run a simulation job synchronously and upload results to S3.
+    """Run a simulation job and upload results to S3.
 
-    This is called from an async background task via asyncio.to_thread so
-    the FastAPI event loop remains free to handle status-poll requests.
+    Runs synchronously via asyncio.to_thread so the FastAPI event loop
+    remains free to handle status-poll requests.
     """
+    log = logger.bind(job_id=job_id)
+    await asyncio.to_thread(
+        _run_job_sync, job_id, flowsheet, s3_bucket, s3_prefix, job_store, log
+    )
+
+
+def _run_job_sync(
+    job_id: str,
+    flowsheet: dict,
+    s3_bucket: str,
+    s3_prefix: str,
+    job_store: JobStore,
+    log: Any,
+) -> None:
+    import datetime
 
     log_file = tempfile.NamedTemporaryFile(delete=False, suffix=".log")
     log_file.close()
 
     logger_id = logger.add(log_file.name)
 
-    job_entry = jobs_store[job_id]
-    job_entry.status = "running"
-    job_entry.started_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    job_store.update(
+        job_id,
+        status="running",
+        started_at=datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+    )
 
     try:
         validate_flowsheet_dict(flowsheet)
         results, run_info = _run_simulation(flowsheet)
 
-        s3_client = boto3.client(
-            "s3",
-            aws_access_key_id=os.environ.get("S3_ACCESS_KEY"),
-            aws_secret_access_key=os.environ.get("S3_SECRET_KEY"),
-            endpoint_url=os.environ.get("S3_ENDPOINT_URL"),
-            region_name=os.environ.get("S3_REGION_NAME", "ams3"),
-        )
+        s3_client = _build_s3_client()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             local_zarr_path = os.path.join(tmpdir, "results.zarr")
@@ -98,7 +120,7 @@ def run_job_sync(
             s3_client.upload_file(zip_path, s3_bucket, zip_s3_key)
             zarr_uri = f"s3://{s3_bucket}/{zip_s3_key}"
 
-        logger.info(f"[{job_id}] Zipped Zarr written to {zarr_uri}")
+        log.info("Zipped Zarr written to {zarr_uri}", zarr_uri=zarr_uri)
         output_urls = _upload_outputs_dir(s3_client, s3_bucket, s3_prefix)
 
         logger.remove(logger_id)
@@ -108,37 +130,35 @@ def run_job_sync(
         log_uri = f"s3://{s3_bucket}/{log_s3_key}"
         os.unlink(log_file.name)
 
-        job_entry.status = "complete"
-        job_entry.completed_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-        job_entry.s3_urls = {
-            "zarr": zarr_uri,
-            "outputs": output_urls,
-            "log": log_uri,
-        }
+        job_store.update(
+            job_id,
+            status="complete",
+            completed_at=datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            s3_urls={"zarr": zarr_uri, "outputs": output_urls, "log": log_uri},
+        )
     except Exception as exc:
-        logger.exception(f"[{job_id}] Job failed: {exc}")
+        log.exception("Job failed: {exc}", exc=exc)
         logger.remove(logger_id)
 
-        job_entry.status = "failed"
-        job_entry.completed_at = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-        job_entry.error = str(exc)
+        job_store.update(
+            job_id,
+            status="failed",
+            completed_at=datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            error=str(exc),
+        )
 
         try:
+            s3_client = _build_s3_client()
             log_s3_key = f"{s3_prefix}/run.log"
-            s3_client = boto3.client(
-                "s3",
-                aws_access_key_id=os.environ.get("S3_ACCESS_KEY"),
-                aws_secret_access_key=os.environ.get("S3_SECRET_KEY"),
-                endpoint_url=os.environ.get("S3_ENDPOINT_URL"),
-                region_name=os.environ.get("S3_REGION_NAME", "ams3"),
-            )
             s3_client.upload_file(log_file.name, s3_bucket, log_s3_key)
             log_uri = f"s3://{s3_bucket}/{log_s3_key}"
-            if job_entry.s3_urls is None:
-                job_entry.s3_urls = {}
-            job_entry.s3_urls["log"] = log_uri
+            job = job_store.get(job_id)
+            if job is not None:
+                s3_urls = job.s3_urls or {}
+                s3_urls["log"] = log_uri
+                job_store.update(job_id, s3_urls=s3_urls)
         except Exception as e:
-            logger.error(f"Failed to upload log file: {e}")
+            log.error("Failed to upload log file: {e}", e=e)
         finally:
             if os.path.exists(log_file.name):
                 os.unlink(log_file.name)

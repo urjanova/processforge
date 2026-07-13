@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException
+from loguru import logger
 
-from processforge.api.models import JobStatus, RunRequest, RunResponse
-from processforge.api.runner import run_job_sync
+from processforge.api.models import JobStatus, JobStore, RunRequest, RunResponse
+from processforge.api.runner import run_job
 
 try:
     from processforge import __version__ as _version
 except Exception:
     _version = "unknown"
 
-_jobs: dict[str, JobStatus] = {}
+job_store = JobStore()
+
+
+def _utcnow_iso() -> str:
+    import datetime
+    return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 @asynccontextmanager
@@ -37,13 +42,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="ProcessForge API", version=_version, lifespan=lifespan)
 
 
-async def _run_job_in_thread(
-    job_id: str,
-    flowsheet: dict,
-    s3_bucket: str,
-    s3_prefix: str,
-) -> None:
-    await asyncio.to_thread(run_job_sync, job_id, flowsheet, s3_bucket, s3_prefix, _jobs)
+@app.middleware("http")
+async def log_requests(request, call_next):
+    logger.debug(f"{request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.debug(f"{request.method} {request.url.path} -> {response.status_code}")
+    return response
 
 
 @app.get("/api/v1/health")
@@ -52,22 +56,20 @@ def health():
 
 
 @app.post("/api/v1/run", status_code=202, response_model=RunResponse)
-async def run_flowsheet(request: RunRequest, background_tasks: BackgroundTasks):
+async def run_flowsheet(request: RunRequest):
     job_id = str(uuid.uuid4())
     prefix = request.s3_prefix or f"jobs/{job_id}"
 
-    _jobs[job_id] = JobStatus(
-        job_id=job_id,
-        status="queued",
-        started_at=datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
-    )
+    job_store.create(job_id)
 
-    background_tasks.add_task(
-        _run_job_in_thread,
-        job_id,
-        request.flowsheet,
-        request.s3_bucket,
-        prefix,
+    asyncio.create_task(
+        run_job(
+            job_id,
+            request.flowsheet.model_dump(),
+            request.s3_bucket,
+            prefix,
+            job_store,
+        )
     )
 
     return RunResponse(
@@ -79,7 +81,7 @@ async def run_flowsheet(request: RunRequest, background_tasks: BackgroundTasks):
 
 @app.get("/api/v1/jobs/{job_id}", response_model=JobStatus)
 def get_job(job_id: str):
-    job = _jobs.get(job_id)
+    job = job_store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
