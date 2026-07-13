@@ -1,7 +1,7 @@
 # Processforge
 
 
-![processforge-logo](images/processforge-logo.jpg)
+![processforge-logo](images/processforge-logo.svg)
 
 A Python-based process simulation framework for coupling different simulation engines.
 
