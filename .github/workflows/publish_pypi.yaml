@@ -1,63 +1,32 @@
-name: Build and Publish Docker Image
+name: Publish Python Package
 
 on:
-  push:
-    branches: [ "master" ]
   release:
-    types: [published]
+    types:
+      - published
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
-  build-and-push:
+  publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/setup-python@v5
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          python-version: "3.12"
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ghcr.io/${{ github.repository }}:latest
+      - name: Install build backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
 
-      - name: Ensure GHCR package is public
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            const owner = context.repo.owner;
-            const packageName = context.repo.repo.toLowerCase();
+      - name: Build package
+        run: python -m build
 
-            const { data: ownerData } = await github.rest.users.getByUsername({
-              username: owner,
-            });
-
-            const endpoint = ownerData.type === "Organization"
-              ? "PATCH /orgs/{org}/packages/container/{package_name}/visibility"
-              : "PATCH /user/packages/container/{package_name}/visibility";
-
-            try {
-              const params = ownerData.type === "Organization"
-                ? { org: owner, package_name: packageName, visibility: "public" }
-                : { package_name: packageName, visibility: "public" };
-
-              await github.request(endpoint, params);
-              core.info(`Set GHCR package '${packageName}' visibility to public.`);
-            } catch (error) {
-              core.warning(
-                "Could not set package visibility to public with GITHUB_TOKEN. " +
-                "Package may remain private depending on repository/package settings. " +
-                `Details: ${error.message}`
-              );
-            }
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
