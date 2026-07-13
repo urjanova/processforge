@@ -17,25 +17,28 @@ RUN micromamba install -y -n base -f /tmp/environment.yml && \
 # Set the working directory
 WORKDIR /app
 
-# Copy the rest of your repository code
-COPY --chown=$MAMBA_USER:$MAMBA_USER . .
-
-# Install processforge and API dependencies from local source
+# Install processforge and API dependencies from local source.
+# Copy package metadata first so dependency installation is cached
+# across source-code changes.
+COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml README.md ./
+COPY --chown=$MAMBA_USER:$MAMBA_USER src/ src/
 RUN micromamba run -n base python -m pip install -e ".[api,coolprop]"
 
+# Copy the rest of the repository (application code, scripts, tests)
+COPY --chown=$MAMBA_USER:$MAMBA_USER . .
+
 # Copy and register the OpenMC data-fetch startup script
-COPY --chown=$MAMBA_USER:$MAMBA_USER scripts/ ./scripts/
 RUN chmod +x ./scripts/fetch_openmc_data.sh
 
-# Data volume for OpenMC cross sections and DAGMC geometry files.
+# Data volume for OpenMC cross sections.
 #
 # Docker:   docker run -v /host/openmc_data:/data ...
 # Railway:  Attach a Railway Volume at /data in the service Volume settings.
 #
-# On first start, set OPENMC_DATA_URL (cross-section archive) and/or
-# OPENMC_DAGMC_URL (geometry .h5m) to download data automatically.
-# Subsequent starts skip the download (files already on the volume).
-# OPENMC_CROSS_SECTIONS is exported automatically by the startup script.
+# On first start, set OPENMC_DATA_URL (cross-section archive) to download
+# data automatically. Subsequent starts skip the download (files already
+# on the volume). OPENMC_CROSS_SECTIONS is exported automatically by the
+# startup script.
 VOLUME /data
 
 # Default data root — override with -e OPENMC_DATA_ROOT=<path>
