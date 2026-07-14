@@ -47,12 +47,6 @@ For direct run mode:
 pf run flowsheets/my-flowsheet.json
 ```
 
-## Want more detail?
-
-- `docs/usage.md` — CLI commands, workflows, Docker, and cloud notes
-- `docs/flowsheets.md` — flowsheet JSON format, materials, units, and recycle rules
-- `flowsheets/` — example flowsheets shipped with the repo
-
 ## Python API
 
 ```python
@@ -61,6 +55,15 @@ config = validate_flowsheet("flowsheets/my-flowsheet.json")
 fs = EOFlowsheet(config, backend="scipy")
 results = fs.run()
 ```
+
+## Usage and Docker
+Processforge is also available as Docker images, and can be run in the cloud. See the [usage guide](docs/usage.md) for CLI commands, workflows, Docker, and cloud notes.
+
+## Flowsheets
+The core of Processforge is the flowsheet JSON format, which defines materials, units, and recycle rules. See below for more information on the formats and example flowsheets.
+- [docs/flowsheets.md](docs/flowsheets.md) : flowsheet JSON format, materials, units, and recycle rules
+- [flowsheets/](flowsheets/) : example flowsheets shipped with the repo
+
 
 ## License
 
