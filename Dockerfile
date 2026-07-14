@@ -44,6 +44,11 @@ VOLUME /data
 # Default data root — override with -e OPENMC_DATA_ROOT=<path>
 ENV OPENMC_DATA_ROOT=/data
 
+# Root for run outputs (results zarr + provider artifacts). Defaults to the
+# /data volume so `docker run -v <host>:/data ...` captures outputs on the host.
+# Override with -e PROCESSFORGE_OUTPUT_DIR=<path>.
+ENV PROCESSFORGE_OUTPUT_DIR=/data
+
 # Ensure the conda environment is activated for the entrypoint
 ARG MAMBA_DOCKERFILE_COMMAND=activate
 USER $MAMBA_USER
