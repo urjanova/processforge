@@ -63,9 +63,27 @@ docker run --rm \
   pf apply /app/flowsheets/my-flowsheet.json
 ```
 
+#### Getting outputs onto the host
+
+Run outputs (the results `.zarr` and provider artifacts such as OpenMC statepoint/XML
+files) are written under `PROCESSFORGE_OUTPUT_DIR`, which defaults to `/data` in the image.
+Bind-mount a host directory at `/data` to collect them:
+
+```bash
+docker run --rm \
+  -v "$(pwd)/tmp_files:/data" \
+  ghcr.io/urjanova/processforge:latest \
+  processforge run flowsheets/openmc/msre_eigenvalue.json
+# → results appear in ./tmp_files (e.g. msre_eigenvalue_results.zarr, openmc/msre_run/…)
+```
+
+Override the location with `-e PROCESSFORGE_OUTPUT_DIR=<path>` (e.g. a subdirectory of the
+mount so each run is isolated). A relative `output_dir` in a flowsheet's provider config is
+resolved against this root.
+
 ### OpenMC in containers
 
-OpenMC workflows require nuclear cross-section data. The container startup script `scripts/fetch_openmc_data.sh` downloads and caches it automatically.
+OpenMC workflows require nuclear cross-section data. The container startup script `scripts/fetch_openmc_data.sh` downloads and caches it automatically into `/data` (the same volume also collects run outputs).
 
 ### API server
 

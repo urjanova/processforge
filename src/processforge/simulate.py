@@ -21,6 +21,15 @@ from .state import StateManager
 
 from .utils.mermaid_diagram import generate_mermaid
 
+def _output_root() -> str:
+    """Root directory for run outputs (zarr, provider artifacts).
+
+    Defaults to ``outputs`` for local runs; the Docker image sets
+    ``PROCESSFORGE_OUTPUT_DIR=/data`` so outputs land on the mounted volume.
+    """
+    return os.environ.get("PROCESSFORGE_OUTPUT_DIR", "outputs")
+
+
 def _require_existing_file(path: str, label: str = "Flowsheet file") -> None:
     """Fail fast with a consistent message when an input path is missing."""
     if not os.path.exists(path):
@@ -102,6 +111,7 @@ def _cmd_run(args):
     config = _validate_runtime_flowsheet(fname)
 
     base_name = os.path.splitext(os.path.basename(fname))[0]
+    outputs_dir = _output_root()
 
     sim_cfg = config.get("simulation", {})
     mode = sim_cfg.get("mode", "steady")
@@ -109,7 +119,7 @@ def _cmd_run(args):
 
     if is_dynamic:
         # Load .pfstate as t=0 if available
-        state_path = os.path.join("outputs", f"{base_name}.pfstate")
+        state_path = os.path.join(outputs_dir, f"{base_name}.pfstate")
         sm = StateManager(state_path)
         state = sm.load_state()
         if state is not None:
@@ -131,9 +141,10 @@ def _cmd_run(args):
         results = fs.run()
         run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
 
+    os.makedirs(outputs_dir, exist_ok=True)
     save_results_zarr(
         results,
-        os.path.join("outputs", f"{base_name}_results.zarr"),
+        os.path.join(outputs_dir, f"{base_name}_results.zarr"),
         run_info=run_info,
     )
     if args.export_images:
@@ -368,7 +379,7 @@ def _cmd_apply(args):
         logger.error("pf apply is only supported for steady-state EO flowsheets.")
         raise SystemExit(1)
 
-    outputs_dir = "outputs"
+    outputs_dir = _output_root()
     os.makedirs(outputs_dir, exist_ok=True)
     state_path = os.path.join(outputs_dir, f"{base_name}.pfstate")
     sm = StateManager(state_path)

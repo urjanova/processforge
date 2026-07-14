@@ -7,7 +7,7 @@
   "providers": {
     "openmc": {
       "type": "openmc",
-      "output_dir": "outputs/openmc/msre_run",
+      "output_dir": "openmc/msre_run",
       "cross_sections": "${OPENMC_DATA_ROOT}/cross_sections/cross_sections.xml"
     }
   },

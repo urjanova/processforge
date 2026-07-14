@@ -382,7 +382,14 @@ class OpenMCProvider(AbstractProvider):
                 "OpenMC is not installed. Install with: pip install openmc"
             ) from exc
 
-        self._provider_output_dir = provider_config.output_dir
+        # Resolve the output dir. Expand ${...} (mirrors cross_sections handling),
+        # then anchor a relative path under the run output root so container/CI
+        # runs land on the mounted volume rather than inside the working dir.
+        out_dir = os.path.expandvars(provider_config.output_dir)
+        if not os.path.isabs(out_dir):
+            root = os.environ.get("PROCESSFORGE_OUTPUT_DIR", "outputs")
+            out_dir = os.path.join(root, out_dir)
+        self._provider_output_dir = out_dir
         self._cross_sections = provider_config.cross_sections
         self._materials = {}
 
