@@ -48,6 +48,12 @@ _PROVIDER_CATALOG: dict[str, dict[str, str | None]] = {
         "optional_dep": "openmc",
         "description": "Neutronics simulation via OpenMC",
     },
+    "festim": {
+        "module": "processforge.providers.festim_provider",
+        "class": "FestimProvider",
+        "optional_dep": "festim",
+        "description": "Hydrogen transport FEM via FESTIM",
+    },
 }
 
 
