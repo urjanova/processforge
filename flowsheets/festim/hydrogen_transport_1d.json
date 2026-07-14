@@ -7,7 +7,7 @@
   "providers": {
     "festim": {
       "type": "festim",
-      "output_dir": "outputs/festim"
+      "output_dir": "festim"
     }
   },
   "materials": {

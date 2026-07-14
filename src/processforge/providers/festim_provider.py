@@ -29,6 +29,7 @@ Adding a new sim_type::
 
 from __future__ import annotations
 
+import os
 import pathlib
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
@@ -319,7 +320,14 @@ class FestimProvider(AbstractProvider):
                 "FESTIM is not installed. Install with: conda install -c conda-forge festim"
             ) from exc
 
-        self._provider_output_dir = provider_config.output_dir
+        # Resolve the output dir. Expand ${...}, then anchor a relative path under
+        # the run output root so container/CI runs land on the mounted volume
+        # rather than inside the working dir.
+        out_dir = os.path.expandvars(provider_config.output_dir)
+        if not os.path.isabs(out_dir):
+            root = os.environ.get("PROCESSFORGE_OUTPUT_DIR", "outputs")
+            out_dir = os.path.join(root, out_dir)
+        self._provider_output_dir = out_dir
         self._materials = {}
         for mat_name, mat_def in flowsheet_config.materials.items():
             self._materials[mat_name] = mat_def
@@ -410,8 +418,15 @@ class FestimProvider(AbstractProvider):
         run_dir = pathlib.Path(self._provider_output_dir)
         run_dir.mkdir(parents=True, exist_ok=True)
 
-        model.initialise()
-        model.run()
+        # FESTIM writes exports relative to the CWD, so run from inside run_dir
+        # to keep every artifact on the (possibly mounted) output volume.
+        original_cwd = pathlib.Path.cwd()
+        os.chdir(run_dir)
+        try:
+            model.initialise()
+            model.run()
+        finally:
+            os.chdir(original_cwd)
 
         logger.info(f"FestimProvider: '{sim_type}' completed in '{run_dir}'")
 
