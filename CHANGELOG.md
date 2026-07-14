@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.34] - 2026-07-13
 
+### Added
+- Added `_PROVIDER_CATALOG` and `list_providers()` to the provider registry, exposing metadata (description, optional dependency, installed/registered status) for all supported providers without importing their modules.
+
 ### Changed
 - Introduced a centralised unit type registry (`units/registry.py`) with `register_unit()` / `get_unit_class()` — all unit classes self-register at import time, eliminating hardcoded type maps.
 - Refactored `Flowsheet.build_units` into a compact dict-comprehension backed by the shared registry, removing the `UnitTypeRegistry` Pydantic wrapper class.

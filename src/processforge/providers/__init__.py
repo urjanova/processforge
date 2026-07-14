@@ -25,12 +25,13 @@ from .base_jacobian_mixin import BaseJacobianMixin
 from .coolprop_provider import CoolPropProvider
 from .jacobian_contributor import JacobianContributor, ReferenceState
 from .reference_state_registry import ReferenceStateRegistry
-from .registry import get_provider_class, register_provider
+from .registry import get_provider_class, list_providers, register_provider
 
 __all__ = [
     "AbstractProvider",
     "CoolPropProvider",
     "get_provider_class",
+    "list_providers",
     "register_provider",
     # Universal Jacobian AD endpoint public API
     "JacobianContributor",
