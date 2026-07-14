@@ -1,11 +1,17 @@
 # Usage
 
+## Plan / Apply Workflow
+
+1. `pf init` — creates `.processforge/config.json` and `outputs/`.
+2. `pf plan` — validates schema, DOF, units, and structural diff; no solver run.
+3. `pf apply` — loads the last snapshot as warm start, runs the solver, and saves a new snapshot on success.
+
 ## CLI Quick Start
 
 ```bash
 pf init
-pf plan flowsheets/closed-loop-chain.json
-pf apply flowsheets/closed-loop-chain.json
+pf plan flowsheets/hydraulic-chain.json
+pf apply flowsheets/hydraulic-chain.json
 ```
 
 Use `pf plan` to validate the flowsheet and preview changes without running the solver. Use `pf apply` to solve, warm-start from the last converged state, and save a new snapshot.
@@ -14,19 +20,13 @@ Use `pf plan` to validate the flowsheet and preview changes without running the 
 
 ```bash
 pf init [--path PATH]
-pf plan flowsheets/my-flowsheet.json [--no-diagram] [--output-dir diagrams/]
-pf apply flowsheets/my-flowsheet.json
-pf run flowsheets/my-flowsheet.json [--export-images]
-pf diagram flowsheets/my-flowsheet.json [--format svg] [--output-dir diagrams/]
-pf export-modelica flowsheets/my-flowsheet.json [--output-dir modelica/] [--no-compile]
-pf export-fmu flowsheets/my-flowsheet.json [--output-dir outputs/] [--backend scipy]
+pf plan flowsheets/hydraulic-chain.json [--no-diagram] [--output-dir diagrams/]
+pf apply flowsheets/hydraulic-chain.json
+pf run flowsheets/closed-loop-chain.json [--export-images]
+pf diagram flowsheets/hydraulic-chain.json [--format svg] [--output-dir diagrams/]
+pf export-modelica flowsheets/hydraulic-chain.json [--output-dir modelica/] [--no-compile]
+pf export-fmu flowsheets/hydraulic-chain.json [--output-dir outputs/] [--backend scipy]
 ```
-
-## Plan / Apply Workflow
-
-1. `pf init` — creates `.processforge/config.json` and `outputs/`.
-2. `pf plan` — validates schema, DOF, units, and structural diff; no solver run.
-3. `pf apply` — loads the last snapshot as warm start, runs the solver, and saves a new snapshot on success.
 
 ### Outputs
 
@@ -41,7 +41,7 @@ pf export-fmu flowsheets/my-flowsheet.json [--output-dir outputs/] [--backend sc
 ```python
 from processforge import EOFlowsheet, validate_flowsheet
 
-config = validate_flowsheet("flowsheets/my-flowsheet.json")
+config = validate_flowsheet("flowsheets/closed-loop-chain.json")
 fs = EOFlowsheet(config, backend="scipy")
 results = fs.run()
 ```
