@@ -75,18 +75,14 @@ A Python-based process simulation framework for coupling different simulation en
 > Pump, Valve, Strainer, and Pipes support all three backends (SciPy, Pyomo, CasADi).
 
 ## Installation
+We recommend using `uv` as a lightweight virtual environment manager for Python. It automatically creates an isolated environment and installs dependencies.
 
-### From PyPI
 
 ```bash
-# pip (core features)
-pip install processforge
-
-# uv (core features)
+# core features
 uv add processforge
 
 # with CoolProp thermodynamics (required for Heater, Flash)
-pip install "processforge[coolprop]"
 uv add "processforge[coolprop]"
 ```
 
@@ -94,15 +90,12 @@ uv add "processforge[coolprop]"
 
 ```bash
 # Pyomo + IPOPT backend
-pip install "processforge[eo]"
 uv add "processforge[eo]"
 
 # Pyomo + IPOPT + CasADi backend
-pip install "processforge[eo-casadi]"
 uv add "processforge[eo-casadi]"
 
 # Modelica transpiler + OMPython bridge (requires OpenModelica installed separately)
-pip install "processforge[modelica]"
 uv add "processforge[modelica]"
 ```
 
@@ -114,14 +107,9 @@ uv add "processforge[modelica]"
    cd processforge
    ```
 
-2. Install the package:
+2. Install the package and development dependencies:
    ```bash
-   pip install -e ".[dev]"
-   ```
-
-   Or using uv:
-   ```bash
-   uv sync
+   uv sync --extra dev
    ```
 
 ## Usage
@@ -137,10 +125,10 @@ Processforge provides a CLI with the following subcommands. Both `processforge` 
 pf init
 
 # 2. Preview changes: structural diff, DOF analysis, unit consistency, Mermaid diagram
-pf plan flowsheets/my-flowsheet.json
+pf plan flowsheets/closed-loop-chain.json
 
 # 3. Apply changes: warm-start from last state, homotopy fallback, snapshot versioned
-pf apply flowsheets/my-flowsheet.json
+pf apply flowsheets/closed-loop-chain.json
 ```
 
 #### All commands
@@ -187,11 +175,11 @@ fs = EOFlowsheet(config, backend="scipy")
 results = fs.run()
 # results: {stream_name: {"T": ..., "P": ..., "flowrate": ..., "z": {...}}}
 
-# Use Pyomo + IPOPT backend (requires: pip install "processforge[eo]")
+# Use Pyomo + IPOPT backend (requires: uv add "processforge[eo]")
 fs = EOFlowsheet(config, backend="pyomo")
 results = fs.run()
 
-# Use CasADi backend (requires: pip install "processforge[eo-casadi]")
+# Use CasADi backend (requires: uv add "processforge[eo-casadi]")
 fs = EOFlowsheet(config, backend="casadi")
 results = fs.run()
 
