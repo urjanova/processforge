@@ -4,14 +4,6 @@
 
 A lightweight Python framework for process simulation, coupling hydraulic, thermal, and reactor workflows.
 
-## Quick start
-
-```bash
-pf init
-pf plan flowsheets/hydraulic-chain.json
-pf apply flowsheets/hydraulic-chain.json
-```
-
 ## Install
 
 ```bash
@@ -32,26 +24,26 @@ uv add "processforge[eo-casadi]"
 uv add "processforge[modelica]"
 ```
 
-## Run
+## Quick start
 
-Use `plan` to validate and preview changes, then `apply` to solve and store a snapshot.
+Use `plan` to validate and preview changes, then `apply` to solve and store a snapshot. For flowsheets without Tank units, use `apply` to solve with the EO solver. 
 
 ```bash
-pf plan flowsheets/my-flowsheet.json
-pf apply flowsheets/my-flowsheet.json
+pf init
+pf plan flowsheets/hydraulic-chain.json
+pf apply flowsheets/hydraulic-chain.json
 ```
-
-For direct run mode:
+For flowsheets with Tank units, use `run` to solve with the SM solver. For direct run mode (for dynamic flowsheets with Tank units), use `run`:
 
 ```bash
-pf run flowsheets/my-flowsheet.json
+pf run flowsheets/hydraulic-chain.json
 ```
 
 ## Python API
 
 ```python
 from processforge import EOFlowsheet, validate_flowsheet
-config = validate_flowsheet("flowsheets/my-flowsheet.json")
+config = validate_flowsheet("flowsheets/hydraulic-chain.json")
 fs = EOFlowsheet(config, backend="scipy")
 results = fs.run()
 ```
