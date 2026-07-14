@@ -225,12 +225,37 @@ class OpenMCProviderConfig:
         )
 
 
+@dataclass
+class FestimProviderConfig:
+    """Configuration for the FESTIM hydrogen transport provider.
+
+    Flowsheet JSON example::
+
+        "providers": {
+            "festim": {
+                "type": "festim",
+                "output_dir": "outputs/festim"
+            }
+        }
+    """
+
+    type: str = "festim"
+    output_dir: str = "outputs/festim"
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FestimProviderConfig":
+        return cls(
+            output_dir=d.get("output_dir", "outputs/festim"),
+        )
+
+
 #: Union of all known provider config types — extend when adding a new provider.
 ProviderConfig = Union[
     CoolPropProviderConfig,
     CanteraProviderConfig,
     ModelicaProviderConfig,
     OpenMCProviderConfig,
+    FestimProviderConfig,
 ]
 
 _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
@@ -238,6 +263,7 @@ _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
     "cantera": CanteraProviderConfig,
     "modelica": ModelicaProviderConfig,
     "openmc": OpenMCProviderConfig,
+    "festim": FestimProviderConfig,
 }
 
 

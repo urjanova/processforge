@@ -57,6 +57,7 @@ def _validate_config_impl(config: dict, source_name: str) -> dict:
     _check_provider_references(config)
     _check_provider_material_props(config)
     _check_openmc_unit_config(config)
+    _check_festim_unit_config(config)
     _resolve_material_mix_streams(config)
     _check_convergence_signal(config)
     return config
@@ -420,10 +421,12 @@ def _check_material_semantics(config):
                     f"which does not match any friendly_material_mix_id in material_mixes."
                 )
 
-    # 7. Every unit must reference a valid id
+    # 7. Every unit must reference a valid id (SolverUnit without material field is exempt)
     hint = " (no materials section defined)" if not materials else ""
     for unit_name, unit_def in config.get("units", {}).items():
         mat_id = unit_def.get("material")
+        if mat_id is None and unit_def.get("type") in _SOLVER_UNIT_TYPES:
+            continue  # SolverUnit without material field — validated by provider
         if mat_id not in valid_ids:
             raise ValueError(
                 f"❌ Unit '{unit_name}' references material id {mat_id}, "
@@ -593,6 +596,152 @@ def _check_openmc_unit_config(config: dict) -> None:
                 errors.append(
                     f"❌ Unit '{unit_name}' material '{mat_name}' failed "
                     f"OpenMC schema validation: {exc}"
+                )
+
+    if errors:
+        raise ValueError("\n".join(errors))
+
+
+def _get_festim_sim_type_registry() -> dict:
+    from processforge.providers.festim_provider import get_registered_sim_types  # noqa: PLC0415
+    return get_registered_sim_types()
+
+
+def _check_festim_unit_config(config: dict) -> None:
+    """Validate FESTIM-specific ``SolverUnit`` fields when provider type is ``"festim"``.
+
+    Checks (only applied to units whose ``provider`` resolves to a FESTIM provider):
+
+    1. ``sim_type`` is present and registered.
+    2. Unit has required keys: ``mesh``, ``species``, ``subdomains``.
+    3. ``solver_config`` has ``atol`` and ``rtol``.
+    4. ``mesh.vertices`` is a non-empty list.
+    5. ``subdomains`` has ``volume`` and ``surface`` entries.
+    6. ``boundary_conditions`` reference valid subdomain IDs.
+    7. ``exports`` reference valid species names and subdomain IDs.
+    """
+    providers = config.get("providers", {})
+    festim_provider_names = {
+        name for name, pdef in providers.items()
+        if pdef.get("type") == "festim"
+    }
+    if not festim_provider_names:
+        return
+
+    materials = config.get("materials", {})
+    registry = _get_festim_sim_type_registry()
+    errors = []
+
+    for unit_name, unit_cfg in config.get("units", {}).items():
+        if unit_cfg.get("provider") not in festim_provider_names:
+            continue
+
+        sim_type = unit_cfg.get("sim_type")
+        if not sim_type:
+            errors.append(
+                f"❌ Unit '{unit_name}' uses FESTIM provider but is missing 'sim_type'."
+            )
+            continue
+
+        if sim_type not in registry:
+            errors.append(
+                f"❌ Unit '{unit_name}' has unknown FESTIM sim_type '{sim_type}'. "
+                f"Registered types: {sorted(registry)}"
+            )
+            continue
+
+        sc = unit_cfg.get("solver_config") or {}
+
+        # Required solver_config keys
+        for key in ("atol", "rtol"):
+            if key not in sc:
+                errors.append(
+                    f"❌ Unit '{unit_name}': solver_config is missing required key '{key}'."
+                )
+
+        # Required unit-level keys (problem definition)
+        for key in ("mesh", "species", "subdomains"):
+            if key not in unit_cfg:
+                errors.append(
+                    f"❌ Unit '{unit_name}' is missing required key '{key}'."
+                )
+
+        # Mesh validation
+        mesh = unit_cfg.get("mesh", {})
+        vertices = mesh.get("vertices")
+        if not isinstance(vertices, list) or len(vertices) < 2:
+            errors.append(
+                f"❌ Unit '{unit_name}': mesh.vertices must be a list with at least 2 points."
+            )
+
+        # Species validation
+        species_cfgs = unit_cfg.get("species", [])
+        if not species_cfgs:
+            errors.append(
+                f"❌ Unit '{unit_name}': species list is empty."
+            )
+        species_names = {s["name"] for s in species_cfgs if "name" in s}
+
+        # Subdomains validation
+        subs = unit_cfg.get("subdomains", {})
+        volume_subs = subs.get("volume", [])
+        surface_subs = subs.get("surface", [])
+        if not volume_subs:
+            errors.append(
+                f"❌ Unit '{unit_name}': subdomains.volume is empty."
+            )
+        if not surface_subs:
+            errors.append(
+                f"❌ Unit '{unit_name}': subdomains.surface is empty."
+            )
+
+        volume_mat_names = {v.get("material") for v in volume_subs}
+        for mat_name in volume_mat_names:
+            if mat_name and mat_name not in materials:
+                errors.append(
+                    f"❌ Unit '{unit_name}': subdomain references unknown material '{mat_name}'. "
+                    f"Available: {sorted(materials)}"
+                )
+
+        surface_ids = {s["id"] for s in surface_subs if "id" in s}
+        volume_ids = {v["id"] for v in volume_subs if "id" in v}
+
+        # Boundary conditions validation
+        for bc in unit_cfg.get("boundary_conditions", []):
+            sub_id = bc.get("subdomain_id")
+            if sub_id is not None and sub_id not in surface_ids:
+                errors.append(
+                    f"❌ Unit '{unit_name}': boundary condition references "
+                    f"unknown surface subdomain_id={sub_id}. "
+                    f"Available surface IDs: {sorted(surface_ids)}"
+                )
+            bc_species = bc.get("species")
+            if bc_species and bc_species not in species_names:
+                errors.append(
+                    f"❌ Unit '{unit_name}': boundary condition references "
+                    f"unknown species '{bc_species}'. "
+                    f"Available: {sorted(species_names)}"
+                )
+
+        # Exports validation
+        for exp in unit_cfg.get("exports", []):
+            field = exp.get("field")
+            if field and field not in species_names:
+                errors.append(
+                    f"❌ Unit '{unit_name}': export references unknown species '{field}'. "
+                    f"Available: {sorted(species_names)}"
+                )
+            vol_id = exp.get("volume_id")
+            if vol_id is not None and vol_id not in volume_ids:
+                errors.append(
+                    f"❌ Unit '{unit_name}': export references unknown volume_id={vol_id}. "
+                    f"Available volume IDs: {sorted(volume_ids)}"
+                )
+            surf_id = exp.get("surface_id")
+            if surf_id is not None and surf_id not in surface_ids:
+                errors.append(
+                    f"❌ Unit '{unit_name}': export references unknown surface_id={surf_id}. "
+                    f"Available surface IDs: {sorted(surface_ids)}"
                 )
 
     if errors:

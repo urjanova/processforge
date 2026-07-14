@@ -20,7 +20,7 @@
           "properties": {
             "type": {
               "type": "string",
-              "enum": ["coolprop", "cantera", "modelica", "openmc"],
+              "enum": ["coolprop", "cantera", "modelica", "openmc", "festim"],
               "description": "Provider engine type"
             },
             "mechanism": {
@@ -138,6 +138,10 @@
                 "additionalProperties": false
               },
               "description": "Element-fraction entries for openmc.Material.add_element() calls"
+            },
+            "extra": {
+              "type": "object",
+              "description": "Provider-specific material properties (e.g. FESTIM diffusion coefficients: D_0, E_D)"
             }
           },
           "additionalProperties": false
@@ -227,8 +231,7 @@
         "^[a-zA-Z0-9_]+$": {
           "type": "object",
           "required": [
-            "type",
-            "material"
+            "type"
           ],
           "properties": {
             "type": {
