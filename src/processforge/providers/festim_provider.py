@@ -404,7 +404,8 @@ class FestimProvider(AbstractProvider):
             f"with strategy {strategy_cls.__name__}"
         )
 
-        model = strategy_cls().build(F, unit_config.solver_config or {}, materials_map, None)
+        full_cfg = {**unit_config.extra, "solver_config": unit_config.solver_config or {}}
+        model = strategy_cls().build(F, full_cfg, materials_map, None)
 
         run_dir = pathlib.Path(self._provider_output_dir)
         run_dir.mkdir(parents=True, exist_ok=True)

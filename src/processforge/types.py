@@ -60,6 +60,12 @@ class MaterialDef:
         })
         known = {k: v for k, v in d.items() if k in known_keys}
         extra = {k: v for k, v in d.items() if k not in known_keys}
+        # An explicit "extra" object in the JSON holds provider-specific
+        # properties; flatten it so providers read e.g. extra["D_0"] directly
+        # rather than extra["extra"]["D_0"].
+        nested = extra.pop("extra", None)
+        if isinstance(nested, dict):
+            extra = {**nested, **extra}
         return cls(**known, extra=extra)
 
     def get(self, key: str, default=None):
@@ -93,7 +99,7 @@ class UnitConfig:
     """
 
     type: str
-    material: int
+    material: Optional[int] = None
     provider: Optional[str] = None
     inputs: list = field(default_factory=list)      # JSON "in" key
     out: Optional[str] = None
