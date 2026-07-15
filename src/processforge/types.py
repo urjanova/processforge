@@ -235,22 +235,36 @@ class OpenMCProviderConfig:
 class FestimProviderConfig:
     """Configuration for the FESTIM hydrogen transport provider.
 
-    Flowsheet JSON example::
+    FESTIM runs as an external Docker service. The ``url`` field points to
+    the service's HTTP endpoint (default ``http://localhost:9002``).
+
+    Flowsheet JSON examples::
 
         "providers": {
             "festim": {
                 "type": "festim",
-                "output_dir": "outputs/festim"
+                "url": "http://localhost:9002"
+            }
+        }
+
+    Cloud deployment::
+
+        "providers": {
+            "festim": {
+                "type": "festim",
+                "url": "https://festim-production.up.railway.app"
             }
         }
     """
 
     type: str = "festim"
+    url: Optional[str] = None
     output_dir: str = "outputs/festim"
 
     @classmethod
     def from_dict(cls, d: dict) -> "FestimProviderConfig":
         return cls(
+            url=d.get("url"),
             output_dir=d.get("output_dir", "outputs/festim"),
         )
 
