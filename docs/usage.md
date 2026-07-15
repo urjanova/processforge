@@ -81,6 +81,25 @@ Override the location with `-e PROCESSFORGE_OUTPUT_DIR=<path>` (e.g. a subdirect
 mount so each run is isolated). A relative `output_dir` in a flowsheet's provider config is
 resolved against this root.
 
+### OpenMC model — init / plan / apply in Docker
+
+```bash
+# Validate the flowsheet (no solver run)
+docker run --rm ghcr.io/urjanova/processforge:latest \
+  pf plan flowsheets/openmc/msre_eigenvalue.json
+
+# Solve and collect outputs
+docker run --rm -v "$(pwd)/tmp_files:/data" \
+  ghcr.io/urjanova/processforge:latest \
+  pf apply flowsheets/openmc/msre_eigenvalue.json
+```
+
+Results land in `./tmp_files`:
+- `msre_eigenvalue_results.zarr/` — Zarr store with `k_eff` and tally results.
+- `msre_eigenvalue_validation.xlsx` — validation report.
+- `msre_eigenvalue.pfstate/` — snapshot for warm-start on next run.
+- `openmc/msre_run/statepoint.*.h5` — full OpenMC statepoint.
+
 ### OpenMC in containers
 
 OpenMC workflows require nuclear cross-section data. The container startup script `scripts/fetch_openmc_data.sh` downloads and caches it automatically into `/data` (the same volume also collects run outputs).
