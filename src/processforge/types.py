@@ -207,6 +207,15 @@ class OpenMCProviderConfig:
             }
         }
 
+    Custom Docker image::
+
+        "providers": {
+            "openmc": {
+                "type": "openmc",
+                "docker_image": "my-org/custom-openmc:v2"
+            }
+        }
+
     Container deployment pattern:
 
     * Set ``OPENMC_DATA_ROOT`` to the mount point of your data volume (default ``/data``).
@@ -222,12 +231,14 @@ class OpenMCProviderConfig:
     type: str = "openmc"
     output_dir: str = "outputs/openmc"
     cross_sections: Optional[str] = None
+    docker_image: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "OpenMCProviderConfig":
         return cls(
             output_dir=d.get("output_dir", "outputs/openmc"),
             cross_sections=d.get("cross_sections"),
+            docker_image=d.get("docker_image"),
         )
 
 
@@ -247,6 +258,15 @@ class FestimProviderConfig:
             }
         }
 
+    Custom Docker image::
+
+        "providers": {
+            "festim": {
+                "type": "festim",
+                "docker_image": "my-org/custom-festim:v2"
+            }
+        }
+
     Cloud deployment::
 
         "providers": {
@@ -260,12 +280,14 @@ class FestimProviderConfig:
     type: str = "festim"
     url: Optional[str] = None
     output_dir: str = "outputs/festim"
+    docker_image: Optional[str] = None
 
     @classmethod
     def from_dict(cls, d: dict) -> "FestimProviderConfig":
         return cls(
             url=d.get("url"),
             output_dir=d.get("output_dir", "outputs/festim"),
+            docker_image=d.get("docker_image"),
         )
 
 

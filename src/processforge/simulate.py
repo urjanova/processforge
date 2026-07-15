@@ -132,7 +132,7 @@ def _cmd_init(args):
             docker_providers[name] = {
                 "type": ptype,
                 "url": url,
-                "docker_image": get_provider_docker_image(ptype),
+                "docker_image": cfg.get("docker_image") or get_provider_docker_image(ptype),
                 "port": get_provider_default_port(ptype),
             }
             logger.info(f"  {name}: type={ptype}, url={url} (Docker)")
@@ -195,7 +195,7 @@ def _cmd_init(args):
         ptype = cfg.get("type", "")
         if is_containerized(ptype):
             lock_providers[name] = {
-                "docker_image": get_provider_docker_image(ptype),
+                "docker_image": cfg.get("docker_image") or get_provider_docker_image(ptype),
                 "url": cfg.get("url")
                 or f"http://localhost:{get_provider_default_port(ptype) or 9000}",
             }

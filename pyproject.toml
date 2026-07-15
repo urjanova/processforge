@@ -38,12 +38,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-api = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.29",
-    "boto3>=1.34",
-    "s3fs>=2024.3",
-]
 eo = [
     "pyomo>=6.7",
 ]
@@ -87,7 +81,6 @@ Issues = "https://github.com/urjanova/processforge/issues"
 [project.scripts]
 processforge = "processforge.simulate:main"
 pf = "processforge.simulate:main"
-pf-serve = "processforge.api.serve:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
