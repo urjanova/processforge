@@ -1,0 +1,21 @@
+FROM mambaorg/micromamba:1.5.8
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/*
+USER $MAMBA_USER
+
+# FESTIM + FEniCSx are only available on conda-forge
+RUN micromamba install -y -n base -c conda-forge festim fenics-dolfinx && \
+    micromamba clean --all --yes
+
+WORKDIR /app
+RUN micromamba run -n base pip install processforge fastapi uvicorn
+
+COPY provider_server.py .
+
+ENV PROVIDER_TYPE=festim
+VOLUME /data
+
+EXPOSE 9002
+CMD ["micromamba", "run", "-n", "base", "python", "provider_server.py"]

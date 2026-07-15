@@ -160,6 +160,21 @@ class TestFestimProviderConfig:
         })
         assert cfg.output_dir == "/tmp/festim"
 
+    def test_from_dict_with_docker_image(self):
+        from processforge.types import FestimProviderConfig
+
+        cfg = FestimProviderConfig.from_dict({
+            "type": "festim",
+            "docker_image": "my-org/custom-festim:v2",
+        })
+        assert cfg.docker_image == "my-org/custom-festim:v2"
+
+    def test_docker_image_defaults_to_none(self):
+        from processforge.types import FestimProviderConfig
+
+        cfg = FestimProviderConfig()
+        assert cfg.docker_image is None
+
     def test_in_registry(self):
         from processforge.types import _PROVIDER_CONFIG_REGISTRY
 
