@@ -5,6 +5,7 @@ These tests validate:
 - The provider satisfies the AbstractProvider contract.
 - Material validation catches missing D_0/E_D.
 - FestimProviderConfig parses url from dict correctly.
+- The strategy registry and dispatch work correctly.
 - The HTTP client serialises requests and deserialises responses.
 """
 from __future__ import annotations
@@ -207,7 +208,240 @@ class TestFestimCatalog:
 
 
 # ---------------------------------------------------------------------------
-# 5. HTTP client behaviour
+# 5. Sim-type strategy registry
+# ---------------------------------------------------------------------------
+
+
+class TestFestimSimTypeRegistry:
+    """FESTIM sim_type registry must map strings to strategy classes."""
+
+    def test_get_registered_sim_types_callable(self):
+        from processforge.providers.festim_provider import get_registered_sim_types
+
+        result = get_registered_sim_types()
+        assert isinstance(result, dict)
+
+    def test_hydrogen_transport_registered(self):
+        from processforge.providers.festim_provider import (
+            FestimSimStrategy,
+            get_registered_sim_types,
+        )
+
+        registry = get_registered_sim_types()
+        assert "hydrogen_transport" in registry
+        assert issubclass(registry["hydrogen_transport"], FestimSimStrategy)
+
+    def test_register_new_sim_type(self):
+        from processforge.providers.festim_provider import (
+            FestimSimStrategy,
+            _SIM_TYPE_REGISTRY,
+            get_registered_sim_types,
+            register_festim_sim_type,
+        )
+
+        class _MockStrategy(FestimSimStrategy):
+            def build(self, unit_config, materials, inlet, helpers):
+                return {}
+
+        register_festim_sim_type("custom_thing", _MockStrategy)
+        try:
+            registry = get_registered_sim_types()
+            assert "custom_thing" in registry
+            assert registry["custom_thing"] is _MockStrategy
+        finally:
+            del _SIM_TYPE_REGISTRY["custom_thing"]
+
+    def test_returns_copy(self):
+        from processforge.providers.festim_provider import get_registered_sim_types
+
+        r1 = get_registered_sim_types()
+        r2 = get_registered_sim_types()
+        assert r1 == r2
+        assert r1 is not r2
+
+    def test_unknown_sim_type_raises(self):
+        from processforge.providers.festim_provider import FestimProvider
+        from processforge.types import UnitConfig
+
+        provider = FestimProvider()
+        provider._url = "http://localhost:9002"
+        provider._initialized = True
+        unit_cfg = UnitConfig(type="SolverUnit", sim_type="nonexistent_type")
+        with pytest.raises(ValueError, match="unknown sim_type"):
+            provider.run_simulation(unit_cfg, {})
+
+
+class TestFestimBuildHelpers:
+    """FestimBuildHelpers should serialise unit config and materials correctly."""
+
+    def test_build_unit_config_body(self):
+        from processforge.providers.festim_provider import FestimBuildHelpers
+        from processforge.types import UnitConfig
+
+        unit_cfg = UnitConfig(
+            type="SolverUnit",
+            sim_type="hydrogen_transport",
+            material=1,
+            solver_config={"atol": 1e-6},
+            extra={"mesh": {"vertices": [0, 1]}},
+        )
+        body = FestimBuildHelpers.build_unit_config_body(unit_cfg)
+        assert body["type"] == "SolverUnit"
+        assert body["sim_type"] == "hydrogen_transport"
+        assert body["material"] == 1
+        assert body["solver_config"] == {"atol": 1e-6}
+        assert body["mesh"] == {"vertices": [0, 1]}
+
+    def test_build_materials_body(self):
+        from processforge.providers.festim_provider import FestimBuildHelpers
+        from processforge.types import MaterialDef
+
+        mats = {"steel": MaterialDef(id=1, density=7.8, extra={"D_0": 1e-7})}
+        body = FestimBuildHelpers.build_materials_body(mats)
+        assert "steel" in body
+        assert body["steel"]["id"] == 1
+        assert body["steel"]["density"] == 7.8
+        assert body["steel"]["D_0"] == 1e-7
+
+
+class TestHydrogenTransportStrategy:
+    """The built-in hydrogen_transport strategy should validate and build correctly."""
+
+    def test_build_valid_body(self):
+        from processforge.providers.festim_provider import (
+            FestimBuildHelpers,
+            _HydrogenTransportStrategy,
+        )
+        from processforge.types import MaterialDef, UnitConfig
+
+        unit_cfg = UnitConfig(
+            type="SolverUnit",
+            sim_type="hydrogen_transport",
+            material=1,
+            solver_config={"atol": 1e-6, "rtol": 1e-4},
+            extra={
+                "mesh": {"vertices": [0.0, 0.005, 0.01]},
+                "species": [{"name": "H"}],
+                "subdomains": {
+                    "volume": [{"id": 1, "material": "default"}],
+                    "surface": [{"id": 2}],
+                },
+                "boundary_conditions": [],
+                "exports": [],
+            },
+        )
+        materials = {"default": MaterialDef(id=1, extra={"D_0": 1, "E_D": 0})}
+        helpers = FestimBuildHelpers()
+
+        strategy = _HydrogenTransportStrategy()
+        body = strategy.build(unit_cfg, materials, {}, helpers)
+
+        assert body["unit_config"]["sim_type"] == "hydrogen_transport"
+        assert "default" in body["materials"]
+
+    def test_build_missing_mesh_raises(self):
+        from processforge.providers.festim_provider import (
+            FestimBuildHelpers,
+            _HydrogenTransportStrategy,
+        )
+        from processforge.types import UnitConfig
+
+        unit_cfg = UnitConfig(
+            type="SolverUnit",
+            sim_type="hydrogen_transport",
+            extra={"species": [{"name": "H"}], "subdomains": {"volume": [], "surface": []}},
+        )
+        helpers = FestimBuildHelpers()
+
+        with pytest.raises(ValueError, match="requires 'mesh'"):
+            _HydrogenTransportStrategy().build(unit_cfg, {}, {}, helpers)
+
+    def test_build_missing_species_raises(self):
+        from processforge.providers.festim_provider import (
+            FestimBuildHelpers,
+            _HydrogenTransportStrategy,
+        )
+        from processforge.types import UnitConfig
+
+        unit_cfg = UnitConfig(
+            type="SolverUnit",
+            sim_type="hydrogen_transport",
+            extra={
+                "mesh": {"vertices": [0, 1]},
+                "subdomains": {"volume": [{"id": 1}], "surface": [{"id": 2}]},
+            },
+        )
+        helpers = FestimBuildHelpers()
+
+        with pytest.raises(ValueError, match="requires 'species'"):
+            _HydrogenTransportStrategy().build(unit_cfg, {}, {}, helpers)
+
+    def test_build_empty_species_raises(self):
+        from processforge.providers.festim_provider import (
+            FestimBuildHelpers,
+            _HydrogenTransportStrategy,
+        )
+        from processforge.types import UnitConfig
+
+        unit_cfg = UnitConfig(
+            type="SolverUnit",
+            sim_type="hydrogen_transport",
+            extra={
+                "mesh": {"vertices": [0, 1]},
+                "species": [],
+                "subdomains": {"volume": [{"id": 1}], "surface": [{"id": 2}]},
+            },
+        )
+        helpers = FestimBuildHelpers()
+
+        with pytest.raises(ValueError, match="non-empty 'species'"):
+            _HydrogenTransportStrategy().build(unit_cfg, {}, {}, helpers)
+
+    def test_build_missing_subdomains_raises(self):
+        from processforge.providers.festim_provider import (
+            FestimBuildHelpers,
+            _HydrogenTransportStrategy,
+        )
+        from processforge.types import UnitConfig
+
+        unit_cfg = UnitConfig(
+            type="SolverUnit",
+            sim_type="hydrogen_transport",
+            extra={
+                "mesh": {"vertices": [0, 1]},
+                "species": [{"name": "H"}],
+                "subdomains": {},
+            },
+        )
+        helpers = FestimBuildHelpers()
+
+        with pytest.raises(ValueError, match="requires subdomains.volume"):
+            _HydrogenTransportStrategy().build(unit_cfg, {}, {}, helpers)
+
+    def test_build_short_vertices_raises(self):
+        from processforge.providers.festim_provider import (
+            FestimBuildHelpers,
+            _HydrogenTransportStrategy,
+        )
+        from processforge.types import UnitConfig
+
+        unit_cfg = UnitConfig(
+            type="SolverUnit",
+            sim_type="hydrogen_transport",
+            extra={
+                "mesh": {"vertices": [0]},
+                "species": [{"name": "H"}],
+                "subdomains": {"volume": [{"id": 1}], "surface": [{"id": 2}]},
+            },
+        )
+        helpers = FestimBuildHelpers()
+
+        with pytest.raises(ValueError, match="at least 2 points"):
+            _HydrogenTransportStrategy().build(unit_cfg, {}, {}, helpers)
+
+
+# ---------------------------------------------------------------------------
+# 6. HTTP client behaviour
 # ---------------------------------------------------------------------------
 
 
@@ -292,6 +526,16 @@ class TestFestimHTTPClient:
             sim_type="hydrogen_transport",
             material=1,
             solver_config={"atol": 1e-6, "rtol": 1e-4},
+            extra={
+                "mesh": {"vertices": [0.0, 0.005, 0.01]},
+                "species": [{"name": "H"}],
+                "subdomains": {
+                    "volume": [{"id": 1, "material": "default"}],
+                    "surface": [{"id": 2}],
+                },
+                "boundary_conditions": [],
+                "exports": [],
+            },
         )
         result = provider.run_simulation(unit_cfg, {})
 

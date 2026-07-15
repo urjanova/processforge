@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.37] - 2026-07-15
+
+### Changed
+- Refactored FESTIM sim-type registry to use a strategy pattern matching OpenMC: `register_festim_sim_type` now accepts `(name, strategy_cls)` instead of `(name, description=...)`. New sim types are added by subclassing `FestimSimStrategy` and calling `register_festim_sim_type(name, MyStrategy)` — no changes to `FestimProvider` needed.
+
+### Added
+- Added `FestimSimStrategy` ABC and `FestimBuildHelpers` utility class to `festim_provider.py`.
+- Added `_HydrogenTransportStrategy` built-in strategy with local validation of `mesh`, `species`, `subdomains` fields.
+- Added `FestimProvider.run_simulation()` dispatch via `_SIM_TYPE_REGISTRY` lookup (mirrors OpenMC's strategy dispatch).
+
 ## [0.2.36] - 2026-07-15
 
 ### Added
