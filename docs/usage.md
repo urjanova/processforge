@@ -103,11 +103,3 @@ Results land in `./tmp_files`:
 ### OpenMC in containers
 
 OpenMC workflows require nuclear cross-section data. The container startup script `scripts/fetch_openmc_data.sh` downloads and caches it automatically into `/data` (the same volume also collects run outputs).
-
-### API server
-
-`pf-serve` launches an HTTP API for programmatic submission.
-
-```bash
-docker run -d --name pf-api -p 9000:9000 ghcr.io/urjanova/processforge:latest pf-serve
-```

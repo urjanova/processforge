@@ -17,12 +17,12 @@ RUN micromamba install -y -n base -f /tmp/environment.yml && \
 # Set the working directory
 WORKDIR /app
 
-# Install processforge and API dependencies from local source.
+# Install processforge from local source.
 # Copy package metadata first so dependency installation is cached
 # across source-code changes.
 COPY --chown=$MAMBA_USER:$MAMBA_USER pyproject.toml README.md ./
 COPY --chown=$MAMBA_USER:$MAMBA_USER src/ src/
-RUN micromamba run -n base python -m pip install -e ".[api,coolprop]"
+RUN micromamba run -n base python -m pip install -e ".[coolprop]"
 
 # Copy the rest of the repository (application code, scripts, tests)
 COPY --chown=$MAMBA_USER:$MAMBA_USER . .
@@ -53,13 +53,10 @@ ENV PROCESSFORGE_OUTPUT_DIR=/data
 ARG MAMBA_DOCKERFILE_COMMAND=activate
 USER $MAMBA_USER
 
-# Port used by the API server (pf-serve / python -m processforge.api.serve)
-EXPOSE 9000
-
 # Execute commands inside the activated conda environment. Default to CLI mode.
 # The fetch_openmc_data.sh script runs first and downloads any missing data files.
 # Examples:
 #   docker run --rm <image>                        # runs processforge
-#   docker run --rm -p 9000:9000 <image> pf-serve # runs API server
+#   docker run --rm <image> pf plan flowsheet.json  # validates a flowsheet
 ENTRYPOINT ["/usr/local/bin/_entrypoint.sh", "/app/scripts/fetch_openmc_data.sh"]
 CMD ["processforge"]
