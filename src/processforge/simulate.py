@@ -37,6 +37,21 @@ def _require_existing_file(path: str, label: str = "Flowsheet file") -> None:
         raise SystemExit(1)
 
 
+def _validate_snapshot_config(state: "SnapshotState", base_name: str) -> None:
+    """Warn if a loaded snapshot config has missing required fields."""
+    from .types import FlowsheetConfig
+    snap_cfg = state.config
+    try:
+        FlowsheetConfig.from_dict(snap_cfg)
+    except (TypeError, KeyError) as exc:
+        logger.warning(
+            f"⚠️  Snapshot '{state.snapshot_id}' for '{base_name}' has an "
+            f"incompatible config schema: {exc}. "
+            f"Delete 'outputs/{base_name}.pfstate' and re-run to create a "
+            f"fresh snapshot."
+        )
+
+
 def _validate_runtime_flowsheet(path: str) -> dict:
     """Validate flowsheet config and attach source path for runtime providers."""
     try:
@@ -89,6 +104,15 @@ def _cmd_init(args):
 
     os.makedirs(pf_dir, exist_ok=True)
     os.makedirs(outputs_dir, exist_ok=True)
+
+    # Remove stale .pfstate snapshot directories from outputs/
+    import shutil
+    for entry in os.listdir(outputs_dir):
+        if entry.endswith(".pfstate"):
+            stale = os.path.join(outputs_dir, entry)
+            if os.path.isdir(stale):
+                shutil.rmtree(stale)
+                logger.info(f"Removed stale snapshot: {stale}")
 
     # Write config.json (always)
     config_path = os.path.join(pf_dir, "config.json")
@@ -537,6 +561,7 @@ def _cmd_plan(args):
     state = sm.load_state()
     diff = None
     if state is not None:
+        _validate_snapshot_config(state, base_name)
         diff = sm.detect_structural_diff(config, state)
         _print_structural_diff(diff)
     else:

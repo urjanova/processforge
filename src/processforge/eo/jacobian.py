@@ -376,14 +376,17 @@ class GlobalJacobianManager:
         """
         Return column groups that can be perturbed simultaneously.
 
-        Two columns can be grouped if they never appear together in the same
-        residual block.  Here we use the conservative grouping: one group per
-        stream, where columns within the same stream block are perturbed together.
+        Each group contains a single column so that the finite-difference
+        Jacobian correctly captures the derivative of each variable
+        independently.  Perturbing multiple variables in a stream block
+        simultaneously produces identical dF vectors for every column in
+        the group, which yields a rank-deficient Jacobian.
         """
         groups: list[list[int]] = []
         for sv in self._streams.values():
             o = sv.global_offset
-            groups.append(list(range(o, o + sv.n_vars)))
+            for i in range(sv.n_vars):
+                groups.append([o + i])
         return groups
 
     @property
