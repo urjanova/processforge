@@ -328,7 +328,8 @@ def _cmd_plan(args):
 
     # Step 6: Structural diff vs. saved state
     base_name = os.path.splitext(os.path.basename(fname))[0]
-    state_path = os.path.join("outputs", f"{base_name}.pfstate")
+    outputs_dir = _output_root()
+    state_path = os.path.join(outputs_dir, f"{base_name}.pfstate")
     sm = StateManager(state_path)
     state = sm.load_state()
     diff = None
