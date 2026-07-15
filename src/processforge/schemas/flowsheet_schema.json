@@ -163,9 +163,9 @@
       "patternProperties": {
         "^[a-zA-Z0-9_]+$": {
           "type": "object",
-          "required": ["friendly_material_mix_id", "components"],
+          "required": ["id", "components"],
           "properties": {
-            "friendly_material_mix_id": {
+            "id": {
               "type": "integer",
               "description": "Unique numeric ID for this material mix"
             },
@@ -227,7 +227,7 @@
             },
             "material_mix": {
               "type": "integer",
-              "description": "friendly_material_mix_id of the material mix carried by this stream"
+              "description": "id of the material mix carried by this stream"
             }
           },
           "additionalProperties": true

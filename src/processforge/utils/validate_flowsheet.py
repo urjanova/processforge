@@ -354,9 +354,9 @@ def _check_material_semantics(config):
                 f"❌ Duplicate id values found: {sorted(dupes)}"
             )
 
-        # 3. friendly_material_mix_id uniqueness
+        # 3. material_mix id uniqueness
         mix_ids = [
-            mix_def["friendly_material_mix_id"]
+            mix_def["id"]
             for mix_def in material_mixes.values()
         ]
         if len(mix_ids) != len(set(mix_ids)):
@@ -366,7 +366,7 @@ def _check_material_semantics(config):
                     dupes.add(i)
                 seen.add(i)
             raise ValueError(
-                f"❌ Duplicate friendly_material_mix_id values found: {sorted(dupes)}"
+                f"❌ Duplicate material_mix id values found: {sorted(dupes)}"
             )
 
         # 4 & 5. Mix component name resolution and fraction sum
@@ -408,9 +408,9 @@ def _check_material_semantics(config):
                     f"explicit composition — not both."
                 )
 
-        # 6. Stream material_mix references must resolve to a valid friendly_material_mix_id
+        # 6. Stream material_mix references must resolve to a valid material_mix id
         valid_mix_ids = {
-            mix_def["friendly_material_mix_id"]
+            mix_def["id"]
             for mix_def in material_mixes.values()
         }
         for stream_name, stream_def in config.get("streams", {}).items():
@@ -418,7 +418,7 @@ def _check_material_semantics(config):
             if mix_ref is not None and mix_ref not in valid_mix_ids:
                 raise ValueError(
                     f"❌ Stream '{stream_name}' references material_mix id {mix_ref}, "
-                    f"which does not match any friendly_material_mix_id in material_mixes."
+                    f"which does not match any id in material_mixes."
                 )
 
     # 7. Every unit must reference a valid id (SolverUnit without material field is exempt)
@@ -752,7 +752,7 @@ def _resolve_material_mix_streams(config: dict) -> dict:
     """Expand material_mix references on streams into z composition dicts.
 
     For every stream that carries a ``material_mix`` integer
-    (a ``friendly_material_mix_id``), this function looks up the corresponding
+    (a ``material_mix_id``), this function looks up the corresponding
     mix definition and writes its component fractions into ``stream["z"]``.
     This expansion happens after validation so that the solver receives a fully
     populated ``z`` dict regardless of whether the author wrote ``z`` explicitly
@@ -774,7 +774,7 @@ def _resolve_material_mix_streams(config: dict) -> dict:
         return config
 
     id_to_mix = {
-        mix_def["friendly_material_mix_id"]: mix_def
+        mix_def["id"]: mix_def
         for mix_def in material_mixes.values()
     }
 

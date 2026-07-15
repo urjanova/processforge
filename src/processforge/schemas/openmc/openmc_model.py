@@ -140,7 +140,7 @@ class TallyFilter(BaseModel):
 
 
 class Tally(BaseModel):
-    friendly_tally_id: int = Field(description="Unique identifier for the tally.")
+    tally_id: int = Field(description="Unique identifier for the tally.")
     name: Optional[str] = Field(default=None, description="Descriptive name of the tally.")
     filters: List[TallyFilter] = Field(description="List of filters applied to the tally.")
     scores: List[str] = Field(description="List of scores to be tallied (e.g., ['flux', 'fission', 'absorption']).")
@@ -379,7 +379,7 @@ class KeffTrigger(BaseModel):
 
 
 class OpenMCSetting(BaseModel):
-    friendly_setting_id: int = Field(examples=[1], description="Unique identifier for the setting as an integer.")
+    setting_id: int = Field(examples=[1], description="Unique identifier for the setting as an integer.")
     batches: int = Field(examples=[100, 200], description="Number of batches to simulate.")
     inactive: int = Field(examples=[10, 20], description="Number of inactive batches.")
     particles: int = Field(examples=[1000, 2000], description="Number of particles per generation.")

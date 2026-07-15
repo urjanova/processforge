@@ -163,7 +163,6 @@ def solve_with_homotopy(
         )
 
     import numpy as np
-    x_sol, converged, stats = solver.solve(manager, x0)
 
     if not isinstance(state, SnapshotState):
         x0 = np.array(state["x"])

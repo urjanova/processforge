@@ -617,7 +617,13 @@ def _cmd_apply(args):
         if not drifted:
             logger.info("✅ No drift detected. System is already at the desired state.")
             return
-        logger.info(f"⚠️ Drift detected: {drifted}")
+        stream_drifts = [d for d in drifted if d.startswith("streams.")]
+        unit_drifts = [d for d in drifted if d.startswith("units.")]
+        logger.warning("⚠️ Drift detected:")
+        if stream_drifts:
+            logger.warning(f"  Stream drift : {stream_drifts}")
+        if unit_drifts:
+            logger.warning(f"  Unit drift   : {unit_drifts}")
 
     # Build flowsheet; attach saved state for warm-start unless topology changed
     fs = EOFlowsheet(config, backend=args.backend)

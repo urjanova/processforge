@@ -22,7 +22,7 @@
   },
   "material_mixes": {
     "Water_Toluene_Mix": {
-      "friendly_material_mix_id": 1,
+      "id": 1,
       "percent_type": "ao",
       "components": [
         {"name": "Water", "fraction": 0.8},

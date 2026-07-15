@@ -45,7 +45,7 @@
   },
   "material_mixes": {
     "Benzene_Toluene_Mix": {
-      "friendly_material_mix_id": 1,
+      "id": 1,
       "percent_type": "ao",
       "components": [
         {"name": "Benzene", "fraction": 0.5},

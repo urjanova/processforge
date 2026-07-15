@@ -229,7 +229,8 @@ class StateManager:
     def detect_drift(self, current_config: dict, state: SnapshotState | dict) -> list[str]:
         """Return parameter paths that differ between ``current_config`` and saved state.
 
-        Paths look like ``"streams.feed.T"`` or ``"units.pump_1.parameters.deltaP"``.
+        Paths look like ``"streams.feed.T"``, ``"units.pump_1.deltaP"``,
+        or ``"units.pump_1.parameters.X"``.
         """
         old_config = state.config if isinstance(state, SnapshotState) else state["config"]
         drifted: list[str] = []
@@ -246,11 +247,23 @@ class StateManager:
                 if cur_z.get(comp) != old_z.get(comp):
                     drifted.append(f"streams.{s_name}.z.{comp}")
 
+        _SKIP_KEYS = {"type", "in", "out", "out_vap", "out_liq", "provider", "parameters"}
+
         for u_name, u_cfg in current_config.get("units", {}).items():
             old_u = old_config.get("units", {}).get(u_name, {})
-            for param, val in u_cfg.get("parameters", {}).items():
-                if val != old_u.get("parameters", {}).get(param):
-                    drifted.append(f"units.{u_name}.parameters.{param}")
+
+            # Top-level scalar keys (mirrors detect_structural_diff comparison)
+            all_keys = set(u_cfg) | set(old_u)
+            for k in all_keys - _SKIP_KEYS:
+                if u_cfg.get(k) != old_u.get(k):
+                    drifted.append(f"units.{u_name}.{k}")
+
+            # Nested "parameters" dict
+            cur_params = u_cfg.get("parameters", {})
+            old_params = old_u.get("parameters", {})
+            for pk in set(cur_params) | set(old_params):
+                if cur_params.get(pk) != old_params.get(pk):
+                    drifted.append(f"units.{u_name}.parameters.{pk}")
 
         return drifted
 

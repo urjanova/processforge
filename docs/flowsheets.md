@@ -17,7 +17,7 @@ Processforge flowsheets are defined as JSON files. Use `simulation.mode` to sele
   },
   "material_mixes": {
     "Water_Toluene_Mix": {
-      "friendly_material_mix_id": 1,
+      "id": 1,
       "percent_type": "ao",
       "components": [
         { "name": "Water",   "fraction": 0.8 },
@@ -51,12 +51,12 @@ Stream composition can be defined in two ways:
 "feed": { "T": 298.15, "P": 101325, "flowrate": 1.0, "z": { "Water": 0.8, "Toluene": 0.2 } }
 ```
 
-**`material_mix` reference** — define a reusable mix in the top-level `material_mixes` section and reference it by `friendly_material_mix_id`.
+**`material_mix` reference** — define a reusable mix in the top-level `material_mixes` section and reference it by `id`.
 
 ```json
 "material_mixes": {
   "Water_Toluene_Mix": {
-    "friendly_material_mix_id": 1,
+    "id": 1,
     "percent_type": "ao",
     "components": [
       { "name": "Water",   "fraction": 0.8 },
@@ -71,7 +71,7 @@ Stream composition can be defined in two ways:
 
 Rules:
 - `z` and `material_mix` are mutually exclusive on a single stream.
-- `friendly_material_mix_id` values must be unique across all mixes.
+- `id` values must be unique across all mixes.
 - Each component `name` in a mix must match a key in the top-level `materials` section.
 - When all component fractions are provided they must sum to 1.0.
 
