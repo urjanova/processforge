@@ -18,8 +18,6 @@ def _ensure_array(value):
     arr = np.asarray(value)
     if arr.ndim == 0:
         arr = arr.reshape((1,))
-    if arr.dtype.kind == "U":
-        arr = arr.astype(object)
     return arr
 
 

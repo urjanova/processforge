@@ -60,6 +60,12 @@ class MaterialDef:
         })
         known = {k: v for k, v in d.items() if k in known_keys}
         extra = {k: v for k, v in d.items() if k not in known_keys}
+        # An explicit "extra" object in the JSON holds provider-specific
+        # properties; flatten it so providers read e.g. extra["D_0"] directly
+        # rather than extra["extra"]["D_0"].
+        nested = extra.pop("extra", None)
+        if isinstance(nested, dict):
+            extra = {**nested, **extra}
         return cls(**known, extra=extra)
 
     def get(self, key: str, default=None):
@@ -93,7 +99,7 @@ class UnitConfig:
     """
 
     type: str
-    material: int
+    material: Optional[int] = None
     provider: Optional[str] = None
     inputs: list = field(default_factory=list)      # JSON "in" key
     out: Optional[str] = None
@@ -225,12 +231,51 @@ class OpenMCProviderConfig:
         )
 
 
+@dataclass
+class FestimProviderConfig:
+    """Configuration for the FESTIM hydrogen transport provider.
+
+    FESTIM runs as an external Docker service. The ``url`` field points to
+    the service's HTTP endpoint (default ``http://localhost:9002``).
+
+    Flowsheet JSON examples::
+
+        "providers": {
+            "festim": {
+                "type": "festim",
+                "url": "http://localhost:9002"
+            }
+        }
+
+    Cloud deployment::
+
+        "providers": {
+            "festim": {
+                "type": "festim",
+                "url": "https://festim-production.up.railway.app"
+            }
+        }
+    """
+
+    type: str = "festim"
+    url: Optional[str] = None
+    output_dir: str = "outputs/festim"
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "FestimProviderConfig":
+        return cls(
+            url=d.get("url"),
+            output_dir=d.get("output_dir", "outputs/festim"),
+        )
+
+
 #: Union of all known provider config types — extend when adding a new provider.
 ProviderConfig = Union[
     CoolPropProviderConfig,
     CanteraProviderConfig,
     ModelicaProviderConfig,
     OpenMCProviderConfig,
+    FestimProviderConfig,
 ]
 
 _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
@@ -238,6 +283,7 @@ _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
     "cantera": CanteraProviderConfig,
     "modelica": ModelicaProviderConfig,
     "openmc": OpenMCProviderConfig,
+    "festim": FestimProviderConfig,
 }
 
 

@@ -1,0 +1,70 @@
+{
+  "metadata": {
+    "name": "FESTIM Hydrogen Transport — 1D Diffusion",
+    "description": "Simple 1D hydrogen diffusion through a slab. Fixed concentration BCs: c=1 on left, c=0 on right. D_0=1 m²/s, E_D=0 eV, T=300 K.",
+    "version": "1.0"
+  },
+  "providers": {
+    "festim": {
+      "type": "festim",
+      "url": "http://localhost:9002",
+      "output_dir": "festim"
+    }
+  },
+  "materials": {
+    "default": {
+      "id": 1,
+      "extra": {
+        "D_0": 1,
+        "E_D": 0.0
+      }
+    }
+  },
+  "streams": {},
+  "units": {
+    "festim_solver": {
+      "type": "SolverUnit",
+      "provider": "festim",
+      "sim_type": "hydrogen_transport",
+      "mesh": {
+        "vertices": [0.0, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01]
+      },
+      "species": [
+        { "name": "H" }
+      ],
+      "subdomains": {
+        "volume": [
+          { "id": 1, "borders": [0.0, 0.01], "material": "default" }
+        ],
+        "surface": [
+          { "id": 2, "x": 0.0 },
+          { "id": 3, "x": 0.01 }
+        ]
+      },
+      "boundary_conditions": [
+        { "type": "fixed_concentration", "subdomain_id": 2, "species": "H", "value": 1 },
+        { "type": "fixed_concentration", "subdomain_id": 3, "species": "H", "value": 0 }
+      ],
+      "exports": [
+        { "type": "vtx_species", "field": "H", "filename": "hydrogen_concentration.bp", "times": "milestones" },
+        { "type": "profile_1d", "field": "H", "volume_id": 1, "times": "milestones" }
+      ],
+      "solver_config": {
+        "atol": 1e-10,
+        "rtol": 1e-10,
+        "final_time": 2,
+        "temperature": 300,
+        "stepsize": {
+          "initial_value": 0.05,
+          "growth_factor": 1.1,
+          "cutback_factor": 0.9,
+          "target_nb_iterations": 4,
+          "milestones": [0.05, 0.1, 0.2, 0.5, 1]
+        }
+      }
+    }
+  },
+  "simulation": {
+    "mode": "steady"
+  }
+}
