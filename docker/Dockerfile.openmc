@@ -1,0 +1,22 @@
+FROM mambaorg/micromamba:1.5.8
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/*
+USER $MAMBA_USER
+
+# OpenMC is only available on conda-forge
+RUN micromamba install -y -n base -c conda-forge openmc && \
+    micromamba clean --all --yes
+
+WORKDIR /app
+RUN micromamba run -n base pip install processforge fastapi uvicorn
+
+COPY provider_server.py .
+
+ENV PROVIDER_TYPE=openmc
+ENV OPENMC_DATA_ROOT=/data
+VOLUME /data
+
+EXPOSE 9001
+CMD ["micromamba", "run", "-n", "base", "python", "provider_server.py"]

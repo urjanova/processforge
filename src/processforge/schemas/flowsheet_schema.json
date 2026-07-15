@@ -43,6 +43,10 @@
             "cross_sections": {
               "type": "string",
               "description": "OpenMC provider: path to cross_sections.xml. Overrides OPENMC_CROSS_SECTIONS env var."
+            },
+            "docker_image": {
+              "type": "string",
+              "description": "Docker image for containerized providers (openmc, festim). Overrides the catalog default when set."
             }
           },
           "additionalProperties": true

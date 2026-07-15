@@ -160,6 +160,21 @@ class TestFestimProviderConfig:
         })
         assert cfg.output_dir == "/tmp/festim"
 
+    def test_from_dict_with_docker_image(self):
+        from processforge.types import FestimProviderConfig
+
+        cfg = FestimProviderConfig.from_dict({
+            "type": "festim",
+            "docker_image": "my-org/custom-festim:v2",
+        })
+        assert cfg.docker_image == "my-org/custom-festim:v2"
+
+    def test_docker_image_defaults_to_none(self):
+        from processforge.types import FestimProviderConfig
+
+        cfg = FestimProviderConfig()
+        assert cfg.docker_image is None
+
     def test_in_registry(self):
         from processforge.types import _PROVIDER_CONFIG_REGISTRY
 
@@ -207,7 +222,51 @@ class TestFestimCatalog:
 
 
 # ---------------------------------------------------------------------------
-# 5. HTTP client behaviour
+# 5. Sim-type registry
+# ---------------------------------------------------------------------------
+
+
+class TestFestimSimTypeRegistry:
+    """FESTIM sim_type registry must be importable and pre-seeded."""
+
+    def test_get_registered_sim_types_callable(self):
+        from processforge.providers.festim_provider import get_registered_sim_types
+
+        result = get_registered_sim_types()
+        assert isinstance(result, dict)
+
+    def test_hydrogen_transport_registered(self):
+        from processforge.providers.festim_provider import get_registered_sim_types
+
+        registry = get_registered_sim_types()
+        assert "hydrogen_transport" in registry
+        assert "description" in registry["hydrogen_transport"]
+
+    def test_register_new_sim_type(self):
+        from processforge.providers.festim_provider import (
+            _SIM_TYPE_REGISTRY,
+            get_registered_sim_types,
+            register_festim_sim_type,
+        )
+
+        register_festim_sim_type("custom_thing", description="a test type")
+        try:
+            registry = get_registered_sim_types()
+            assert "custom_thing" in registry
+        finally:
+            del _SIM_TYPE_REGISTRY["custom_thing"]
+
+    def test_returns_copy(self):
+        from processforge.providers.festim_provider import get_registered_sim_types
+
+        r1 = get_registered_sim_types()
+        r2 = get_registered_sim_types()
+        assert r1 == r2
+        assert r1 is not r2
+
+
+# ---------------------------------------------------------------------------
+# 6. HTTP client behaviour
 # ---------------------------------------------------------------------------
 
 

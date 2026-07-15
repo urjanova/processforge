@@ -43,11 +43,17 @@ The flowsheet JSON declares where each provider lives:
   "providers": {
     "openmc": {
       "type": "openmc",
+      "docker_image": "ghcr.io/urjanova/processforge-openmc:latest",
       "url": "http://localhost:9001"
     }
   }
 }
 ```
+
+The `docker_image` field tells `pf init` which image to pull for the
+Docker Compose service. The `url` field tells the `pf` CLI where to
+send HTTP requests at runtime. When `docker_image` is omitted, the
+catalog default is used.
 
 The same contract works whether the client is the `pf` CLI on your
 laptop, a FastAPI app on Railway, or any other HTTP client.
@@ -70,6 +76,20 @@ run locally. The flowsheet points to `localhost`:
 }
 ```
 
+To use a custom image instead of the catalog default:
+
+```json
+{
+  "providers": {
+    "openmc": {
+      "type": "openmc",
+      "docker_image": "my-org/custom-openmc:v2",
+      "url": "http://localhost:9001"
+    }
+  }
+}
+```
+
 ```
 $ pf init flowsheet.json
 $ pf validate flowsheet.json
@@ -86,6 +106,20 @@ their public or internal URLs. No local Docker needed:
   "providers": {
     "openmc": {
       "type": "openmc",
+      "url": "https://openmc-production.up.railway.app"
+    }
+  }
+}
+```
+
+When deploying a custom image, specify both `docker_image` and `url`:
+
+```json
+{
+  "providers": {
+    "openmc": {
+      "type": "openmc",
+      "docker_image": "my-org/custom-openmc:v2",
       "url": "https://openmc-production.up.railway.app"
     }
   }
@@ -212,6 +246,13 @@ providers. Use `pf run` for containerized providers.
 
 ## Creating a provider Dockerfile
 
+Reference Dockerfiles for OpenMC and FESTIM live in the `docker/`
+directory of the repository:
+
+- `docker/Dockerfile.openmc` — OpenMC provider image
+- `docker/Dockerfile.festim` — FESTIM provider image
+- `docker/provider_server.py` — shared FastAPI server used by both
+
 ### Minimal template
 
 ```dockerfile
@@ -305,6 +346,9 @@ CMD ["python", "provider_server.py"]
 ## Provider server
 
 Each container runs a thin FastAPI server with two endpoints.
+The reference implementation is `docker/provider_server.py` in the
+repository. The server reads the provider type from the `PROVIDER_TYPE`
+environment variable (set in each Dockerfile).
 
 ```python
 """Thin FastAPI server wrapping a Processforge provider."""
@@ -416,12 +460,14 @@ Users reference your provider in their flowsheet:
   "providers": {
     "my_provider": {
       "type": "my_provider",
+      "docker_image": "ghcr.io/yourorg/processforge-my-provider:latest",
       "url": "http://localhost:9003"
     }
   }
 }
 ```
 
+If `docker_image` is omitted, `pf init` uses the catalog default.
 If `url` is omitted, `pf init` defaults to `http://localhost:{default_port}`.
 
 ## Testing your container
@@ -452,3 +498,16 @@ If `url` is omitted, `pf init` defaults to `http://localhost:{default_port}`.
    ```
    pf validate my_flowsheet.json
    ```
+
+6. Use your custom image in a flowsheet:
+   ```json
+   {
+     "providers": {
+       "my_provider": {
+         "type": "my_provider",
+         "docker_image": "processforge-my-provider:latest"
+       }
+     }
+   }
+   ```
+   Then run `pf init flowsheet.json` to generate compose with your image.

@@ -208,6 +208,18 @@ class TestComposeGeneration:
         assert "openmc:" in content
         assert "festim:" in content
 
+    def test_generate_compose_custom_docker_image(self, tmp_pf_dir):
+        docker_providers = {
+            "openmc": {
+                "docker_image": "my-org/custom-openmc:v2",
+                "port": 9001,
+            },
+        }
+        generate_compose(str(tmp_pf_dir), docker_providers)
+        content = (tmp_pf_dir / COMPOSE_FILENAME).read_text()
+        assert "my-org/custom-openmc:v2" in content
+        assert "ghcr.io/urjanova/processforge-openmc" not in content
+
 
 # ---------------------------------------------------------------------------
 # Extract providers tests
