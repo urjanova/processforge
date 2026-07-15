@@ -6,38 +6,58 @@ A lightweight Python framework for process simulation, coupling hydraulic, therm
 
 ## Install
 
+Install the `pf` command-line tool with [uv](https://docs.astral.sh/uv/):
+
 ```bash
-uv add processforge
+uv tool install processforge
 ```
 
 For CoolProp-backed units:
 
 ```bash
-uv add "processforge[coolprop]"
+uv tool install "processforge[coolprop]"
 ```
 
 Optional solver backends:
 
 ```bash
-uv add "processforge[eo]"
-uv add "processforge[eo-casadi]"
-uv add "processforge[modelica]"
+uv tool install "processforge[eo]"
+uv tool install "processforge[eo-casadi]"
+uv tool install "processforge[modelica]"
 ```
 
 ## Quick start
 
-Use `plan` to validate and preview changes, then `apply` to solve and store a snapshot. For flowsheets without Tank units, use `apply` to solve with the EO solver. 
+1. **Install the tool**
 
-```bash
-pf init
-pf plan flowsheets/hydraulic-chain.json
-pf apply flowsheets/hydraulic-chain.json
-```
-For flowsheets with Tank units, use `run` to solve with the SM solver. For direct run mode (for dynamic flowsheets with Tank units), use `run`:
+   ```bash
+   uv tool install processforge
+   ```
 
-```bash
-pf run flowsheets/hydraulic-chain.json
-```
+2. **Download an example flowsheet**
+
+   ```bash
+   curl -O https://raw.githubusercontent.com/urjanova/processforge/master/flowsheets/hydraulic-chain.json
+   ```
+
+3. **Initialize, plan, and apply**
+
+   ```bash
+   pf init
+   pf plan hydraulic-chain.json
+   pf apply hydraulic-chain.json
+   ```
+
+   `plan` validates the flowsheet (schema, DOF, units) without running the solver; `apply` solves it and stores a snapshot.
+
+4. **Look at the output**
+
+   `pf apply` writes results under `outputs/`:
+   - `*_results.zarr` — simulation results store
+   - `*_validation.xlsx` — validation report
+   - `*.pfstate/` — versioned snapshot store with a `latest` pointer
+
+   For flowsheets with Tank units (dynamic), use `pf run` instead of `pf apply` to solve with the SM solver.
 
 ## Python API
 
