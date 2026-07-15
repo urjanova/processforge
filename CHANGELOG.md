@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.36] - 2026-07-15
+
+### Added
+- Added `pf validate` command to check provider reachability and pip importability before running simulations.
+- Added Docker provider support: `pf init flowsheet.json` reads provider declarations from the flowsheet, generates `docker-compose.yml` for containerized providers (openmc, festim), and writes `.processforge/lock.json`.
+- Added `url` field to flowsheet provider schema for declaring containerized provider endpoints.
+- Added `festim` to the provider catalog with Docker image and default port.
+- Added `docker_image`, `default_port` fields to `_PROVIDER_CATALOG` for all providers.
+- Added `get_provider_docker_image()`, `get_provider_default_port()`, `is_containerized()` helper functions to provider registry.
+- Added `lock.py` module for lock file read/write.
+- Added `compose.py` module for docker-compose.yml generation.
+- Added `docs/provider-docker-images.md` — guide for building Docker-based provider containers with API contract.
+
+### Changed
+- Rewrote `pf init` to be flowsheet-driven: reads provider declarations from the flowsheet JSON instead of accepting `--providers` flag. Generates compose + lock for containerized providers, validates pip providers are importable.
+- `pf run` and `pf apply` now check provider availability before executing (containerized providers must be reachable, pip providers must be importable).
+- Updated flowsheet schema to accept `festim` as a provider type and `url` field for containerized providers.
+- Updated `msre_eigenvalue.json` flowsheet to include `url` for local Docker container.
+
 ## [0.2.35] - 2026-07-15
 
 ### Fixed
