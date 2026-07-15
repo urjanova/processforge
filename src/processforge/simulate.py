@@ -65,8 +65,24 @@ def _build_run_metadata(config: dict, solver_tol: float, solver_max_iter: int, b
     }
 
 
+def _extract_providers(flowsheet_path: str) -> dict:
+    """Read flowsheet JSON and return the raw providers dict."""
+    with open(flowsheet_path, "r", encoding="utf-8") as f:
+        config = json.load(f)
+    return config.get("providers", {})
+
+
 def _cmd_init(args):
     """Initialise the .processforge/ project directory."""
+    from .providers.registry import (
+        is_containerized,
+        get_provider_docker_image,
+        get_provider_default_port,
+        _PROVIDER_CATALOG,
+    )
+    from .lock import write_lock
+    from .compose import generate_compose
+
     root = args.path or "."
     pf_dir = os.path.join(root, ".processforge")
     outputs_dir = os.path.join(root, "outputs")
@@ -74,6 +90,7 @@ def _cmd_init(args):
     os.makedirs(pf_dir, exist_ok=True)
     os.makedirs(outputs_dir, exist_ok=True)
 
+    # Write config.json (always)
     config_path = os.path.join(pf_dir, "config.json")
     if not os.path.exists(config_path):
         default_config = {
@@ -87,21 +104,204 @@ def _cmd_init(args):
     else:
         logger.info(f"{config_path} already exists — skipped.")
 
-    providers = args.providers or ""
-    for prov in [p.strip() for p in providers.split(",") if p.strip()]:
-        if prov == "coolprop":
-            logger.info("CoolProp: built-in, no download needed.")
-        elif prov == "cantera":
-            logger.info("Cantera: run `pip install 'processforge[cantera]'` to enable.")
-        elif prov == "modelica":
-            logger.info(
-                "Modelica/OMPython: run `pip install 'processforge[modelica]'` and "
-                "install OpenModelica (https://openmodelica.org) separately."
-            )
-        else:
-            logger.warning(f"Unknown provider '{prov}' — skipped.")
+    # No flowsheet → scaffold only
+    if not args.flowsheet:
+        logger.info(".processforge/ initialised successfully.")
+        logger.info("To set up providers: pf init <flowsheet.json>")
+        return
 
+    # Read providers from flowsheet
+    flowsheet_path = args.flowsheet
+    if not os.path.exists(flowsheet_path):
+        logger.error(f"Flowsheet '{flowsheet_path}' not found.")
+        raise SystemExit(1)
+
+    providers = _extract_providers(flowsheet_path)
+    logger.info(f"Reading providers from {flowsheet_path}...")
+
+    # Categorize providers
+    pip_providers = {}
+    docker_providers = {}
+    for name, cfg in providers.items():
+        ptype = cfg.get("type", "")
+        if is_containerized(ptype):
+            url = cfg.get("url")
+            if not url:
+                port = get_provider_default_port(ptype) or 9000
+                url = f"http://localhost:{port}"
+            docker_providers[name] = {
+                "type": ptype,
+                "url": url,
+                "docker_image": get_provider_docker_image(ptype),
+                "port": get_provider_default_port(ptype),
+            }
+            logger.info(f"  {name}: type={ptype}, url={url} (Docker)")
+        else:
+            pip_providers[name] = {"type": ptype}
+            logger.info(f"  {name}: type={ptype} (pip)")
+
+    # Validate pip providers are importable
+    import importlib
+
+    for name, info in pip_providers.items():
+        ptype = info["type"]
+        catalog = _PROVIDER_CATALOG.get(ptype, {})
+        module = catalog.get("module", "")
+        try:
+            importlib.util.find_spec(module)
+            logger.info(f"  ✓ {name} — importable")
+        except (ModuleNotFoundError, ValueError):
+            dep = catalog.get("optional_dep")
+            hint = f"pip install 'processforge[{dep}]'" if dep else "built-in"
+            logger.warning(f"  ✗ {name} — not installed. Install with: {hint}")
+
+    # Generate compose for Docker providers
+    if docker_providers:
+        compose_path = os.path.join(pf_dir, "docker-compose.yml")
+        if os.path.exists(compose_path):
+            logger.warning(
+                f"⚠ Environment already initialized — reinitializing from {flowsheet_path}"
+            )
+
+        generate_compose(pf_dir, docker_providers, outputs_dir)
+        logger.info(f"Generated {compose_path}")
+
+        # Attempt docker compose pull
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                ["docker", "compose", "-f", compose_path, "pull"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode == 0:
+                logger.info("Pulled Docker images.")
+            else:
+                logger.warning(f"docker compose pull failed: {result.stderr}")
+        except FileNotFoundError:
+            logger.warning(
+                "Docker not found. Install Docker to use containerized providers."
+            )
+        except subprocess.TimeoutExpired:
+            logger.warning("docker compose pull timed out.")
+    else:
+        logger.info("No containerized providers — skipping Docker setup.")
+
+    # Write lock file
+    lock_providers = {}
+    for name, cfg in providers.items():
+        ptype = cfg.get("type", "")
+        if is_containerized(ptype):
+            lock_providers[name] = {
+                "docker_image": get_provider_docker_image(ptype),
+                "url": cfg.get("url")
+                or f"http://localhost:{get_provider_default_port(ptype) or 9000}",
+            }
+        else:
+            lock_providers[name] = {
+                "docker_image": None,
+                "url": None,
+            }
+
+    from . import __version__ as pf_version
+
+    write_lock(pf_dir, flowsheet_path, lock_providers, pf_version)
+    logger.info(f"Wrote {os.path.join(pf_dir, 'lock.json')}")
     logger.info(".processforge/ initialised successfully.")
+
+
+def _cmd_validate(args):
+    """Check that providers and environment are ready for a flowsheet."""
+    import importlib
+    from .providers.registry import is_containerized, _PROVIDER_CATALOG
+
+    fname = args.flowsheet
+    _require_existing_file(fname, label="Flowsheet file")
+
+    config = _validate_runtime_flowsheet(fname)
+    providers = config.get("providers", {})
+
+    all_ok = True
+
+    for name, cfg in providers.items():
+        ptype = cfg.get("type", "")
+        catalog = _PROVIDER_CATALOG.get(ptype, {})
+
+        if is_containerized(ptype):
+            # Check Docker service reachability
+            url = cfg.get("url")
+            if not url:
+                from .providers.registry import get_provider_default_port
+
+                port = get_provider_default_port(ptype) or 9000
+                url = f"http://localhost:{port}"
+
+            import urllib.request
+            import urllib.error
+
+            try:
+                urllib.request.urlopen(f"{url}/health", timeout=5)
+                logger.info(f"✓ Provider '{name}' — reachable at {url}")
+            except (urllib.error.URLError, OSError, TimeoutError):
+                logger.error(f"✗ Provider '{name}' — unreachable at {url}")
+                logger.info(
+                    "  Start with: docker compose -f .processforge/docker-compose.yml up -d"
+                )
+                all_ok = False
+        else:
+            # Check pip importability
+            module = catalog.get("module", "")
+            try:
+                importlib.util.find_spec(module)
+                logger.info(f"✓ Provider '{name}' — importable (pip)")
+            except (ModuleNotFoundError, ValueError):
+                dep = catalog.get("optional_dep")
+                hint = f"pip install 'processforge[{dep}]'" if dep else "built-in"
+                logger.error(f"✗ Provider '{name}' — not installed. Install with: {hint}")
+                all_ok = False
+
+    if not all_ok:
+        raise SystemExit(1)
+
+    logger.info("All providers ready.")
+
+
+def _check_providers(config: dict, flowsheet_path: str) -> None:
+    """Verify all declared providers are reachable or importable. Exits on failure."""
+    import importlib
+    import urllib.request
+    import urllib.error
+    from .providers.registry import is_containerized, get_provider_default_port, _PROVIDER_CATALOG
+
+    providers = config.get("providers", {})
+    for name, cfg in providers.items():
+        ptype = cfg.get("type", "")
+        if is_containerized(ptype):
+            url = cfg.get("url")
+            if not url:
+                port = get_provider_default_port(ptype) or 9000
+                url = f"http://localhost:{port}"
+            try:
+                urllib.request.urlopen(f"{url}/health", timeout=5)
+            except (urllib.error.URLError, OSError, TimeoutError):
+                logger.error(
+                    f"Provider '{name}' unreachable at {url}. "
+                    f"Run: pf init {flowsheet_path}"
+                )
+                raise SystemExit(1)
+        else:
+            catalog = _PROVIDER_CATALOG.get(ptype, {})
+            module = catalog.get("module", "")
+            try:
+                importlib.util.find_spec(module)
+            except (ModuleNotFoundError, ValueError):
+                logger.error(
+                    f"Provider '{name}' not installed. "
+                    f"Run: pf init {flowsheet_path}"
+                )
+                raise SystemExit(1)
 
 
 def _cmd_run(args):
@@ -109,6 +309,9 @@ def _cmd_run(args):
     fname = args.flowsheet
     _require_existing_file(fname)
     config = _validate_runtime_flowsheet(fname)
+
+    # Check provider availability
+    _check_providers(config, fname)
 
     base_name = os.path.splitext(os.path.basename(fname))[0]
     outputs_dir = _output_root()
@@ -328,7 +531,8 @@ def _cmd_plan(args):
 
     # Step 6: Structural diff vs. saved state
     base_name = os.path.splitext(os.path.basename(fname))[0]
-    state_path = os.path.join("outputs", f"{base_name}.pfstate")
+    outputs_dir = _output_root()
+    state_path = os.path.join(outputs_dir, f"{base_name}.pfstate")
     sm = StateManager(state_path)
     state = sm.load_state()
     diff = None
@@ -371,6 +575,10 @@ def _cmd_apply(args):
     fname = args.flowsheet
     _require_existing_file(fname)
     config = _validate_runtime_flowsheet(fname)
+
+    # Check provider availability
+    _check_providers(config, fname)
+
     base_name = os.path.splitext(os.path.basename(fname))[0]
 
     sim_cfg = config.get("simulation", {})
@@ -533,14 +741,26 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # processforge init
-    init_parser = subparsers.add_parser("init", help="Initialise .processforge/ project directory")
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Initialise .processforge/ project directory and provider environment",
+    )
+    init_parser.add_argument(
+        "flowsheet", nargs="?", default=None,
+        help="Flowsheet JSON to initialise environment for (omit for scaffold only)",
+    )
     init_parser.add_argument(
         "--path", default=".",
         help="Root directory to initialise in (default: current directory)",
     )
-    init_parser.add_argument(
-        "--providers", default="",
-        help="Comma-separated provider names to set up (e.g. coolprop,cantera,modelica)",
+
+    # processforge validate
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Check providers and environment are ready for a flowsheet",
+    )
+    validate_parser.add_argument(
+        "flowsheet", help="Path to the flowsheet JSON file",
     )
 
     # processforge apply
@@ -654,6 +874,7 @@ def main():
 
     commands = {
         "init": _cmd_init,
+        "validate": _cmd_validate,
         "run": _cmd_run,
         "apply": _cmd_apply,
         "plan": _cmd_plan,

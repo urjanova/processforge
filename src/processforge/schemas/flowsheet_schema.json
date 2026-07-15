@@ -23,6 +23,11 @@
               "enum": ["coolprop", "cantera", "modelica", "openmc", "festim"],
               "description": "Provider engine type"
             },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Endpoint URL for containerized providers (openmc, festim). Omit for pip-installable providers (coolprop, cantera, modelica)."
+            },
             "mechanism": {
               "type": "string",
               "description": "Cantera mechanism file path (e.g. 'gri30.yaml')"

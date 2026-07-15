@@ -23,30 +23,48 @@ _BUILTIN_TYPES: frozenset[str] = frozenset({"coolprop"})
 
 # Canonical catalog of all supported providers.
 # ``list_providers()`` reads this to report what exists without importing anything.
-_PROVIDER_CATALOG: dict[str, dict[str, str | None]] = {
+# ``docker_image`` — pre-built Docker image for containerized providers (None for pip-installable).
+# ``default_port`` — default port for containerized providers (None for pip-installable).
+_PROVIDER_CATALOG: dict[str, dict[str, str | None | int]] = {
     "coolprop": {
         "module": "processforge.providers.coolprop_provider",
         "class": "CoolPropProvider",
         "optional_dep": None,
         "description": "Thermodynamic properties via CoolProp (built-in)",
+        "docker_image": None,
+        "default_port": None,
     },
     "cantera": {
         "module": "processforge.providers.cantera_provider",
         "class": "CanteraProvider",
         "optional_dep": "cantera",
         "description": "Thermochemistry and reactor kinetics via Cantera",
+        "docker_image": None,
+        "default_port": None,
     },
     "modelica": {
         "module": "processforge.providers.modelica_provider",
         "class": "ModelicaProvider",
         "optional_dep": "modelica",
         "description": "FMU-based simulation via OpenModelica",
+        "docker_image": None,
+        "default_port": None,
     },
     "openmc": {
         "module": "processforge.providers.openmc_provider",
         "class": "OpenMCProvider",
         "optional_dep": "openmc",
         "description": "Neutronics simulation via OpenMC",
+        "docker_image": "ghcr.io/urjanova/processforge-openmc:latest",
+        "default_port": 9001,
+    },
+    "festim": {
+        "module": "processforge.providers.festim_provider",
+        "class": "FestimProvider",
+        "optional_dep": "festim",
+        "description": "Hydrogen transport FEM via FESTIM",
+        "docker_image": "ghcr.io/urjanova/processforge-festim:latest",
+        "default_port": 9002,
     },
     "festim": {
         "module": "processforge.providers.festim_provider",
@@ -133,11 +151,34 @@ def list_providers() -> list[dict[str, object]]:
                 "type": type_name,
                 "description": info["description"],
                 "optional_dep": info["optional_dep"],
+                "docker_image": info.get("docker_image"),
+                "default_port": info.get("default_port"),
                 "installed": installed,
                 "registered": type_name in _PROVIDERS,
             }
         )
     return results
+
+
+def get_provider_docker_image(provider_type: str) -> str | None:
+    """Return the Docker image for a containerized provider, or None."""
+    info = _PROVIDER_CATALOG.get(provider_type)
+    if info is None:
+        raise ValueError(f"Unknown provider type '{provider_type}'")
+    return info.get("docker_image")
+
+
+def get_provider_default_port(provider_type: str) -> int | None:
+    """Return the default port for a containerized provider, or None."""
+    info = _PROVIDER_CATALOG.get(provider_type)
+    if info is None:
+        raise ValueError(f"Unknown provider type '{provider_type}'")
+    return info.get("default_port")
+
+
+def is_containerized(provider_type: str) -> bool:
+    """Return True if the provider runs in a Docker container."""
+    return get_provider_docker_image(provider_type) is not None
 
 
 # Seed the registry with the always-available CoolProp provider.
