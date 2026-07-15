@@ -55,39 +55,6 @@ if TYPE_CHECKING:
 
 _DEFAULT_PORT = 9002
 
-# Sim-type registry — maps sim_type strings to lightweight descriptors.
-# Unlike OpenMC (which uses strategy classes), FESTIM delegates entirely to
-# the container.  The registry exists only for *local* validation so that
-# ``pf plan`` / ``pf run`` can reject unknown sim_types before contacting
-# the service.
-_SIM_TYPE_REGISTRY: dict[str, dict] = {}
-
-
-def register_festim_sim_type(name: str, *, description: str = "") -> None:
-    """Register a FESTIM simulation type by name.
-
-    Args:
-        name:        The ``sim_type`` string used in the flowsheet JSON.
-        description: One-line human-readable summary.
-    """
-    _SIM_TYPE_REGISTRY[name] = {"description": description}
-
-
-def get_registered_sim_types() -> dict[str, dict]:
-    """Return a copy of the currently registered FESTIM sim_type descriptors.
-
-    Use this function (rather than accessing ``_SIM_TYPE_REGISTRY`` directly)
-    so that callers are insulated from internal implementation changes.
-    """
-    return dict(_SIM_TYPE_REGISTRY)
-
-
-# Seed built-in types.
-register_festim_sim_type(
-    "hydrogen_transport",
-    description="1-D hydrogen diffusion through a material slab",
-)
-
 
 # ---------------------------------------------------------------------------
 # Build helpers
