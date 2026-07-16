@@ -29,7 +29,7 @@ from .units.flash import Flash
 from .units.heater import Heater
 from .eo import EOFlowsheet, EOSolver
 
-__version__ = "0.1.0"
+__version__ = "0.2.39"
 
 __all__ = [
     "Flowsheet",

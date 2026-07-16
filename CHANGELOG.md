@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.39] - 2026-07-16
+
+### Changed
+- Refactored `simulate.py` (930 lines) into a modular `cli/` subpackage with one module per command. `simulate.py` is now ~50 lines (argparse setup + dispatch only).
+- Extracted shared helpers into `cli/common.py`: `output_root`, `require_existing_file`, `validate_runtime_flowsheet`, `validate_snapshot_config`, `build_run_metadata`, `extract_providers`, `load_state_manager`, `check_providers`, `log_residual_breakdown`, `build_divergence_report`, `write_divergence_report`, `save_snapshot`.
+- Merged duplicated provider-checking logic (`_cmd_validate` verbose mode vs `_check_providers` fail-fast mode) into a single `check_providers()` with `fail_fast` and `verbose` parameters.
+- Merged duplicated divergence-report construction in `_cmd_apply` (homotopy vs cold-start failure branches) into `build_divergence_report()`.
+- Merged duplicated residual-breakdown logging into `log_residual_breakdown()`.
+- Extracted display functions (`_print_dof_report`, `_print_unit_mismatches`, `_print_structural_diff`) into `cli/display.py`.
+- Added `load_state_manager()` helper replacing the repeated 3-line state-loading pattern across `run`, `plan`, and `apply`.
+- Added `save_snapshot()` helper with proper error handling and logging for state persistence failures.
+- Added `add_*_args()` / `cmd_*()` function pairs to each command module, enabling `set_defaults(func=...)` dispatch and eliminating the manual command dictionary.
+- Added full type annotations to all functions in the `cli/` subpackage (Python 3.12+ style).
+
+### Added
+- Added `cli/__init__.py` with `register_commands()` for subparser registration.
+- Added `cli/common.py` with shared CLI helpers.
+- Added `cli/display.py` with output formatting functions.
+- Added `cli/init.py`, `cli/validate.py`, `cli/run.py`, `cli/apply.py`, `cli/plan.py`, `cli/diagram.py`, `cli/export_fmu.py`, `cli/export_modelica.py` — one module per command.
+- Added `tests/test_cli.py` with tests for `main()` dispatch, `common.py` helpers, `display.py` formatting, and basic command error paths.
+
+### Improved logging
+- `pf run`: logs convergence status after `fs.run()`; logs when snapshot streams don't match current flowsheet; wraps `plot_results`/`plot_timeseries` in try/except with warning; wraps `build_dynamic_x0` failure with context.
+- `pf apply`: logs elapsed time and convergence status of direct solve; logs homotopy convergence stats (norm + iterations); logs which snapshot is being rolled back to; wraps `sm.save_state` in try/except with clear "state not persisted" message; improved cold-start failure messages distinguishing no-snapshot vs `--skip-homotopy`.
+- `pf plan`: wraps `validate_flowsheet_dict` unexpected exceptions; wraps `generate_mermaid` in try/except; creates output directory before diagram generation.
+- `pf diagram`: wraps `json.load` and `draw_flowsheet` in try/except with exception type context.
+- `pf export-fmu`: logs exception type alongside message; adds `logger.debug` with full traceback.
+- `pf export-modelica`: same pattern for both `transpile` and `compile_modelica` failures.
+- `extract_providers`: handles invalid JSON/missing files with SystemExit; warns when no providers are declared.
+- `validate_runtime_flowsheet`: adds `logger.debug` with full traceback on validation failure.
+- `pf init`: logs count of stale `.pfstate` snapshots removed.
+- `main()` catch-all: always logs traceback at debug level, even in non-debug mode.
+
 ## [0.2.38] - 2026-07-15
 
 ### Fixed

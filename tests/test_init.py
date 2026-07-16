@@ -228,29 +228,29 @@ class TestComposeGeneration:
 
 class TestExtractProviders:
     def test_extract_from_coolprop_flowsheet(self, coolprop_flowsheet):
-        from processforge.simulate import _extract_providers
+        from processforge.cli.common import extract_providers
 
-        providers = _extract_providers(str(coolprop_flowsheet))
+        providers = extract_providers(str(coolprop_flowsheet))
         assert "coolprop" in providers
         assert providers["coolprop"]["type"] == "coolprop"
 
     def test_extract_from_openmc_flowsheet(self, openmc_flowsheet):
-        from processforge.simulate import _extract_providers
+        from processforge.cli.common import extract_providers
 
-        providers = _extract_providers(str(openmc_flowsheet))
+        providers = extract_providers(str(openmc_flowsheet))
         assert "openmc" in providers
         assert providers["openmc"]["type"] == "openmc"
         assert providers["openmc"]["url"] == "http://localhost:9001"
 
     def test_extract_from_mixed_flowsheet(self, mixed_flowsheet):
-        from processforge.simulate import _extract_providers
+        from processforge.cli.common import extract_providers
 
-        providers = _extract_providers(str(mixed_flowsheet))
+        providers = extract_providers(str(mixed_flowsheet))
         assert "coolprop" in providers
         assert "openmc" in providers
 
     def test_extract_missing_file(self, tmp_path):
-        from processforge.simulate import _extract_providers
+        from processforge.cli.common import extract_providers
 
-        with pytest.raises(FileNotFoundError):
-            _extract_providers(str(tmp_path / "nonexistent.json"))
+        with pytest.raises(SystemExit):
+            extract_providers(str(tmp_path / "nonexistent.json"))
