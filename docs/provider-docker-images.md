@@ -2,424 +2,66 @@
 
 Guide for building Docker-based Processforge providers.
 
-## Why Docker?
+## Provider Checklist
+- [ ] Dockerfile builds & runs
+- [ ] `GET /health` returns `{"status": "ready", "provider_type": "..."}`
+- [ ] `POST /run` accepts UnitConfig + Materials, returns scalars + metadata
+- [ ] Errors return 4xx/5xx with `{"detail": "..."}`
+- [ ] Registered in `registry.py` with `docker_image` and `default_port`
+- [ ] Cross-section/data volumes documented (if needed)
 
-Some simulation codes are not available on PyPI. OpenMC and FESTIM, for
-example, are distributed through conda-forge and require system-level
-dependencies (MPI compilers, FEniCSx, HDF5) that are difficult to install
-alongside a pip-based Python environment. Docker solves this by packaging
-each provider and its dependencies into an isolated, reproducible image.
-
-Docker is also the deployment model for cloud and web service scenarios.
-A provider container runs independently, exposes a REST API, and can be
-scaled, updated, or replaced without touching the `pf` CLI or other
-providers.
-
-Even for packages that are available on pip, Docker can be useful when:
-
-- The provider has heavy native dependencies (MPI, FEniCSx, PETSc).
-- You need a specific version of a system library pinned.
-- You want to isolate the provider's environment from the host.
-- You are deploying to a platform that expects containerised services
-  (Kubernetes, Railway, AWS ECS).
-
-## How it works
-
-The `pf` CLI and any Processforge-compatible client communicate with
-provider containers over HTTP. Each container runs a thin FastAPI server
-that wraps the provider's Python library and exposes a standard API.
-
-```
-┌────────────┐        HTTP         ┌──────────────────────┐
-│  pf CLI    │ ──────────────────► │  processforge-openmc  │
-│  (client)  │                     │  :9001                │
-└────────────┘                     └──────────────────────┘
+## Quick Test
+```bash
+docker build -t my-provider .
+docker run -p 9003:9003 my-provider
+curl localhost:9003/health
+curl -X POST localhost:9003/run -d @test-request.json
+pf validate flowsheet.json  # with your image in providers.my_provider.docker_image
 ```
 
-The flowsheet JSON declares where each provider lives:
+## API Contract
+See [provider-api.openapi.json](../provider-api.openapi.json) for the full OpenAPI 3.1 specification.
 
-```json
-{
-  "providers": {
-    "openmc": {
-      "type": "openmc",
-      "docker_image": "ghcr.io/urjanova/processforge-openmc:latest",
-      "url": "http://localhost:9001"
-    }
-  }
-}
-```
+## Deployment Scenarios
 
-The `docker_image` field tells `pf init` which image to pull for the
-Docker Compose service. The `url` field tells the `pf` CLI where to
-send HTTP requests at runtime. When `docker_image` is omitted, the
-catalog default is used.
+| Scenario | `docker_image` | `url` | `pf init` behavior |
+|----------|----------------|-------|-------------------|
+| Local (catalog default) | omitted | omitted | Generates compose, uses catalog image & `localhost:{default_port}` |
+| Local (custom image) | your image | omitted | Generates compose, uses your image & `localhost:{default_port}` |
+| Cloud (Railway/ECS) | your image | your URL | Writes lock file only, no compose |
+| Same-platform FastAPI | omitted | internal URL | No Docker needed |
 
-The same contract works whether the client is the `pf` CLI on your
-laptop, a FastAPI app on Railway, or any other HTTP client.
-
-## Deployment scenarios
-
-### Local development
-
-`pf init` generates a `docker-compose.yml` and pulls images. Containers
-run locally. The flowsheet points to `localhost`:
-
-```json
-{
-  "providers": {
-    "openmc": {
-      "type": "openmc",
-      "url": "http://localhost:9001"
-    }
-  }
-}
-```
-
-To use a custom image instead of the catalog default:
-
-```json
-{
-  "providers": {
-    "openmc": {
-      "type": "openmc",
-      "docker_image": "my-org/custom-openmc:v2",
-      "url": "http://localhost:9001"
-    }
-  }
-}
-```
-
-```
-$ pf init flowsheet.json
-$ pf validate flowsheet.json
-$ pf run flowsheet.json
-```
-
-### Cloud (Railway, ECS, etc.)
-
-Provider containers are deployed separately. The flowsheet points to
-their public or internal URLs. No local Docker needed:
-
-```json
-{
-  "providers": {
-    "openmc": {
-      "type": "openmc",
-      "url": "https://openmc-production.up.railway.app"
-    }
-  }
-}
-```
-
-When deploying a custom image, specify both `docker_image` and `url`:
-
-```json
-{
-  "providers": {
-    "openmc": {
-      "type": "openmc",
-      "docker_image": "my-org/custom-openmc:v2",
-      "url": "https://openmc-production.up.railway.app"
-    }
-  }
-}
-```
-
-```
-$ pf init flowsheet.json    # writes lock file, no compose generated
-$ pf validate flowsheet.json  # checks reachability
-$ pf run flowsheet.json     # sends POST /run to Railway URL
-```
-
-### FastAPI app (same platform as providers)
-
-A FastAPI app deployed on the same platform as the provider containers
-can call them via internal networking. The API contract is identical —
-the app sends the same `POST /run` request that `pf` sends:
-
-```python
-import requests
-
-resp = requests.post(
-    "http://openmc-internal:9001/run",
-    json={"unit_config": {...}, "materials": {...}},
-)
-result = resp.json()
-```
-
-The `pf` CLI and the FastAPI app are both HTTP clients to the same
-provider services. The contract does not change.
-
-## API contract
-
-A provider container must expose two endpoints.
-
-### `GET /health`
-
-Health check. Returns 200 when the provider is ready to accept requests.
-
-```
-GET /health
-
-200 OK
-{
-  "status": "ready",
-  "provider_type": "openmc",
-  "version": "0.14.0"
-}
-```
-
-### `POST /run`
-
-Run a simulation. The request contains everything the container needs —
-unit configuration, materials, and any provider-specific settings. The
-response contains scalar results and metadata.
-
-```
-POST /run
-Content-Type: application/json
-
-{
-  "unit_config": {
-    "type": "SolverUnit",
-    "sim_type": "eigenvalue_csg",
-    "material": 1,
-    "solver_config": {
-      "batches": 100,
-      "inactive": 10,
-      "particles": 10000
-    }
-  },
-  "materials": {
-    "tungsten": {
-      "id": 1,
-      "density": 19.3,
-      "density_units": "g/cm3",
-      "nuclides": [{"name": "W184", "percent": 100.0, "percent_type": "ao"}]
-    }
-  }
-}
-
-200 OK
-{
-  "status": "completed",
-  "sim_type": "eigenvalue_csg",
-  "scalars": {
-    "k_eff": 1.0032,
-    "k_eff_std_dev": 0.0008
-  },
-  "metadata": {
-    "run_dir": "/data/openmc",
-    "statepoint_path": "/data/openmc/statepoint.100.h5"
-  }
-}
-```
-
-The container is stateless. Every request is self-contained. The `pf`
-CLI handles all validation, initialization, and teardown. The container
-just receives a request and returns a result.
-
-## Response format
-
-All endpoints return JSON. Successful responses use HTTP 200. Errors
-use HTTP 4xx/5xx with a consistent body:
-
-```json
-{
-  "detail": "OpenMC cross sections not found at /data/xs/cross_sections.xml"
-}
-```
-
-## Command support
-
-| Command | Containerized providers | Pip providers |
-|---------|------------------------|---------------|
-| `pf plan` | Yes (validation only, local) | Yes |
-| `pf validate` | Yes (checks reachability) | Yes (checks importability) |
-| `pf run` | Yes (POST /run to container) | Yes (runs in-process) |
-| `pf apply` | No — not supported | Yes (coolprop, cantera, modelica) |
-
-`pf apply` uses the EO solver which requires in-process access to
-thermodynamic property calls. It only works with pip-installable
-providers. Use `pf run` for containerized providers.
-
-## Creating a provider Dockerfile
-
-Reference Dockerfiles for OpenMC and FESTIM live in the `docker/`
-directory of the repository:
-
-- `docker/Dockerfile.openmc` — OpenMC provider image
-- `docker/Dockerfile.festim` — FESTIM provider image
-- `docker/provider_server.py` — shared FastAPI server used by both
-
-### Minimal template
-
+## Minimal Dockerfile Template
 ```dockerfile
 FROM python:3.12-slim
-
 WORKDIR /app
-
-# Install provider dependencies.
-# For conda-forge packages, use micromamba or conda.
-# For pip-only packages, use pip directly.
-RUN pip install --no-cache-dir \
-    processforge \
-    <provider-dependencies>
-
-# Copy the provider server (see "Provider server" below).
-COPY provider_server.py .
-
-EXPOSE 9001
-
-CMD ["python", "provider_server.py"]
-```
-
-### Example: OpenMC
-
-```dockerfile
-FROM mambaorg/micromamba:1.5.8
-
-USER root
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential && \
-    rm -rf /var/lib/apt/lists/*
-USER $MAMBA_USER
-
-# OpenMC is only available on conda-forge
-RUN micromamba install -y -n base -c conda-forge openmc && \
-    micromamba clean --all --yes
-
-WORKDIR /app
-RUN micromamba run -n base pip install processforge fastapi uvicorn
-
-COPY provider_server.py .
-
-ENV OPENMC_DATA_ROOT=/data
-VOLUME /data
-
-EXPOSE 9001
-CMD ["micromamba", "run", "-n", "base", "python", "provider_server.py"]
-```
-
-### Example: FESTIM
-
-```dockerfile
-FROM mambaorg/micromamba:1.5.8
-
-USER root
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential && \
-    rm -rf /var/lib/apt/lists/*
-USER $MAMBA_USER
-
-# FESTIM + FEniCSx are only available on conda-forge
-RUN micromamba install -y -n base -c conda-forge festim fenics-dolfinx && \
-    micromamba clean --all --yes
-
-WORKDIR /app
-RUN micromamba run -n base pip install processforge fastapi uvicorn
-
-COPY provider_server.py .
-
-VOLUME /data
-
-EXPOSE 9002
-CMD ["micromamba", "run", "-n", "base", "python", "provider_server.py"]
-```
-
-### Example: custom provider from pip
-
-Even if your provider is available on pip, you may want a Docker image
-for isolation or deployment:
-
-```dockerfile
-FROM python:3.12-slim
-
-WORKDIR /app
-RUN pip install --no-cache-dir processforge my-custom-provider fastapi uvicorn
-
-COPY provider_server.py .
-
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir "processforge[fastapi]"
+COPY my_provider.py .
 EXPOSE 9003
-CMD ["python", "provider_server.py"]
+CMD ["uvicorn", "my_provider:app", "--host", "0.0.0.0", "--port", "9003"]
 ```
 
-## Provider server
+Full examples: [`docker/Dockerfile.openmc`](../docker/Dockerfile.openmc), [`docker/Dockerfile.festim`](../docker/Dockerfile.festim)
 
-Each container runs a thin FastAPI server with two endpoints.
-The reference implementation is `docker/provider_server.py` in the
-repository. The server reads the provider type from the `PROVIDER_TYPE`
-environment variable (set in each Dockerfile).
+## Volumes
 
-```python
-"""Thin FastAPI server wrapping a Processforge provider."""
-from fastapi import FastAPI, HTTPException
+| Container path | Purpose | Host default |
+|----------------|---------|--------------|
+| `/data` | Simulation outputs | `outputs/` (`PROCESSFORGE_OUTPUT_DIR`) |
+| `/data/cross_sections` | OpenMC nuclear data | `outputs/cross_sections` |
 
-app = FastAPI()
+Generated compose files configure these mounts. Override with `PROCESSFORGE_OUTPUT_DIR`.
 
-
-@app.get("/health")
-def health():
-    return {
-        "status": "ready",
-        "provider_type": "openmc",
-    }
-
-
-@app.post("/run")
-def run(body: dict):
-    from processforge.types import UnitConfig, MaterialDef
-
-    unit_cfg = UnitConfig.from_dict(body["unit_config"])
-    materials = {
-        name: MaterialDef.from_dict(mat)
-        for name, mat in body.get("materials", {}).items()
-    }
-
-    # Initialize provider
-    from processforge.providers.registry import get_provider_class
-    provider = get_provider_class("openmc")()
-    # ... call provider.initialize() with config from body ...
-
-    # Run simulation
-    try:
-        result = provider.run_simulation(unit_cfg, body.get("inlet", {}))
-        return result.as_dict() | {"metadata": result.metadata}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        provider.teardown()
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=9001)
-```
-
-## Volume mounts
-
-Provider containers typically need access to:
-
-| Mount | Container path | Purpose |
-|-------|---------------|---------|
-| Output directory | `/data` | Simulation results, statepoint files |
-| Cross-section data | `/data/cross_sections` | OpenMC nuclear data |
-
-The `pf init` command generates compose files with these mounts
-configured. The host path defaults to `outputs/` and can be overridden
-with `PROCESSFORGE_OUTPUT_DIR`.
-
-For cloud deployments (Railway, ECS), use platform-native volume
-attachments instead of Docker Compose mounts.
-
-## Environment variables
+## Environment Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `PROCESSFORGE_OUTPUT_DIR` | `outputs` | Host directory mounted as `/data` |
-| `OPENMC_DATA_ROOT` | `/data` | Root directory for OpenMC data |
+| `OPENMC_DATA_ROOT` | `/data` | Root for OpenMC data |
 | `OPENMC_DATA_URL` | (none) | URL to download cross-section archive on first start |
 
-## Port conventions
+## Port Conventions
 
 | Provider | Default port |
 |----------|-------------|
@@ -427,15 +69,9 @@ attachments instead of Docker Compose mounts.
 | festim | 9002 |
 | (future) | 9003+ |
 
-## Registering your provider
+## Registering Your Provider
 
-After building and pushing your Docker image, register it in the
-Processforge provider catalog so `pf init` knows about it.
-
-**File:** `src/processforge/providers/registry.py`
-
-Add an entry to `_PROVIDER_CATALOG`:
-
+Edit `src/processforge/providers/registry.py`:
 ```python
 "my_provider": {
     "module": "processforge.providers.my_provider",
@@ -447,14 +83,7 @@ Add an entry to `_PROVIDER_CATALOG`:
 },
 ```
 
-The `docker_image` field tells `pf init` to generate a Docker Compose
-service. The `default_port` is used when the flowsheet omits the `url`
-field.
-
-## Flowsheet declaration
-
-Users reference your provider in their flowsheet:
-
+## Flowsheet Declaration
 ```json
 {
   "providers": {
@@ -466,48 +95,5 @@ Users reference your provider in their flowsheet:
   }
 }
 ```
-
-If `docker_image` is omitted, `pf init` uses the catalog default.
-If `url` is omitted, `pf init` defaults to `http://localhost:{default_port}`.
-
-## Testing your container
-
-1. Build the image:
-   ```
-   docker build -t processforge-my-provider .
-   ```
-
-2. Run the container:
-   ```
-   docker run -p 9003:9003 processforge-my-provider
-   ```
-
-3. Test the health endpoint:
-   ```
-   curl http://localhost:9003/health
-   ```
-
-4. Test simulation:
-   ```
-   curl -X POST http://localhost:9003/run \
-     -H "Content-Type: application/json" \
-     -d '{"unit_config": {"type": "SolverUnit", "sim_type": "..."}, "materials": {}, "inlet": {}}'
-   ```
-
-5. Validate from the `pf` CLI:
-   ```
-   pf validate my_flowsheet.json
-   ```
-
-6. Use your custom image in a flowsheet:
-   ```json
-   {
-     "providers": {
-       "my_provider": {
-         "type": "my_provider",
-         "docker_image": "processforge-my-provider:latest"
-       }
-     }
-   }
-   ```
-   Then run `pf init flowsheet.json` to generate compose with your image.
+- `docker_image` omitted → catalog default
+- `url` omitted → `http://localhost:{default_port}`
