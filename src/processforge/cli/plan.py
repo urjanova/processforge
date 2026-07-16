@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 
+import typer
 from loguru import logger
 
 from ..utils.validate_flowsheet import validate_flowsheet_dict
@@ -20,38 +20,37 @@ from .common import (
 from .display import print_dof_report, print_structural_diff, print_unit_mismatches
 
 
-def add_plan_args(parser: argparse.ArgumentParser) -> None:
-    """Add arguments for the ``plan`` subcommand."""
-    parser.add_argument("flowsheet", help="Path to .pcl or .json flowsheet file")
-    parser.add_argument(
-        "--output-dir", "-o", default="diagrams",
+def plan(
+    flowsheet: str = typer.Argument(help="Path to .pcl or .json flowsheet file"),
+    output_dir: str = typer.Option(
+        "diagrams",
+        "--output-dir",
+        "-o",
         help="Output directory for the Mermaid diagram (default: diagrams)",
-    )
-    parser.add_argument(
-        "--no-diagram", action="store_true",
+    ),
+    no_diagram: bool = typer.Option(
+        False,
+        "--no-diagram",
         help="Skip Mermaid diagram generation",
-    )
-
-
-def cmd_plan(args: argparse.Namespace) -> None:
+    ),
+) -> None:
     """Parse a PCL or JSON flowsheet, run validators, DOF analysis, structural diff, and emit a Mermaid diagram."""
-    fname = args.flowsheet
-    require_existing_file(fname, label="File")
+    require_existing_file(flowsheet, label="File")
 
     # Step 1: Load config
-    if fname.endswith(".pcl"):
+    if flowsheet.endswith(".pcl"):
         from ..pcl import load_pcl, PCLCompileError
         try:
-            json_config = load_pcl(fname)
+            json_config = load_pcl(flowsheet)
         except PCLCompileError as e:
             logger.error(f"PCL compile error: {e}")
             raise SystemExit(1)
     else:
         try:
-            with open(fname, "r", encoding="utf-8") as f:
+            with open(flowsheet, "r", encoding="utf-8") as f:
                 json_config = json.load(f)
         except json.JSONDecodeError as e:
-            logger.error(f"JSON parse error in '{fname}': {e}")
+            logger.error(f"JSON parse error in '{flowsheet}': {e}")
             raise SystemExit(1)
 
     # Step 2: Pint unit consistency check (before _units are stripped)
@@ -64,7 +63,7 @@ def cmd_plan(args: argparse.Namespace) -> None:
 
     # Step 4: Schema + connectivity validation
     try:
-        config = validate_flowsheet_dict(json_config, source_name=fname)
+        config = validate_flowsheet_dict(json_config, source_name=flowsheet)
     except SystemExit:
         raise
     except Exception as e:
@@ -90,7 +89,7 @@ def cmd_plan(args: argparse.Namespace) -> None:
                 )
 
     # Step 6: Structural diff vs. saved state
-    base_name = os.path.splitext(os.path.basename(fname))[0]
+    base_name = os.path.splitext(os.path.basename(flowsheet))[0]
     outputs_dir = output_root()
     sm, state = load_state_manager(outputs_dir, base_name)
     diff = None
@@ -117,10 +116,10 @@ def cmd_plan(args: argparse.Namespace) -> None:
         logger.info("  Homotopy eligible    : No (cold start)")
 
     # Step 7: Mermaid diagram
-    if not args.no_diagram:
-        output_dir = args.output_dir or "diagrams"
-        os.makedirs(output_dir, exist_ok=True)
-        out_path = os.path.join(output_dir, f"{base_name}_plan.mmd")
+    if not no_diagram:
+        diagram_output_dir = output_dir or "diagrams"
+        os.makedirs(diagram_output_dir, exist_ok=True)
+        out_path = os.path.join(diagram_output_dir, f"{base_name}_plan.mmd")
         try:
             generate_mermaid(config, output_path=out_path)
             logger.info(f"Mermaid diagram -> {out_path}")

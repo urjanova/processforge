@@ -1,18 +1,22 @@
 """Tests for the CLI layer — simulate.py, cli/common.py, cli/display.py, and command modules."""
 from __future__ import annotations
 
-import argparse
 import json
 import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from typer.testing import CliRunner
 from loguru import logger
+
+from processforge.simulate import app
 
 
 TESTS_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = TESTS_DIR.parent
+
+runner = CliRunner()
 
 
 # ---------------------------------------------------------------------------
@@ -71,42 +75,27 @@ def invalid_json(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# main() / argparse dispatch
+# main() / typer dispatch
 # ---------------------------------------------------------------------------
 
 class TestMain:
     def test_no_command_prints_help_and_exits(self):
-        from processforge.simulate import main
-
-        with patch("sys.argv", ["processforge"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-            assert exc_info.value.code == 1
+        result = runner.invoke(app, [])
+        assert result.exit_code == 1
 
     def test_help_exits_zero(self):
-        from processforge.simulate import main
-
-        with patch("sys.argv", ["processforge", "--help"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-            assert exc_info.value.code == 0
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "Processforge" in result.output
 
     def test_unknown_command_exits_nonzero(self):
-        from processforge.simulate import main
-
-        with patch("sys.argv", ["processforge", "nonexistent-cmd"]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-            assert exc_info.value.code != 0
+        result = runner.invoke(app, ["nonexistent-cmd"])
+        assert result.exit_code != 0
 
     def test_debug_flag_on_unhandled_exception(self, tmp_path):
-        from processforge.simulate import main
-
         bad_path = tmp_path / "no_such_file.json"
-        with patch("sys.argv", ["processforge", "--debug", "validate", str(bad_path)]):
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-            assert exc_info.value.code == 1
+        result = runner.invoke(app, ["--debug", "validate", str(bad_path)])
+        assert result.exit_code == 1
 
 
 # ---------------------------------------------------------------------------
@@ -294,16 +283,15 @@ class TestDisplay:
 
 class TestCmdInit:
     def test_scaffold_only(self, tmp_path, log_output):
-        from processforge.cli.init import cmd_init
+        from processforge.cli.init import init
 
-        args = argparse.Namespace(flowsheet=None, path=str(tmp_path))
-        cmd_init(args)
+        init(flowsheet=None, path=str(tmp_path))
         assert (tmp_path / ".processforge" / "config.json").exists()
         assert (tmp_path / "outputs").is_dir()
         assert any("initialised successfully" in m for m in log_output)
 
     def test_stale_snapshots_removed(self, tmp_path, log_output):
-        from processforge.cli.init import cmd_init
+        from processforge.cli.init import init
 
         outputs = tmp_path / "outputs"
         outputs.mkdir()
@@ -311,26 +299,23 @@ class TestCmdInit:
         stale.mkdir()
         (stale / "data.bin").write_bytes(b"stale")
 
-        args = argparse.Namespace(flowsheet=None, path=str(tmp_path))
-        cmd_init(args)
+        init(flowsheet=None, path=str(tmp_path))
         assert not stale.exists()
         assert any("1 stale snapshot" in m for m in log_output)
 
     def test_missing_flowsheet_exits(self, tmp_path):
-        from processforge.cli.init import cmd_init
+        from processforge.cli.init import init
 
-        args = argparse.Namespace(flowsheet="nonexistent.json", path=str(tmp_path))
         with pytest.raises(SystemExit) as exc_info:
-            cmd_init(args)
+            init(flowsheet="nonexistent.json", path=str(tmp_path))
         assert exc_info.value.code == 1
 
     def test_empty_providers_flowsheet(self, tmp_path, log_output):
-        from processforge.cli.init import cmd_init
+        from processforge.cli.init import init
 
         fs = tmp_path / "empty.json"
         fs.write_text(json.dumps({"providers": {}, "streams": {}, "units": {}}))
-        args = argparse.Namespace(flowsheet=str(fs), path=str(tmp_path))
-        cmd_init(args)
+        init(flowsheet=str(fs), path=str(tmp_path))
         assert any("No providers declared" in m for m in log_output)
         assert any("initialised successfully" in m for m in log_output)
 
@@ -341,18 +326,16 @@ class TestCmdInit:
 
 class TestCmdValidate:
     def test_missing_file_exits(self, tmp_path):
-        from processforge.cli.validate import cmd_validate
+        from processforge.cli.validate import validate
 
-        args = argparse.Namespace(flowsheet=str(tmp_path / "nope.json"))
         with pytest.raises(SystemExit) as exc_info:
-            cmd_validate(args)
+            validate(flowsheet=str(tmp_path / "nope.json"))
         assert exc_info.value.code == 1
 
     def test_valid_coolprop_flowsheet(self, coolprop_flowsheet, log_output):
-        from processforge.cli.validate import cmd_validate
+        from processforge.cli.validate import validate
 
-        args = argparse.Namespace(flowsheet=str(coolprop_flowsheet))
-        cmd_validate(args)
+        validate(flowsheet=str(coolprop_flowsheet))
         assert any("All providers ready" in m for m in log_output)
 
 
@@ -362,11 +345,10 @@ class TestCmdValidate:
 
 class TestCmdRun:
     def test_missing_file_exits(self, tmp_path):
-        from processforge.cli.run import cmd_run
+        from processforge.cli.run import run
 
-        args = argparse.Namespace(flowsheet=str(tmp_path / "nope.json"), export_images=False)
         with pytest.raises(SystemExit) as exc_info:
-            cmd_run(args)
+            run(flowsheet=str(tmp_path / "nope.json"), export_images=False)
         assert exc_info.value.code == 1
 
 
@@ -376,25 +358,23 @@ class TestCmdRun:
 
 class TestCmdDiagram:
     def test_missing_file_exits(self, tmp_path):
-        from processforge.cli.diagram import cmd_diagram
+        from processforge.cli.diagram import diagram
 
-        args = argparse.Namespace(
-            flowsheet=str(tmp_path / "nope.json"),
-            output_dir="diagrams",
-            format="png",
-        )
         with pytest.raises(SystemExit) as exc_info:
-            cmd_diagram(args)
+            diagram(
+                flowsheet=str(tmp_path / "nope.json"),
+                output_dir="diagrams",
+                format="png",
+            )
         assert exc_info.value.code == 1
 
     def test_invalid_json_exits(self, invalid_json):
-        from processforge.cli.diagram import cmd_diagram
+        from processforge.cli.diagram import diagram
 
-        args = argparse.Namespace(
-            flowsheet=str(invalid_json),
-            output_dir="diagrams",
-            format="png",
-        )
         with pytest.raises(SystemExit) as exc_info:
-            cmd_diagram(args)
+            diagram(
+                flowsheet=str(invalid_json),
+                output_dir="diagrams",
+                format="png",
+            )
         assert exc_info.value.code == 1

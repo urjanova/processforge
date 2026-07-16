@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 import time
+from typing import Literal
 
+import typer
 from loguru import logger
 
 from ..eo import EOFlowsheet
@@ -27,37 +28,37 @@ from .common import (
 from .display import print_structural_diff
 
 
-def add_apply_args(parser: argparse.ArgumentParser) -> None:
-    """Add arguments for the ``apply`` subcommand."""
-    parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
-    parser.add_argument(
-        "--backend", choices=["scipy", "pyomo", "casadi"], default=None,
+def apply(
+    flowsheet: str = typer.Argument(help="Path to the flowsheet JSON file"),
+    backend: Literal["scipy", "pyomo", "casadi"] | None = typer.Option(
+        None,
+        "--backend",
         help="Override the flowsheet's simulation.backend",
-    )
-    parser.add_argument(
-        "--tolerance", type=float, default=1e-6,
+    ),
+    tolerance: float = typer.Option(
+        1e-6,
+        "--tolerance",
         help="Newton solver convergence tolerance (default: 1e-6)",
-    )
-    parser.add_argument(
-        "--max-iter", type=int, default=50,
+    ),
+    max_iter: int = typer.Option(
+        50,
+        "--max-iter",
         help="Max Newton iterations (default: 50)",
-    )
-    parser.add_argument(
-        "--skip-homotopy", action="store_true",
+    ),
+    skip_homotopy: bool = typer.Option(
+        False,
+        "--skip-homotopy",
         help="Disable homotopy fallback; cold-start only",
-    )
-
-
-def cmd_apply(args: argparse.Namespace) -> None:
+    ),
+) -> None:
     """Apply flowsheet: drift detection, warm-start, homotopy fallback, convergence guardrails."""
-    fname = args.flowsheet
-    require_existing_file(fname)
-    config = validate_runtime_flowsheet(fname)
+    require_existing_file(flowsheet)
+    config = validate_runtime_flowsheet(flowsheet)
 
     # Check provider availability
-    check_providers(config, fname)
+    check_providers(config, flowsheet)
 
-    base_name = os.path.splitext(os.path.basename(fname))[0]
+    base_name = os.path.splitext(os.path.basename(flowsheet))[0]
 
     sim_cfg = config.get("simulation", {})
     mode = sim_cfg.get("mode", "steady")
@@ -83,7 +84,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
 
     # Parameter drift (only meaningful when topology is unchanged)
     drifted: list[str] = []
-    current_metadata = build_run_metadata(config, args.tolerance, args.max_iter, args.backend or "scipy")
+    current_metadata = build_run_metadata(config, tolerance, max_iter, backend or "scipy")
     if state is not None and not topology_changed:
         mismatches = sm.validate_metadata(current_metadata, state)
         if mismatches:
@@ -101,10 +102,10 @@ def cmd_apply(args: argparse.Namespace) -> None:
             logger.warning(f"  Unit drift   : {unit_drifts}")
 
     # Build flowsheet; attach saved state for warm-start unless topology changed
-    fs = EOFlowsheet(config, backend=args.backend)
+    fs = EOFlowsheet(config, backend=backend)
     fs.saved_state = state if not topology_changed else None
-    fs.solver_tol = args.tolerance
-    fs.solver_max_iter = args.max_iter
+    fs.solver_tol = tolerance
+    fs.solver_max_iter = max_iter
 
     logger.info("=== Running Apply (Steady-State EO) ===")
     t0 = time.perf_counter()
@@ -136,14 +137,14 @@ def cmd_apply(args: argparse.Namespace) -> None:
         return
 
     # Direct solve failed — try homotopy (only when topology is same and state exists)
-    if state is not None and not topology_changed and drifted and not args.skip_homotopy:
+    if state is not None and not topology_changed and drifted and not skip_homotopy:
         logger.warning("Direct solve failed. Attempting homotopy continuation...")
         from ..eo.solver import EOSolver, solve_with_homotopy
         from ..eo.flowsheet import EOFlowsheet as _EO
         from ..providers.manager import teardown_providers
 
-        solver = EOSolver(backend=fs.backend, tol=args.tolerance, max_iter=args.max_iter)
-        tmp_fs = _EO(config, backend=args.backend)
+        solver = EOSolver(backend=fs.backend, tol=tolerance, max_iter=max_iter)
+        tmp_fs = _EO(config, backend=backend)
         manager = tmp_fs._build()
         try:
             x_hom, hom_converged, hom_stats = solve_with_homotopy(
@@ -189,7 +190,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
         # Cold start also failed; no rollback (nothing to revert to)
         if not drifted and state is None:
             logger.error("Cold-start solve failed to converge (no prior snapshot).")
-        elif args.skip_homotopy:
+        elif skip_homotopy:
             logger.error("Cold-start solve failed to converge (--skip-homotopy).")
         else:
             logger.error("Cold-start solve failed to converge.")

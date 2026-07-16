@@ -2,31 +2,29 @@
 
 from __future__ import annotations
 
-import argparse
 import importlib
 import json
 import os
 import shutil
 import subprocess
 
+import typer
 from loguru import logger
 
 from .common import extract_providers
 
 
-def add_init_args(parser: argparse.ArgumentParser) -> None:
-    """Add arguments for the ``init`` subcommand."""
-    parser.add_argument(
-        "flowsheet", nargs="?", default=None,
+def init(
+    flowsheet: str | None = typer.Argument(
+        default=None,
         help="Flowsheet JSON to initialise environment for (omit for scaffold only)",
-    )
-    parser.add_argument(
-        "--path", default=".",
+    ),
+    path: str = typer.Option(
+        ".",
+        "--path",
         help="Root directory to initialise in (default: current directory)",
-    )
-
-
-def cmd_init(args: argparse.Namespace) -> None:
+    ),
+) -> None:
     """Initialise the .processforge/ project directory."""
     from ..providers.registry import (
         is_containerized,
@@ -37,7 +35,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     from ..lock import write_lock
     from ..compose import generate_compose
 
-    root = args.path or "."
+    root = path or "."
     pf_dir = os.path.join(root, ".processforge")
     outputs_dir = os.path.join(root, "outputs")
 
@@ -70,13 +68,13 @@ def cmd_init(args: argparse.Namespace) -> None:
         logger.info(f"{config_path} already exists — skipped.")
 
     # No flowsheet → scaffold only
-    if not args.flowsheet:
+    if not flowsheet:
         logger.info(".processforge/ initialised successfully.")
         logger.info("To set up providers: pf init <flowsheet.json>")
         return
 
     # Read providers from flowsheet
-    flowsheet_path = args.flowsheet
+    flowsheet_path = flowsheet
     if not os.path.exists(flowsheet_path):
         logger.error(f"Flowsheet '{flowsheet_path}' not found.")
         raise SystemExit(1)

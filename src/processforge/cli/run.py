@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import argparse
 import os
 
+import typer
 from loguru import logger
 
 from ..flowsheet import Flowsheet
@@ -20,26 +20,22 @@ from .common import (
 )
 
 
-def add_run_args(parser: argparse.ArgumentParser) -> None:
-    """Add arguments for the ``run`` subcommand."""
-    parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
-    parser.add_argument(
+def run(
+    flowsheet: str = typer.Argument(help="Path to the flowsheet JSON file"),
+    export_images: bool = typer.Option(
+        False,
         "--export-images",
-        action="store_true",
         help="Generate PNG plots for simulation outputs",
-    )
-
-
-def cmd_run(args: argparse.Namespace) -> None:
+    ),
+) -> None:
     """Run a process simulation from a flowsheet JSON file."""
-    fname = args.flowsheet
-    require_existing_file(fname)
-    config = validate_runtime_flowsheet(fname)
+    require_existing_file(flowsheet)
+    config = validate_runtime_flowsheet(flowsheet)
 
     # Check provider availability
-    check_providers(config, fname)
+    check_providers(config, flowsheet)
 
-    base_name = os.path.splitext(os.path.basename(fname))[0]
+    base_name = os.path.splitext(os.path.basename(flowsheet))[0]
     outputs_dir = output_root()
 
     sim_cfg = config.get("simulation", {})
@@ -101,7 +97,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     save_results_zarr(results, zarr_path, run_info=run_info)
     logger.info(f"Results saved to {zarr_path}")
 
-    if args.export_images:
+    if export_images:
         try:
             plot_results(results, fname=f"{base_name}_results.png")
             plot_timeseries(results, fname=f"{base_name}_timeseries.png")

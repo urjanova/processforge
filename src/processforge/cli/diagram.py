@@ -2,50 +2,46 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
+from typing import Literal
 
+import typer
 from loguru import logger
 
 from ..utils.flowsheet_diagram import draw_flowsheet
 from .common import require_existing_file
 
 
-def add_diagram_args(parser: argparse.ArgumentParser) -> None:
-    """Add arguments for the ``diagram`` subcommand."""
-    parser.add_argument("flowsheet", help="Path to the flowsheet JSON file")
-    parser.add_argument(
+def diagram(
+    flowsheet: str = typer.Argument(help="Path to the flowsheet JSON file"),
+    output_dir: str = typer.Option(
+        "diagrams",
         "--output-dir",
         "-o",
-        default="diagrams",
         help="Output directory (default: diagrams)",
-    )
-    parser.add_argument(
+    ),
+    format: Literal["png", "svg", "pdf"] = typer.Option(
+        "png",
         "--format",
         "-f",
-        default="png",
-        choices=["png", "svg", "pdf"],
         help="Output format (default: png)",
-    )
-
-
-def cmd_diagram(args: argparse.Namespace) -> None:
+    ),
+) -> None:
     """Generate a flowsheet diagram from a JSON file."""
-    fname = args.flowsheet
-    require_existing_file(fname)
+    require_existing_file(flowsheet)
 
     try:
-        with open(fname, "r", encoding="utf-8") as f:
+        with open(flowsheet, "r", encoding="utf-8") as f:
             flowsheet_schema = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
-        logger.error(f"Failed to read flowsheet '{fname}': {e}")
+        logger.error(f"Failed to read flowsheet '{flowsheet}': {e}")
         raise SystemExit(1)
 
-    output_dir = args.output_dir or "diagrams"
-    fmt = args.format or "png"
+    output_dir = output_dir or "diagrams"
+    fmt = format or "png"
 
-    base_name = os.path.splitext(os.path.basename(fname))[0]
+    base_name = os.path.splitext(os.path.basename(flowsheet))[0]
 
     try:
         output_path = draw_flowsheet(
