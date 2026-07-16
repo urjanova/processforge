@@ -68,8 +68,10 @@ fs = EOFlowsheet(config, backend="scipy")
 results = fs.run()
 ```
 
-## Usage and Docker
-Processforge is also available as Docker images, and can be run in the cloud. See the [usage guide](docs/usage.md) for CLI commands, workflows, Docker, and cloud notes.
+## Usage
+See the [usage guide](docs/usage.md) for CLI commands and workflows.
+
+Individual providers (e.g. FESTIM, OpenMC) can be run via Docker images using the provider image contract.
 
 ## Flowsheets
 The core of Processforge is the flowsheet JSON format, which defines materials, units, and recycle rules. See below for more information on the formats and example flowsheets.

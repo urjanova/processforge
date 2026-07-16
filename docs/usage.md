@@ -49,3 +49,9 @@ results = fs.run()
 Optional backends:
 - `"pyomo"` — requires `processforge[eo]`
 - `"casadi"` — requires `processforge[eo-casadi]`
+
+## Docker (Provider Images)
+
+Individual providers such as FESTIM and OpenMC can be run via Docker images using the provider image contract. Processforge itself is not distributed as a Docker image.
+
+Refer to the provider documentation for available Docker image tags and configuration.
