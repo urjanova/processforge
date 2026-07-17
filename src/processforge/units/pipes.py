@@ -2,11 +2,11 @@ import copy
 import math
 
 from ..eo.units.pipes_eo import PipesEOMixin
-from .provider_mixin import ProviderMixin
+from .base import BaseUnitMixin
 from .registry import register_unit
 
 
-class Pipes(ProviderMixin, PipesEOMixin):
+class Pipes(BaseUnitMixin, PipesEOMixin):
     """
     Simple steady-state pipes model.
     Represents pipes connecting units, with a fixed pressure drop due to friction.

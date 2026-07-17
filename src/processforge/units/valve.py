@@ -1,11 +1,11 @@
 import copy
 
 from ..eo.units.valve_eo import ValveEOMixin
-from .provider_mixin import ProviderMixin
+from .base import BaseUnitMixin
 from .registry import register_unit
 
 
-class Valve(ProviderMixin, ValveEOMixin):
+class Valve(BaseUnitMixin, ValveEOMixin):
     """
     Simple steady-state valve model.
     Reduces pressure according to a fixed ratio (P_out = ratio * P_in).

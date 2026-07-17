@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from loguru import logger
 
-from .provider_mixin import ProviderMixin
+from .base import BaseUnitMixin
 from .registry import register_unit
 
 
-class CSTR(ProviderMixin):
+class CSTR(BaseUnitMixin):
     """Continuous Stirred Tank Reactor unit operation.
 
     Actual reactor integration is performed by the attached ``CanteraProvider``

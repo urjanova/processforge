@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
-from .provider_mixin import ProviderMixin
+from .base import BaseUnitMixin
 from .registry import register_unit
 from processforge.types import UnitConfig
 
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from processforge.providers.base import AbstractProvider
 
 
-class SolverUnit(ProviderMixin):
+class SolverUnit(BaseUnitMixin):
     """Generic provider-driven simulation unit.
 
     Delegates all execution to ``provider.run_simulation()``.  Has no
@@ -65,7 +65,7 @@ class SolverUnit(ProviderMixin):
         self.name = name
         self.params = params
         self._last_result: Optional["SimulationResult"] = None
-        # Injected by build_units via ProviderMixin — declared here for type checkers
+        # Set by flowsheet._build_unit() after construction
         self._provider: Optional["AbstractProvider"] = None
 
     def _run_impl(self, inlet: dict) -> dict:

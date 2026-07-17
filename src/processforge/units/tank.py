@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 from dataclasses import dataclass
-from .provider_mixin import ProviderMixin
+from .base import BaseUnitMixin
 from .registry import register_unit
 
 
@@ -13,7 +13,7 @@ class TankState:
     n_total: float
 
 
-class Tank(ProviderMixin):
+class Tank(BaseUnitMixin):
     """
     Simple well-mixed molar tank.
     Parameters expected in params:
