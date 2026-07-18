@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-07-18
+
+### Changed
+- **Breaking**: Flattened Zarr result layout — composition arrays are now written directly in the stream group instead of a `__composition__` sub-group. SolverUnit results are stored as group attrs instead of 1-element arrays. `_load_dataframe_from_zarr` uses raw variable names as DataFrame columns. Removed backward compat with v0.2 stores.
+- **Added**: `schema.json` file written alongside the Zarr store with per-stream variable names, dtypes, units, and structural metadata, backed by new `ResultSchema` Pydantic model in `result_schema.py`.
+
 ## [0.2.40] - 2026-07-16
 
 ### Changed

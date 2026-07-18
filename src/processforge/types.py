@@ -1,22 +1,20 @@
-"""Framework-level typed dataclasses for the provider interface.
+"""Framework-level typed models for the provider interface.
 
 These types form the contract between the processforge framework and providers.
 They contain only fields the framework itself understands; provider-specific
 properties (e.g. nuclides for OpenMC) travel in ``extra``.
 
-Adding a new provider never requires changes to these dataclasses.
+Adding a new provider never requires changes to these models.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Optional, Union
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
-@dataclass
-class MaterialDef:
+class MaterialDef(BaseModel):
     """Framework-level representation of a material loaded from the flowsheet JSON.
 
     Fields mirror the schema's ``materials`` section. Provider-specific
@@ -34,18 +32,8 @@ class MaterialDef:
     density_units: Optional[str] = None
     temperature: Optional[float] = None
     depletable: bool = False
-    nuclides: list = field(default_factory=list)
-    extra: dict = field(default_factory=dict)
-
-    _KNOWN_FIELDS: frozenset = field(
-        default=frozenset({
-            "id", "density", "density_units",
-            "temperature", "depletable", "nuclides",
-        }),
-        init=False,
-        repr=False,
-        compare=False,
-    )
+    nuclides: list = []
+    extra: dict = {}
 
     @classmethod
     def from_dict(cls, d: dict) -> "MaterialDef":
@@ -54,10 +42,7 @@ class MaterialDef:
         Known framework fields populate typed attributes; everything else
         goes into ``extra`` for provider-specific access.
         """
-        known_keys = frozenset({
-            "id", "density", "density_units",
-            "temperature", "depletable", "nuclides",
-        })
+        known_keys = cls.model_fields.keys() - {"extra"}
         known = {k: v for k, v in d.items() if k in known_keys}
         extra = {k: v for k, v in d.items() if k not in known_keys}
         # An explicit "extra" object in the JSON holds provider-specific
@@ -74,17 +59,13 @@ class MaterialDef:
         Lets provider code use ``mat_def.get("D_0")`` without caring
         whether the field is a typed attribute or a provider-specific extra.
         """
-        known_keys = frozenset({
-            "id", "density", "density_units",
-            "temperature", "depletable", "nuclides",
-        })
+        known_keys = type(self).model_fields.keys() - {"extra"}
         if key in known_keys:
             return getattr(self, key, default)
         return self.extra.get(key, default)
 
 
-@dataclass
-class UnitConfig:
+class UnitConfig(BaseModel):
     """Framework-level representation of a unit definition loaded from JSON.
 
     ``in`` is a Python keyword so inlet stream names use ``inputs``.
@@ -101,44 +82,31 @@ class UnitConfig:
     type: str
     material: Optional[int] = None
     provider: Optional[str] = None
-    inputs: list = field(default_factory=list)      # JSON "in" key
+    inputs: list = []                                # JSON "in" key
     out: Optional[str] = None
     retentate_out: Optional[str] = None
     permeate_out: Optional[str] = None
     sim_type: Optional[str] = None
-    solver_config: dict = field(default_factory=dict)
-    extra: dict = field(default_factory=dict)
-
-    _KNOWN_FIELDS: frozenset = field(
-        default=frozenset({
-            "type", "material", "provider", "out", "retentate_out",
-            "permeate_out", "sim_type", "solver_config",
-        }),
-        init=False,
-        repr=False,
-        compare=False,
-    )
+    solver_config: dict = {}
+    extra: dict = {}
 
     @classmethod
     def from_dict(cls, d: dict) -> "UnitConfig":
         """Construct from a raw unit config dict."""
-        known_keys = frozenset({
-            "type", "material", "provider", "out", "retentate_out",
-            "permeate_out", "sim_type", "solver_config",
-        })
         raw_in = d.get("in", [])
         inputs = [raw_in] if isinstance(raw_in, str) else list(raw_in or [])
+        known_keys = cls.model_fields.keys() - {"extra", "inputs"}
         known = {k: v for k, v in d.items() if k in known_keys}
         extra = {k: v for k, v in d.items() if k not in known_keys and k != "in"}
         return cls(inputs=inputs, **known, extra=extra)
 
 
 # ---------------------------------------------------------------------------
-# Per-provider configuration dataclasses
+# Per-provider configuration models
 # ---------------------------------------------------------------------------
 
-@dataclass
-class CoolPropProviderConfig:
+
+class CoolPropProviderConfig(BaseModel):
     """Configuration for the built-in CoolProp provider (no extra fields)."""
 
     type: str = "coolprop"
@@ -148,8 +116,7 @@ class CoolPropProviderConfig:
         return cls()
 
 
-@dataclass
-class CanteraProviderConfig:
+class CanteraProviderConfig(BaseModel):
     """Configuration for the Cantera thermochemistry provider.
 
     Flowsheet JSON example::
@@ -171,8 +138,7 @@ class CanteraProviderConfig:
         )
 
 
-@dataclass
-class ModelicaProviderConfig:
+class ModelicaProviderConfig(BaseModel):
     """Configuration for the OpenModelica FMU provider.
 
     Flowsheet JSON example::
@@ -190,8 +156,7 @@ class ModelicaProviderConfig:
         return cls(output_dir=d.get("output_dir", "outputs"))
 
 
-@dataclass
-class OpenMCProviderConfig:
+class OpenMCProviderConfig(BaseModel):
     """Configuration for the OpenMC Monte Carlo neutronics provider.
 
     Paths support environment variable expansion (``${VAR}`` / ``$VAR``), which
@@ -242,8 +207,7 @@ class OpenMCProviderConfig:
         )
 
 
-@dataclass
-class FestimProviderConfig:
+class FestimProviderConfig(BaseModel):
     """Configuration for the FESTIM hydrogen transport provider.
 
     FESTIM runs as an external Docker service. The ``url`` field points to
@@ -310,7 +274,7 @@ _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
 
 
 def provider_config_from_dict(d: dict) -> ProviderConfig:
-    """Parse a raw provider config dict into the appropriate typed dataclass.
+    """Parse a raw provider config dict into the appropriate typed model.
 
     Args:
         d: Raw provider config block from the flowsheet JSON
@@ -335,11 +299,11 @@ def provider_config_from_dict(d: dict) -> ProviderConfig:
 # Full flowsheet configuration
 # ---------------------------------------------------------------------------
 
-@dataclass
-class FlowsheetConfig:
+
+class FlowsheetConfig(BaseModel):
     """Typed representation of a complete flowsheet configuration.
 
-    ``from_dict()`` converts the raw JSON dict into typed nested dataclasses:
+    ``from_dict()`` converts the raw JSON dict into typed nested models:
     providers → per-provider config classes, units → ``UnitConfig``,
     materials → ``MaterialDef``.  Unknown top-level keys land in ``extra``
     (e.g. ``_config_path`` injected at runtime by the Modelica runner).
@@ -352,33 +316,20 @@ class FlowsheetConfig:
         cfg.providers["openmc"]       # OpenMCProviderConfig
     """
 
-    providers: dict = field(default_factory=dict)   # dict[str, ProviderConfig]
+    providers: dict = {}             # dict[str, ProviderConfig]
     default_provider: Optional[str] = None
-    streams: dict = field(default_factory=dict)
-    units: dict = field(default_factory=dict)        # dict[str, UnitConfig]
-    materials: dict = field(default_factory=dict)    # dict[str, MaterialDef]
-    material_mixes: dict = field(default_factory=dict)
-    simulation: dict = field(default_factory=dict)
+    streams: dict = {}
+    units: dict = {}                 # dict[str, UnitConfig]
+    materials: dict = {}             # dict[str, MaterialDef]
+    material_mixes: dict = {}
+    simulation: dict = {}
     metadata: Optional[dict] = None
-    extra: dict = field(default_factory=dict)        # runtime / unknown fields
-
-    _KNOWN_FIELDS: frozenset = field(
-        default=frozenset({
-            "providers", "default_provider", "streams", "units",
-            "materials", "material_mixes", "simulation", "metadata",
-        }),
-        init=False,
-        repr=False,
-        compare=False,
-    )
+    extra: dict = {}                 # runtime / unknown fields
 
     @classmethod
     def from_dict(cls, d: dict) -> "FlowsheetConfig":
         """Construct from a raw flowsheet config dict (as loaded from JSON)."""
-        known_keys = frozenset({
-            "providers", "default_provider", "streams", "units",
-            "materials", "material_mixes", "simulation", "metadata",
-        })
+        known_keys = cls.model_fields.keys() - {"extra"}
         providers = {
             name: provider_config_from_dict(cfg)
             for name, cfg in d.get("providers", {}).items()
@@ -409,21 +360,17 @@ class FlowsheetConfig:
 
         Checks typed fields first, then ``extra``.  Returns ``default`` when
         the key is absent from both.  Exists primarily so helper functions that
-        pre-date this dataclass (e.g. ``_derive_model_name`` in transpiler.py)
+        pre-date this model (e.g. ``_derive_model_name`` in transpiler.py)
         keep working unchanged.
         """
-        known_keys = frozenset({
-            "providers", "default_provider", "streams", "units",
-            "materials", "material_mixes", "simulation", "metadata",
-        })
+        known_keys = type(self).model_fields.keys() - {"extra"}
         if key in known_keys:
             val = getattr(self, key)
             return val if val is not None else default
         return self.extra.get(key, default)
 
 
-@dataclass
-class SimulationResult:
+class SimulationResult(BaseModel):
     """Result returned by ``provider.run_simulation()``.
 
     ``scalars`` holds named scalar outputs (hydrogen_flux, k_effective, …)
@@ -433,16 +380,15 @@ class SimulationResult:
 
     status: str                                  # "completed" | "failed"
     sim_type: str
-    scalars: dict = field(default_factory=dict)  # {name: float}
-    metadata: dict = field(default_factory=dict) # e.g. {"xdmf_files": [...]}
+    scalars: dict = {}                           # {name: float}
+    metadata: dict = {}                          # e.g. {"xdmf_files": [...]}
 
     def as_dict(self) -> dict:
         """Flat dict for flowsheet result storage."""
         return {"status": self.status, "sim_type": self.sim_type, **self.scalars}
 
 
-@dataclass
-class RunInfo:
+class RunInfo(BaseModel):
     """Provenance metadata for a simulation run.
 
     This structure is written to the Zarr ``run_info`` group by
@@ -456,37 +402,27 @@ class RunInfo:
     processforge_version: str
     mode: str
     backend: str
-    pkg_versions: dict[str, str] = field(default_factory=dict)
+    pkg_versions: dict[str, str] = {}
     x0: Optional[list[float]] = None
     var_names: Optional[list[str]] = None
 
     def as_dict(self) -> dict:
         """Dict view for compatibility with older call sites."""
-        return {
-            "git_hash": self.git_hash,
-            "timestamp": self.timestamp,
-            "python_version": self.python_version,
-            "platform": self.platform,
-            "processforge_version": self.processforge_version,
-            "mode": self.mode,
-            "backend": self.backend,
-            "pkg_versions": dict(self.pkg_versions),
-            "x0": list(self.x0) if self.x0 is not None else None,
-            "var_names": list(self.var_names) if self.var_names is not None else None,
-        }
+        return self.model_dump()
 
 
-@dataclass
-class SnapshotState:
+class SnapshotState(BaseModel):
     """Typed snapshot payload loaded from a .pfstate store."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     config: dict
     x: list[float]
-    var_names: list[str] = field(default_factory=list)
+    var_names: list[str] = []
     snapshot_id: str = ""
     timestamp: str = ""
-    metadata: dict = field(default_factory=dict)
-    x_delta: np.ndarray = field(default_factory=lambda: np.array([]))
+    metadata: dict = {}
+    x_delta: np.ndarray = Field(default_factory=lambda: np.array([]))
     parent_snapshot_id: str | None = None
 
     def as_dict(self) -> dict:
@@ -539,16 +475,16 @@ class MergedInletTimeseries(BaseModel):
     # -- dict-compatible helpers for downstream consumers ------------------
 
     def get(self, key: str, default=None):
-        return getattr(self, key) if key in self.model_fields else default
+        return getattr(self, key) if key in MergedInletTimeseries.model_fields else default
 
     def items(self):
-        return ((name, getattr(self, name)) for name in self.model_fields)
+        return ((name, getattr(self, name)) for name in MergedInletTimeseries.model_fields)
 
     def keys(self):
-        return self.model_fields.keys()
+        return MergedInletTimeseries.model_fields.keys()
 
     def __contains__(self, key: str) -> bool:
-        return key in self.model_fields
+        return key in MergedInletTimeseries.model_fields
 
     def __iter__(self):
-        return iter(self.model_fields)
+        return iter(MergedInletTimeseries.model_fields)

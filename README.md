@@ -53,7 +53,8 @@ uv tool install "processforge[modelica]"
 4. **Look at the output**
 
    `pf apply` writes results under `outputs/`:
-   - `*_results.zarr` — simulation results store
+   - `*_results.zarr` — simulation results store (per-variable arrays, composition flattened)
+   - `*_results.zarr.schema.json` — schema file describing streams, variables, dtypes, units, shapes, and run provenance
    - `*_validation.xlsx` — validation report
    - `*.pfstate/` — versioned snapshot store with a `latest` pointer
 
