@@ -1,5 +1,6 @@
 import os
 import shutil
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -7,7 +8,10 @@ import matplotlib.pyplot as plt
 import zarr
 from loguru import logger
 
+from .result_schema import ResultSchema, SolverUnitSchema, StreamSchema
 from .types import RunInfo
+
+_VARIABLE_UNITS = {"T": "K", "P": "Pa", "flowrate": "mol/s", "beta": ""}
 
 
 def _ensure_parent_dir(path):
@@ -32,13 +36,19 @@ def _is_dynamic(results):
 def _store_stream(stream_group, stream_data):
     for key, value in stream_data.items():
         if key == "z" and isinstance(value, dict):
-            comp_group = stream_group.create_group("__composition__")
-            for comp, comp_values in sorted(value.items()):
-                comp_arr = _ensure_array(comp_values)
-                comp_group.create_array(comp, data=comp_arr)
+            for comp in sorted(value):
+                stream_group.create_array(comp, data=_ensure_array(value[comp]))
+            if value:
+                stream_group.attrs["composition"] = sorted(value)
             continue
-        arr = _ensure_array(value)
-        stream_group.create_array(key, data=arr)
+        stream_group.create_array(key, data=_ensure_array(value))
+
+
+def _store_solver_unit(group, data):
+    for k, v in data.items():
+        if isinstance(v, (np.ndarray, np.generic)):
+            v = v.item()
+        group.attrs[k] = v
 
 
 def _normalize_run_info(run_info: RunInfo | dict) -> dict:
@@ -93,6 +103,88 @@ def _store_run_info(root, run_info: RunInfo | dict) -> None:
             ig_group.attrs["var_names"] = list(var_names)
 
 
+def _friendly_dtype(dt: str) -> str:
+    dtype = str(dt)
+    if dtype.startswith(("<U", "|U")) or dtype.startswith(("<S", "|S")):
+        return "str"
+    return dtype
+
+
+def _build_schema(root) -> ResultSchema:
+    from . import __version__ as _pf_version
+
+    mode = root.attrs.get("mode", "steady")
+    schema = ResultSchema(
+        created=datetime.now(timezone.utc).isoformat(),
+        mode=mode,
+        processforge_version=_pf_version,
+    )
+
+    for name in sorted(root.group_keys()):
+        if name == "run_info":
+            continue
+        group = root[name]
+        arrays = sorted(group.array_keys())
+        if arrays:
+            dtypes = {k: _friendly_dtype(group[k].dtype) for k in arrays}
+            units = {k: _VARIABLE_UNITS.get(k, "") for k in arrays}
+            n_rows = max(group[k].shape[0] for k in arrays) if arrays else 0
+            schema.streams[name] = StreamSchema(
+                variables=arrays,
+                dtypes=dtypes,
+                units=units,
+                shape=[n_rows, len(arrays)],
+                has_time="time" in arrays,
+                has_phase="phase" in arrays,
+            )
+        else:
+            attrs_keys = sorted(k for k in group.attrs if not k.startswith("_"))
+            if attrs_keys:
+                dtypes = {k: type(group.attrs[k]).__name__ for k in attrs_keys}
+                schema.solver_units[name] = SolverUnitSchema(
+                    variables=attrs_keys, dtypes=dtypes
+                )
+
+    if "run_info" in root:
+        ri = root["run_info"]
+        prov = {}
+        for key in ("git_hash", "timestamp", "mode", "backend",
+                     "python_version", "platform", "processforge_version"):
+            if key in ri.attrs:
+                prov[key] = ri.attrs[key]
+                if key == "processforge_version":
+                    schema.processforge_version = ri.attrs[key]
+        if "pkg_versions" in ri:
+            prov["pkg_versions"] = dict(ri["pkg_versions"].attrs)
+        if prov:
+            schema.provenance = prov
+
+    return schema
+
+
+def _write_schema(store_path):
+    store = zarr.storage.LocalStore(store_path)
+    root = zarr.open_group(store=store, mode="r")
+    schema = _build_schema(root)
+    schema_path = store_path + ".schema.json"
+    with open(schema_path, "w", encoding="utf-8") as f:
+        f.write(schema.model_dump_json(indent=2))
+    logger.debug(f"Wrote schema to {schema_path}")
+
+
+def _write_schema_s3(s3_uri, storage_options):
+    import s3fs
+
+    store = zarr.storage.FsspecStore.from_url(s3_uri, storage_options=storage_options)
+    root = zarr.open_group(store=store, mode="r")
+    schema = _build_schema(root)
+    fs = s3fs.S3FileSystem(**storage_options)
+    schema_uri = s3_uri + ".schema.json"
+    with fs.open(schema_uri, "w") as f:
+        f.write(schema.model_dump_json(indent=2))
+    logger.debug(f"Wrote schema to {schema_uri}")
+
+
 def save_results_zarr(results, fname="results.zarr", run_info: RunInfo | dict | None = None):
     """Persist simulation results in a Zarr directory.
 
@@ -117,11 +209,27 @@ def save_results_zarr(results, fname="results.zarr", run_info: RunInfo | dict | 
     root = zarr.group(store=store)
     mode = "dynamic" if _is_dynamic(results) else "steady"
     root.attrs["mode"] = mode
-    for stream_name, stream_data in results.items():
-        stream_group = root.create_group(stream_name)
-        _store_stream(stream_group, stream_data)
+
+    streams = {}
+    solver_units = {}
+    for name, data in results.items():
+        if isinstance(data, dict) and "status" in data:
+            solver_units[name] = data
+        else:
+            streams[name] = data
+
+    for name, data in streams.items():
+        group = root.create_group(name)
+        _store_stream(group, data)
+
+    for name, data in solver_units.items():
+        group = root.create_group(name)
+        _store_solver_unit(group, data)
+
     if run_info is not None:
         _store_run_info(root, run_info)
+
+    _write_schema(store_path)
     logger.info(f"Saved Zarr results to {store_path}")
     return store_path
 
@@ -140,7 +248,6 @@ def save_results_zarr_s3(results, s3_uri: str, run_info: RunInfo | dict | None =
         run_info: Optional provenance metadata (same as :func:`save_results_zarr`).
     """
     import s3fs  # noqa: F401 – registers the s3:// protocol with fsspec
-    import os
 
     storage_options = {
         "key": os.environ.get("S3_ACCESS_KEY"),
@@ -160,11 +267,27 @@ def save_results_zarr_s3(results, s3_uri: str, run_info: RunInfo | dict | None =
     root = zarr.group(store=store, overwrite=True)
     mode = "dynamic" if _is_dynamic(results) else "steady"
     root.attrs["mode"] = mode
-    for stream_name, stream_data in results.items():
-        stream_group = root.create_group(stream_name)
-        _store_stream(stream_group, stream_data)
+
+    streams = {}
+    solver_units = {}
+    for name, data in results.items():
+        if isinstance(data, dict) and "status" in data:
+            solver_units[name] = data
+        else:
+            streams[name] = data
+
+    for name, data in streams.items():
+        group = root.create_group(name)
+        _store_stream(group, data)
+
+    for name, data in solver_units.items():
+        group = root.create_group(name)
+        _store_solver_unit(group, data)
+
     if run_info is not None:
         _store_run_info(root, run_info)
+
+    _write_schema_s3(s3_uri, storage_options)
     logger.info(f"Saved Zarr results to {s3_uri}")
 
 
@@ -270,53 +393,36 @@ def _scalar_from_sequence(value):
     return _convert_value(candidate)
 
 
-def _get_zarr_value(dataset, idx):
-    if dataset is None:
-        return ""
-    length = dataset.shape[0]
-    if length == 0:
-        return ""
-    position = min(idx, length - 1)
-    return _convert_value(dataset[position])
-
-
-def _build_dataframe_row(group, stream_name, idx, comp_names, include_time):
-    row = {"stream": stream_name}
-    if include_time and "time" in group:
-        row["time"] = _get_zarr_value(group.get("time"), idx)
-    row["T [K]"] = _get_zarr_value(group.get("T"), idx)
-    row["P [Pa]"] = _get_zarr_value(group.get("P"), idx)
-    row["Phase"] = _get_zarr_value(group.get("phase"), idx)
-    row["VaporFrac"] = _get_zarr_value(group.get("beta"), idx)
-    row["flowrate"] = _get_zarr_value(group.get("flowrate"), idx)
-    comp_group = group.get("__composition__")
-    if comp_group is not None:
-        for comp in comp_names:
-            row[comp] = _get_zarr_value(comp_group.get(comp), idx)
-    return row
-
-
 def _load_dataframe_from_zarr(store_path):
     store = zarr.storage.LocalStore(store_path)
     root = zarr.open(store=store, mode="r")
-    streams = sorted(k for k in root.group_keys() if k != "run_info")
     rows = []
-    components = set()
-    mode = root.attrs.get("mode", "steady")
-    for stream in streams:
+
+    for stream in sorted(k for k in root.group_keys() if k != "run_info"):
         group = root[stream]
-        comp_group = group.get("__composition__")
-        comp_names = sorted(comp_group.keys()) if comp_group is not None else []
-        components.update(comp_names)
-        has_time = "time" in group and mode == "dynamic"
-        length = group["time"].shape[0] if has_time else 1
-        for idx in range(length):
-            rows.append(_build_dataframe_row(group, stream, idx, comp_names, has_time))
-    df = pd.DataFrame(rows)
-    for comp in sorted(components):
-        if comp in df:
-            df[comp] = df[comp].fillna(0.0)
-        else:
-            df[comp] = 0.0
-    return df
+        arrays = list(group.array_keys())
+        if not arrays:
+            continue
+
+        has_time = "time" in group
+        time_arr = group["time"][:] if has_time else None
+        has_phase = "phase" in group
+        phase_arr = group["phase"][:] if has_phase else None
+
+        data_vars = [k for k in arrays if k not in ("time", "phase")]
+        if not data_vars:
+            continue
+        n = max(group[k].shape[0] for k in data_vars)
+
+        for idx in range(n):
+            row = {"stream": stream}
+            if has_time:
+                row["time"] = float(time_arr[idx])
+            for var in data_vars:
+                row[var] = _convert_value(group[var][idx])
+            if has_phase:
+                row["phase"] = str(phase_arr[idx])
+            rows.append(row)
+
+    return pd.DataFrame(rows)
 
