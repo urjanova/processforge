@@ -10,7 +10,7 @@ import typer
 from loguru import logger
 
 from ..utils.flowsheet_diagram import draw_flowsheet
-from .common import require_existing_file
+from .common import flowsheet_basename, require_existing_file
 
 
 def diagram(
@@ -41,7 +41,7 @@ def diagram(
     output_dir = output_dir or "diagrams"
     fmt = format or "png"
 
-    base_name = os.path.splitext(os.path.basename(flowsheet))[0]
+    base_name = flowsheet_basename(flowsheet)
 
     try:
         output_path = draw_flowsheet(

@@ -14,6 +14,7 @@ from ..result import plot_results, plot_timeseries, save_results_zarr
 from ..state import StateManager
 from .common import (
     check_providers,
+    flowsheet_basename,
     output_root,
     require_existing_file,
     validate_runtime_flowsheet,
@@ -35,7 +36,7 @@ def run(
     # Check provider availability
     check_providers(config, flowsheet)
 
-    base_name = os.path.splitext(os.path.basename(flowsheet))[0]
+    base_name = flowsheet_basename(flowsheet)
     outputs_dir = output_root()
 
     sim_cfg = config.get("simulation", {})

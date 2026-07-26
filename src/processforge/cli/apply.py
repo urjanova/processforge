@@ -17,6 +17,7 @@ from .common import (
     build_divergence_report,
     build_run_metadata,
     check_providers,
+    flowsheet_basename,
     load_state_manager,
     log_residual_breakdown,
     output_root,
@@ -58,7 +59,7 @@ def apply(
     # Check provider availability
     check_providers(config, flowsheet)
 
-    base_name = os.path.splitext(os.path.basename(flowsheet))[0]
+    base_name = flowsheet_basename(flowsheet)
 
     sim_cfg = config.get("simulation", {})
     mode = sim_cfg.get("mode", "steady")

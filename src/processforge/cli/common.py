@@ -34,6 +34,10 @@ def output_root() -> str:
     return os.environ.get("PROCESSFORGE_OUTPUT_DIR", "outputs")
 
 
+def flowsheet_basename(path: str) -> str:
+    return os.path.splitext(os.path.basename(path))[0]
+
+
 def require_existing_file(path: str, label: str = "Flowsheet file") -> None:
     """Fail fast with a consistent message when an input path is missing."""
     if not os.path.exists(path):

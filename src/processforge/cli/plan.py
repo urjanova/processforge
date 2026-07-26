@@ -12,6 +12,7 @@ from ..utils.validate_flowsheet import validate_flowsheet_dict
 from ..state import StateManager
 from ..utils.mermaid_diagram import generate_mermaid
 from .common import (
+    flowsheet_basename,
     load_state_manager,
     output_root,
     require_existing_file,
@@ -89,7 +90,7 @@ def plan(
                 )
 
     # Step 6: Structural diff vs. saved state
-    base_name = os.path.splitext(os.path.basename(flowsheet))[0]
+    base_name = flowsheet_basename(flowsheet)
     outputs_dir = output_root()
     sm, state = load_state_manager(outputs_dir, base_name)
     diff = None
