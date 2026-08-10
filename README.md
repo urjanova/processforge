@@ -43,9 +43,9 @@ uv tool install "processforge[modelica]"
 3. **Initialize, plan, and apply**
 
    ```bash
-   pf init
-   pf plan hydraulic-chain.json
-   pf apply hydraulic-chain.json
+   pf init flowsheets/hydraulic-chain.json
+   pf plan flowsheets/hydraulic-chain.json
+   pf apply flowsheets/hydraulic-chain.json
    ```
 
    `plan` validates the flowsheet (schema, DOF, units) without running the solver; `apply` solves it and stores a snapshot.
@@ -55,7 +55,6 @@ uv tool install "processforge[modelica]"
    `pf apply` writes results under `outputs/`:
    - `*_results.zarr` — simulation results store (per-variable arrays, composition flattened)
    - `*_results.zarr.schema.json` — schema file describing streams, variables, dtypes, units, shapes, and run provenance
-   - `*_validation.xlsx` — validation report
    - `*.pfstate/` — versioned snapshot store with a `latest` pointer
 
    For flowsheets with Tank units (dynamic), use `pf run` instead of `pf apply` to solve with the SM solver.
