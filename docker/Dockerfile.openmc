@@ -14,7 +14,9 @@ RUN micromamba run -n base pip install processforge fastapi uvicorn
 
 COPY provider_server.py .
 COPY fetch_openmc_data.sh .
+USER root
 RUN chmod +x /app/fetch_openmc_data.sh
+USER $MAMBA_USER
 
 ENV PROVIDER_TYPE=openmc
 ENV OPENMC_DATA_ROOT=/data
