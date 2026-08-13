@@ -17,6 +17,7 @@ from .common import (
     build_divergence_report,
     build_run_metadata,
     check_providers,
+    display_backend,
     flowsheet_basename,
     load_state_manager,
     log_residual_breakdown,
@@ -132,7 +133,7 @@ def apply(
         logger.info("  Status       : CONVERGED")
         logger.info(f"  Final ||F||  : {fs.solver_stats.get('final_norm', '?'):.3e}")
         logger.info(f"  Iterations   : {fs.solver_stats.get('iterations', '?')}")
-        logger.info(f"  Backend      : {fs.backend}")
+        logger.info(f"  Backend      : {display_backend(config, fs.backend)}")
         logger.info(f"  Snapshot ID  : {snapshot_id}")
         logger.info(f"  Results zarr : {zarr_path}")
         logger.info(f"  Elapsed (s)  : {elapsed:.2f}")

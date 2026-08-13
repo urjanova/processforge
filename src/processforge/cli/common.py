@@ -98,6 +98,23 @@ def build_run_metadata(config: dict, solver_tol: float, solver_max_iter: int, ba
     }
 
 
+def display_backend(config: dict, eo_backend: str) -> str:
+    """Resolve the backend label shown in run/apply summaries.
+
+    When a flowsheet delegates its computation to one or more providers
+    (e.g. ``openmc``, ``cantera``), the provider type is the engine that
+    actually ran the simulation — report that rather than the EO solver
+    backend (which is a no-op for provider-driven flowsheets).  Falls back
+    to the EO solver backend when no providers are declared.
+    """
+    provider_types = sorted(
+        {p.get("type") for p in config.get("providers", {}).values() if p.get("type")}
+    )
+    if provider_types:
+        return "+".join(provider_types)
+    return eo_backend
+
+
 def extract_providers(flowsheet_path: str) -> dict:
     """Read flowsheet JSON and return the raw providers dict."""
     try:

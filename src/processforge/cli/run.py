@@ -14,6 +14,7 @@ from ..result import plot_results, plot_timeseries, save_results_zarr
 from ..state import StateManager
 from .common import (
     check_providers,
+    display_backend,
     flowsheet_basename,
     output_root,
     require_existing_file,
@@ -96,6 +97,7 @@ def run(
     os.makedirs(outputs_dir, exist_ok=True)
     zarr_path = os.path.join(outputs_dir, f"{base_name}_results.zarr")
     save_results_zarr(results, zarr_path, run_info=run_info)
+    logger.info(f"  Backend      : {display_backend(config, getattr(fs, 'backend', 'dynamic'))}")
     logger.info(f"Results saved to {zarr_path}")
 
     if export_images:
