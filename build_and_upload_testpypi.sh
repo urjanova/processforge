@@ -4,13 +4,12 @@ set -euo pipefail
 
 [ -d dist ] && rm -r dist/
 
-python -m pip install --upgrade build twine
-python -m build
+uv build
 ls -lh dist
 
 : "${TEST_PYPI_API_TOKEN:?Set TEST_PYPI_API_TOKEN before running this script}"
 
-python -m twine upload \
+uvx twine upload \
   --verbose \
   --non-interactive \
   --repository-url https://test.pypi.org/legacy/ \
