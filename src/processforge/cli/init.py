@@ -127,24 +127,34 @@ def init(
         generate_compose(pf_dir, docker_providers, outputs_dir)
         logger.info(f"Generated {compose_path}")
 
-        # Attempt docker compose pull
+        # Attempt docker compose pull — stream progress live
         try:
-            result = subprocess.run(
+            logger.info("Pulling Docker images (this may take a while)...")
+            process = subprocess.Popen(
                 ["docker", "compose", "-f", compose_path, "pull"],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 text=True,
-                timeout=120,
+                bufsize=1,
             )
-            if result.returncode == 0:
+            assert process.stdout is not None
+            for line in process.stdout:
+                line = line.rstrip()
+                if line:
+                    logger.info(line)
+            returncode = process.wait(timeout=600)
+            if returncode == 0:
                 logger.info("Pulled Docker images.")
             else:
-                logger.warning(f"docker compose pull failed: {result.stderr}")
+                logger.warning(
+                    f"docker compose pull failed with exit code {returncode}."
+                )
         except FileNotFoundError:
             logger.warning(
                 "Docker not found. Install Docker to use containerized providers."
             )
         except subprocess.TimeoutExpired:
-            logger.warning("docker compose pull timed out after 120s.")
+            logger.warning("docker compose pull timed out after 600s.")
     else:
         logger.info("No containerized providers — skipping Docker setup.")
 

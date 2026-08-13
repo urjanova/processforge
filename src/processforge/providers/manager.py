@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict
 from processforge.types import CoolPropProviderConfig, FlowsheetConfig, ProviderConfig
 
 from .coolprop_provider import CoolPropProvider
-from .registry import get_provider_class
+from .registry import get_provider_class, is_containerized
 
 _BUILTIN_DEFAULT_KEY = "__coolprop__"
 _DEFAULT_KEY = "__default__"
@@ -136,11 +136,22 @@ def build_provider_map(
     # Step 2: instantiate every declared provider.
     for name, cfg in providers_config.items():
         ptype = cfg.type
-        cls = get_provider_class(ptype)
-        instance = cls()
+        if is_containerized(ptype):
+            # Containerized providers (OpenMC, FESTIM, …) run their backend
+            # inside a Docker container; the CLI only needs a thin HTTP client
+            # that talks to the container's provider_server.py.
+            from .container_client import ContainerProviderClient
+
+            instance = ContainerProviderClient(ptype)
+            logger.info(
+                f"Initialized provider '{name}' (type='{ptype}') via container client"
+            )
+        else:
+            cls = get_provider_class(ptype)
+            instance = cls()
+            logger.info(f"Initialized provider '{name}' (type='{ptype}')")
         instance.initialize(cfg, flowsheet_config)
         providers[name] = instance
-        logger.info(f"Initialized provider '{name}' (type='{ptype}')")
 
     # Step 3: resolve the active default.
     default = None

@@ -171,8 +171,15 @@ def get_provider_default_port(provider_type: str) -> int | None:
 
 
 def is_containerized(provider_type: str) -> bool:
-    """Return True if the provider runs in a Docker container."""
-    return get_provider_docker_image(provider_type) is not None
+    """Return True if the provider runs in a Docker container.
+
+    Returns False for unknown provider types rather than raising, so callers
+    can cleanly fall through to the local/import path.
+    """
+    try:
+        return get_provider_docker_image(provider_type) is not None
+    except ValueError:
+        return False
 
 
 # Seed the registry with the always-available CoolProp provider.

@@ -194,6 +194,7 @@ class OpenMCProviderConfig(BaseModel):
     """
 
     type: str = "openmc"
+    url: Optional[str] = None
     output_dir: str = "outputs/openmc"
     cross_sections: Optional[str] = None
     docker_image: Optional[str] = None
@@ -201,6 +202,7 @@ class OpenMCProviderConfig(BaseModel):
     @classmethod
     def from_dict(cls, d: dict) -> "OpenMCProviderConfig":
         return cls(
+            url=d.get("url"),
             output_dir=d.get("output_dir", "outputs/openmc"),
             cross_sections=d.get("cross_sections"),
             docker_image=d.get("docker_image"),

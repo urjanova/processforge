@@ -53,13 +53,21 @@ def run(body: dict):
 
     provider = provider_cls()
 
-    # Build a minimal provider config for initialize().
-    provider_config = type("Cfg", (), {
-        "url": None,
-        "output_dir": os.environ.get("PROCESSFORGE_OUTPUT_DIR", "/data"),
-        "cross_sections": None,
-        "type": PROVIDER_TYPE,
-    })()
+    # Build the provider config for initialize(). Prefer the real config the
+    # CLI serialised into the request body (carries cross_sections, output_dir,
+    # url, …); fall back to a minimal container-default config otherwise.
+    provider_config_raw = body.get("provider_config")
+    if provider_config_raw:
+        from processforge.types import provider_config_from_dict
+
+        provider_config = provider_config_from_dict(provider_config_raw)
+    else:
+        provider_config = type("Cfg", (), {
+            "url": None,
+            "output_dir": os.environ.get("PROCESSFORGE_OUTPUT_DIR", "/data"),
+            "cross_sections": None,
+            "type": PROVIDER_TYPE,
+        })()
 
     # Build a minimal flowsheet config holding materials.
     flowsheet_config = type("FS", (), {"materials": materials})()

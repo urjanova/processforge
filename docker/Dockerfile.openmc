@@ -16,6 +16,8 @@ COPY provider_server.py .
 
 ENV PROVIDER_TYPE=openmc
 ENV OPENMC_DATA_ROOT=/data
+# Outputs must land on the mounted, writable /data volume, not root-owned /app.
+ENV PROCESSFORGE_OUTPUT_DIR=/data
 ENV PORT=9001
 VOLUME /data
 
