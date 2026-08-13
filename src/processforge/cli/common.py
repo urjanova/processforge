@@ -203,50 +203,6 @@ def check_providers(
         raise SystemExit(1)
 
 
-def has_containerized_providers(config: dict) -> bool:
-    """Return True if any declared provider runs in a Docker container."""
-    from ..providers.registry import is_containerized
-
-    return any(
-        is_containerized(cfg.get("type", ""))
-        for cfg in config.get("providers", {}).values()
-    )
-
-
-def wait_for_provider_health(config: dict, timeout: int = 30) -> None:
-    """Poll ``/health`` for each localhost containerized provider until ready.
-
-    Only providers whose resolved URL host is ``localhost``/``127.0.0.1`` are
-    waited on — remote providers are assumed to be managed elsewhere.
-    """
-    import time
-    import urllib.parse
-
-    from ..providers.registry import is_containerized
-
-    providers = config.get("providers", {})
-    deadline = time.time() + timeout
-    for name, cfg in providers.items():
-        if not is_containerized(cfg.get("type", "")):
-            continue
-        url = _resolve_provider_url(cfg, cfg.get("type", ""))
-        host = urllib.parse.urlparse(url).hostname
-        if host not in ("localhost", "127.0.0.1"):
-            continue
-        health = f"{url}/health"
-        while time.time() < deadline:
-            try:
-                urllib.request.urlopen(health, timeout=2)
-                logger.info(f"Provider '{name}' ready at {url}")
-                break
-            except (urllib.error.URLError, OSError):
-                time.sleep(1)
-        else:
-            logger.warning(
-                f"Provider '{name}' not ready at {url} after {timeout}s."
-            )
-
-
 # ---------------------------------------------------------------------------
 # Divergence reports
 # ---------------------------------------------------------------------------
