@@ -37,6 +37,7 @@ from __future__ import annotations
 import math
 import os
 import pathlib
+import tempfile
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
 
@@ -506,7 +507,18 @@ class OpenMCProvider(AbstractProvider):
 
         # --- Working directory management ---
         run_dir = pathlib.Path(self._provider_output_dir)
-        run_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            run_dir.mkdir(parents=True, exist_ok=True)
+        except (PermissionError, OSError) as exc:
+            # The configured output dir (often the mounted /data volume) may not
+            # be writable by the container user. Fall back to a temp dir so the
+            # simulation can still run; only the persisted XML artifacts are lost.
+            run_dir = pathlib.Path(tempfile.mkdtemp(prefix="processforge_openmc_"))
+            logger.warning(
+                f"OpenMCProvider: cannot use output dir "
+                f"'{self._provider_output_dir}' ({exc}); "
+                f"falling back to '{run_dir}'."
+            )
         original_cwd = pathlib.Path.cwd()
 
         # --- Cross-section override ---
