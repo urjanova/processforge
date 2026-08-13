@@ -16,6 +16,7 @@ COPY provider_server.py .
 
 ENV PROVIDER_TYPE=openmc
 ENV OPENMC_DATA_ROOT=/data
+ENV PORT=9001
 VOLUME /data
 
 EXPOSE 9001

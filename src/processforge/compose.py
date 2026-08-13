@@ -1,7 +1,10 @@
-"""Generate docker-compose.yml for containerized providers."""
+"""Generate and manage docker-compose.yml for containerized providers."""
 from __future__ import annotations
 
 import os
+import subprocess
+
+from loguru import logger
 
 COMPOSE_FILENAME = "docker-compose.yml"
 COMPOSE_HEADER = (
@@ -35,8 +38,11 @@ def generate_compose(
         port = info.get("port") or 9000
         lines.append(f"  {name}:")
         lines.append(f"    image: {image}")
-        lines.append(f"    ports:")
-        lines.append(f'      - "{port}:{port}"')
+        # Bind directly to the host network so the provider is reachable at
+        # http://localhost:<port>. Docker bridge port-publishing is unreliable
+        # on some hosts (the published port is not reachable from the host),
+        # and host networking avoids that entirely.
+        lines.append(f"    network_mode: host")
         lines.append(f"    volumes:")
         lines.append(f'      - "${{PROCESSFORGE_OUTPUT_DIR:-{outputs_dir}}}:/data"')
         lines.append("")
@@ -45,3 +51,64 @@ def generate_compose(
     path = _compose_path(pf_dir)
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
+
+
+def start_provider_containers(pf_dir: str = ".processforge") -> bool:
+    """Start provider containers via ``docker compose up -d``.
+
+    Returns ``True`` if containers were started (or were already running),
+    ``False`` if there is no compose file to act on or Docker is unavailable.
+    """
+    compose_path = _compose_path(pf_dir)
+    if not os.path.exists(compose_path):
+        return False
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", compose_path, "up", "-d"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+    except FileNotFoundError:
+        logger.warning(
+            "Docker not found — cannot start provider containers. "
+            "Install Docker or start providers manually."
+        )
+        return False
+    except subprocess.TimeoutExpired:
+        logger.warning("docker compose up timed out after 180s.")
+        return False
+    if result.returncode != 0:
+        logger.warning(f"docker compose up failed: {result.stderr}")
+        return False
+    logger.info("Started provider container(s).")
+    return True
+
+
+def stop_provider_containers(pf_dir: str = ".processforge") -> None:
+    """Stop and remove provider containers via ``docker compose down``.
+
+    No-op when no compose file exists.
+    """
+    compose_path = _compose_path(pf_dir)
+    if not os.path.exists(compose_path):
+        return
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", compose_path, "down"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except FileNotFoundError:
+        logger.warning(
+            "Docker not found — could not stop provider containers."
+        )
+        return
+    except subprocess.TimeoutExpired:
+        logger.warning("docker compose down timed out after 120s.")
+        return
+    if result.returncode != 0:
+        logger.warning(f"docker compose down failed: {result.stderr}")
+        return
+    logger.info("Stopped provider container(s).")

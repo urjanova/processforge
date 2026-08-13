@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -350,6 +351,309 @@ class TestCmdRun:
         with pytest.raises(SystemExit) as exc_info:
             run(flowsheet=str(tmp_path / "nope.json"), export_images=False)
         assert exc_info.value.code == 1
+
+    def _containerized_config(self, flowsheet_path):
+        return {
+            "providers": {"openmc": {"type": "openmc"}},
+            "streams": {},
+            "units": {},
+            "simulation": {"mode": "steady"},
+            "_config_path": str(flowsheet_path),
+        }
+
+    def _patch_run_os(self, run_mod):
+        """Patch run's ``os`` so the compose-file existence check passes
+        while keeping real ``makedirs`` behaviour."""
+        real_os = run_mod.os
+        mock_os = MagicMock()
+        mock_os.path.exists.return_value = True
+        mock_os.makedirs = real_os.makedirs
+        mock_os.path.join = real_os.path.join
+        return mock_os
+
+    def test_starts_and_stops_containers(self, tmp_path, log_output):
+        import processforge.cli.run as run_mod
+        from processforge.cli.run import run
+
+        flowsheet = tmp_path / "fs.json"
+        flowsheet.write_text(json.dumps(self._containerized_config(flowsheet)["providers"]))
+
+        mock_fs = MagicMock()
+        mock_fs.run.return_value = {}
+        mock_fs.converged = True
+        mock_fs.x0 = []
+        mock_fs.var_names = []
+
+        with patch.object(run_mod, "os", self._patch_run_os(run_mod)), \
+             patch.object(run_mod, "start_provider_containers", return_value=True) as mock_start, \
+             patch.object(run_mod, "stop_provider_containers") as mock_stop, \
+             patch.object(run_mod, "wait_for_provider_health"), \
+             patch.object(run_mod, "validate_runtime_flowsheet",
+                          return_value=self._containerized_config(flowsheet)), \
+             patch.object(run_mod, "check_providers"), \
+             patch.object(run_mod, "EOFlowsheet", return_value=mock_fs), \
+             patch.object(run_mod, "save_results_zarr"):
+            run(flowsheet=str(flowsheet), export_images=False)
+
+        mock_start.assert_called_once()
+        mock_stop.assert_called_once()
+
+    def test_keep_containers_skips_stop(self, tmp_path):
+        import processforge.cli.run as run_mod
+        from processforge.cli.run import run
+
+        flowsheet = tmp_path / "fs.json"
+        flowsheet.write_text(json.dumps(self._containerized_config(flowsheet)["providers"]))
+
+        mock_fs = MagicMock()
+        mock_fs.run.return_value = {}
+        mock_fs.converged = True
+        mock_fs.x0 = []
+        mock_fs.var_names = []
+
+        with patch.object(run_mod, "os", self._patch_run_os(run_mod)), \
+             patch.object(run_mod, "start_provider_containers", return_value=True) as mock_start, \
+             patch.object(run_mod, "stop_provider_containers") as mock_stop, \
+             patch.object(run_mod, "wait_for_provider_health"), \
+             patch.object(run_mod, "validate_runtime_flowsheet",
+                          return_value=self._containerized_config(flowsheet)), \
+             patch.object(run_mod, "check_providers"), \
+             patch.object(run_mod, "EOFlowsheet", return_value=mock_fs), \
+             patch.object(run_mod, "save_results_zarr"):
+            run(flowsheet=str(flowsheet), export_images=False, keep_containers=True)
+
+        mock_start.assert_called_once()
+        mock_stop.assert_not_called()
+
+    def test_coolprop_flowsheet_no_lifecycle(self, tmp_path):
+        import processforge.cli.run as run_mod
+        from processforge.cli.run import run
+
+        flowsheet = tmp_path / "fs.json"
+        flowsheet.write_text(json.dumps({"providers": {"coolprop": {"type": "coolprop"}}}))
+
+        mock_fs = MagicMock()
+        mock_fs.run.return_value = {}
+        mock_fs.converged = True
+        mock_fs.x0 = []
+        mock_fs.var_names = []
+
+        # A stale docker-compose.yml is present, but the flowsheet only uses
+        # pip providers — Docker must never be touched.
+        with patch.object(run_mod, "os", self._patch_run_os(run_mod)), \
+             patch.object(run_mod, "start_provider_containers") as mock_start, \
+             patch.object(run_mod, "stop_provider_containers") as mock_stop, \
+             patch.object(run_mod, "validate_runtime_flowsheet",
+                          return_value={"providers": {"coolprop": {"type": "coolprop"}},
+                                        "streams": {}, "units": {},
+                                        "simulation": {"mode": "steady"},
+                                        "_config_path": str(flowsheet)}), \
+             patch.object(run_mod, "check_providers"), \
+             patch.object(run_mod, "EOFlowsheet", return_value=mock_fs), \
+             patch.object(run_mod, "save_results_zarr"):
+            run(flowsheet=str(flowsheet), export_images=False)
+
+        mock_start.assert_not_called()
+        mock_stop.assert_not_called()
+
+    def test_no_compose_no_lifecycle(self, tmp_path):
+        import processforge.cli.run as run_mod
+        from processforge.cli.run import run
+
+        flowsheet = tmp_path / "fs.json"
+        flowsheet.write_text(json.dumps(self._containerized_config(flowsheet)["providers"]))
+
+        mock_fs = MagicMock()
+        mock_fs.run.return_value = {}
+        mock_fs.converged = True
+        mock_fs.x0 = []
+        mock_fs.var_names = []
+
+        # Containerized flowsheet but no compose file -> warn and skip.
+        with patch.object(run_mod, "os") as mock_os, \
+             patch.object(run_mod, "start_provider_containers") as mock_start, \
+             patch.object(run_mod, "stop_provider_containers") as mock_stop, \
+             patch.object(run_mod, "validate_runtime_flowsheet",
+                          return_value=self._containerized_config(flowsheet)), \
+             patch.object(run_mod, "check_providers"), \
+             patch.object(run_mod, "EOFlowsheet", return_value=mock_fs), \
+             patch.object(run_mod, "save_results_zarr"):
+            mock_os.path.exists.return_value = False  # no compose file
+            run(flowsheet=str(flowsheet), export_images=False)
+
+        mock_start.assert_not_called()
+        mock_stop.assert_not_called()
+
+
+class TestComposeLifecycle:
+    def _write_compose(self, tmp_path):
+        pf = tmp_path / ".processforge"
+        pf.mkdir()
+        (pf / "docker-compose.yml").write_text("services: {}\n")
+        return str(pf)
+
+    def test_start_success(self, tmp_path, log_output):
+        from processforge.compose import start_provider_containers
+
+        pf = self._write_compose(tmp_path)
+        with patch("processforge.compose.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            assert start_provider_containers(pf) is True
+        mock_run.assert_called_once()
+        assert any("Started provider container" in m for m in log_output)
+
+    def test_start_no_compose(self, tmp_path):
+        from processforge.compose import start_provider_containers
+
+        assert start_provider_containers(str(tmp_path / "nope")) is False
+
+    def test_start_docker_missing(self, tmp_path, log_output):
+        from processforge.compose import start_provider_containers
+
+        pf = self._write_compose(tmp_path)
+        with patch("processforge.compose.subprocess.run", side_effect=FileNotFoundError):
+            assert start_provider_containers(pf) is False
+        assert any("Docker not found" in m for m in log_output)
+
+    def test_start_compose_failure(self, tmp_path, log_output):
+        from processforge.compose import start_provider_containers
+
+        pf = self._write_compose(tmp_path)
+        with patch("processforge.compose.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 1, "", "boom")
+            assert start_provider_containers(pf) is False
+        assert any("docker compose up failed" in m for m in log_output)
+
+    def test_stop_success(self, tmp_path, log_output):
+        from processforge.compose import stop_provider_containers
+
+        pf = self._write_compose(tmp_path)
+        with patch("processforge.compose.subprocess.run") as mock_run:
+            mock_run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            stop_provider_containers(pf)
+        mock_run.assert_called_once()
+        assert any("Stopped provider container" in m for m in log_output)
+
+    def test_stop_no_compose(self, tmp_path):
+        from processforge.compose import stop_provider_containers
+
+        with patch("processforge.compose.subprocess.run") as mock_run:
+            stop_provider_containers(str(tmp_path / "nope"))
+        mock_run.assert_not_called()
+
+
+class TestCmdApply:
+    def _containerized_config(self, flowsheet_path):
+        return {
+            "providers": {"openmc": {"type": "openmc"}},
+            "streams": {},
+            "units": {},
+            "simulation": {"mode": "steady"},
+            "_config_path": str(flowsheet_path),
+        }
+
+    def _patch_apply_os(self, apply_mod):
+        real_os = apply_mod.os
+        mock_os = MagicMock()
+        mock_os.path.exists.return_value = True
+        mock_os.makedirs = real_os.makedirs
+        mock_os.path.join = real_os.path.join
+        return mock_os
+
+    def test_starts_and_stops_containers(self, tmp_path, log_output):
+        import processforge.cli.apply as apply_mod
+        from processforge.cli.apply import apply
+
+        flowsheet = tmp_path / "fs.json"
+        flowsheet.write_text(json.dumps(self._containerized_config(flowsheet)["providers"]))
+
+        mock_fs = MagicMock()
+        mock_fs.run.return_value = {}
+        mock_fs.converged = True
+        mock_fs.x0 = []
+        mock_fs.x_converged = []
+        mock_fs.var_names = []
+        mock_fs.solver_stats = {"final_norm": 0.0}
+
+        with patch.object(apply_mod, "os", self._patch_apply_os(apply_mod)), \
+             patch.object(apply_mod, "start_provider_containers", return_value=True) as mock_start, \
+             patch.object(apply_mod, "stop_provider_containers") as mock_stop, \
+             patch.object(apply_mod, "wait_for_provider_health"), \
+             patch.object(apply_mod, "validate_runtime_flowsheet",
+                          return_value=self._containerized_config(flowsheet)), \
+             patch.object(apply_mod, "check_providers"), \
+             patch.object(apply_mod, "EOFlowsheet", return_value=mock_fs), \
+             patch.object(apply_mod, "save_snapshot", return_value="snap-1"), \
+             patch.object(apply_mod, "save_results_zarr"):
+            apply(flowsheet=str(flowsheet))
+
+        mock_start.assert_called_once()
+        mock_stop.assert_called_once()
+
+    def test_keep_containers_skips_stop(self, tmp_path):
+        import processforge.cli.apply as apply_mod
+        from processforge.cli.apply import apply
+
+        flowsheet = tmp_path / "fs.json"
+        flowsheet.write_text(json.dumps(self._containerized_config(flowsheet)["providers"]))
+
+        mock_fs = MagicMock()
+        mock_fs.run.return_value = {}
+        mock_fs.converged = True
+        mock_fs.x0 = []
+        mock_fs.x_converged = []
+        mock_fs.var_names = []
+        mock_fs.solver_stats = {"final_norm": 0.0}
+
+        with patch.object(apply_mod, "os", self._patch_apply_os(apply_mod)), \
+             patch.object(apply_mod, "start_provider_containers", return_value=True) as mock_start, \
+             patch.object(apply_mod, "stop_provider_containers") as mock_stop, \
+             patch.object(apply_mod, "wait_for_provider_health"), \
+             patch.object(apply_mod, "validate_runtime_flowsheet",
+                          return_value=self._containerized_config(flowsheet)), \
+             patch.object(apply_mod, "check_providers"), \
+             patch.object(apply_mod, "EOFlowsheet", return_value=mock_fs), \
+             patch.object(apply_mod, "save_snapshot", return_value="snap-1"), \
+             patch.object(apply_mod, "save_results_zarr"):
+            apply(flowsheet=str(flowsheet), keep_containers=True)
+
+        mock_start.assert_called_once()
+        mock_stop.assert_not_called()
+
+    def test_coolprop_flowsheet_no_lifecycle(self, tmp_path):
+        import processforge.cli.apply as apply_mod
+        from processforge.cli.apply import apply
+
+        flowsheet = tmp_path / "fs.json"
+        flowsheet.write_text(json.dumps({"providers": {"coolprop": {"type": "coolprop"}}}))
+
+        mock_fs = MagicMock()
+        mock_fs.run.return_value = {}
+        mock_fs.converged = True
+        mock_fs.x0 = []
+        mock_fs.x_converged = []
+        mock_fs.var_names = []
+        mock_fs.solver_stats = {"final_norm": 0.0}
+
+        # A stale docker-compose.yml is present, but the flowsheet only uses
+        # pip providers — Docker must never be touched.
+        with patch.object(apply_mod, "os", self._patch_apply_os(apply_mod)), \
+             patch.object(apply_mod, "start_provider_containers") as mock_start, \
+             patch.object(apply_mod, "stop_provider_containers") as mock_stop, \
+             patch.object(apply_mod, "wait_for_provider_health"), \
+             patch.object(apply_mod, "validate_runtime_flowsheet",
+                          return_value={"providers": {"coolprop": {"type": "coolprop"}},
+                                        "streams": {}, "units": {},
+                                        "simulation": {"mode": "steady"},
+                                        "_config_path": str(flowsheet)}), \
+             patch.object(apply_mod, "check_providers"), \
+             patch.object(apply_mod, "EOFlowsheet", return_value=mock_fs), \
+             patch.object(apply_mod, "save_snapshot", return_value="snap-1"), \
+             patch.object(apply_mod, "save_results_zarr"):
+            apply(flowsheet=str(flowsheet))
+
+        mock_start.assert_not_called()
+        mock_stop.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

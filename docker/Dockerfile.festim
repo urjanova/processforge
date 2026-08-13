@@ -15,6 +15,7 @@ RUN micromamba run -n base pip install processforge fastapi uvicorn
 COPY provider_server.py .
 
 ENV PROVIDER_TYPE=festim
+ENV PORT=9002
 VOLUME /data
 
 EXPOSE 9002
