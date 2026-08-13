@@ -29,9 +29,9 @@ class SystemDOFReport:
 #   - a string means the key must be present
 #   - a tuple means at least one of the keys must be present
 _UNIT_REQUIRED: dict[str, list] = {
-    "Pump":            ["deltaP"],
+    "Pump":            ["delta_p"],
     "Valve":           ["pressure_ratio"],
-    "Strainer":        ["deltaP"],
+    "Strainer":        ["delta_p"],
     "Pipes":           ["delta_p", "diameter"],
     "Heater":          [("duty", "outlet_T")],    # at least one of these
     "Flash":           ["P"],

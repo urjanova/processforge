@@ -43,7 +43,7 @@
       "type": "Pump",
       "in": "feed",
       "out": "after_pump_1",
-      "deltaP": 100000.0,
+      "delta_p": 100000.0,
       "efficiency": 0.75,
       "material": 3
     },
@@ -74,7 +74,7 @@
       "type": "Strainer",
       "in": "after_pipe_2",
       "out": "after_strainer_1",
-      "deltaP": 5000.0,
+      "delta_p": 5000.0,
       "material": 3
     },
     "pipe_3": {
@@ -89,7 +89,7 @@
       "type": "Pump",
       "in": "after_pipe_3",
       "out": "after_pump_2",
-      "deltaP": 200000.0,
+      "delta_p": 200000.0,
       "efficiency": 0.8,
       "material": 3
     },

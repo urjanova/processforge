@@ -118,7 +118,7 @@
       "type": "Pump",
       "in": "before_pump_1",
       "out": "after_pump_1",
-      "deltaP": 200000.0,
+      "delta_p": 200000.0,
       "efficiency": 0.75,
       "material": 3
     },

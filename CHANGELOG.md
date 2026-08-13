@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-08-13
+
+### Changed
+- Renamed `deltaP` → `delta_p` across the codebase for consistent snake_case naming. Updated all flowsheets (e.g. `simple_hyrdaulic_scheme.json`) to use `delta_p`.
+
 ## [0.3.1] - 2026-07-18
 
 ### Changed
@@ -61,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.38] - 2026-07-15
 
 ### Fixed
-- Fixed `detect_drift` ignoring top-level unit scalar keys (e.g. `deltaP`, `efficiency`, `diameter`), causing `pf apply` to report "No drift detected" and skip re-solving even when unit parameters had changed.
+- Fixed `detect_drift` ignoring top-level unit scalar keys (e.g. `delta_p`, `efficiency`, `diameter`), causing `pf apply` to report "No drift detected" and skip re-solving even when unit parameters had changed.
 
 ### Changed
 - Improved `pf apply` drift logging to categorize drift paths by stream vs unit.

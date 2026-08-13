@@ -12,9 +12,9 @@ class Strainer(BaseUnitMixin, StrainerEOMixin):
     Adiabatic, isenthalpic.
     """
 
-    def __init__(self, name, deltaP=5000.0, **kwargs):
+    def __init__(self, name, delta_p=5000.0, **kwargs):
         self.name = name
-        self.deltaP = deltaP
+        self.delta_p = delta_p
 
     def _run_impl(self, inlet):
         """
@@ -22,7 +22,7 @@ class Strainer(BaseUnitMixin, StrainerEOMixin):
 
         This method simulates the operation of a strainer unit by adjusting the pressure
         of the inlet stream and returning the modified outlet stream. The pressure is
-        reduced by the deltaP value, but not below 1000.0 Pa. The temperature remains
+        reduced by the delta_p value, but not below 1000.0 Pa. The temperature remains
         unchanged, and the unit identifier is set to "Strainer".
 
         Args:
@@ -37,7 +37,7 @@ class Strainer(BaseUnitMixin, StrainerEOMixin):
 
         outlet = copy.deepcopy(inlet)
         inlet_P = inlet.get("P", 101325.0)
-        outlet["P"] = max(inlet_P - self.deltaP, 1000.0)
+        outlet["P"] = max(inlet_P - self.delta_p, 1000.0)
         outlet["T"] = inlet["T"]
         outlet["unit"] = "Strainer"
         return outlet

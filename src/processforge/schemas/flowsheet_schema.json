@@ -295,7 +295,7 @@
                 }
               ]
             },
-            "deltaP": {
+            "delta_p": {
               "type": "number"
             },
             "efficiency": {

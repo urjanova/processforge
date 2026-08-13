@@ -229,7 +229,7 @@ class StateManager:
     def detect_drift(self, current_config: dict, state: SnapshotState | dict) -> list[str]:
         """Return parameter paths that differ between ``current_config`` and saved state.
 
-        Paths look like ``"streams.feed.T"``, ``"units.pump_1.deltaP"``,
+        Paths look like ``"streams.feed.T"``, ``"units.pump_1.delta_p"``,
         or ``"units.pump_1.parameters.X"``.
         """
         old_config = state.config if isinstance(state, SnapshotState) else state["config"]

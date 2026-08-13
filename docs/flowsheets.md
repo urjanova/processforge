@@ -29,7 +29,7 @@ Processforge flowsheets are defined as JSON files. Use `simulation.mode` to sele
     "feed": { "T": 298.15, "P": 101325, "flowrate": 1.0, "material_mix": 1 }
   },
   "units": {
-    "pump_1":  { "type": "Pump",  "in": "feed",       "out": "after_pump", "deltaP": 200000, "efficiency": 0.75, "material": 3 },
+    "pump_1":  { "type": "Pump",  "in": "feed",       "out": "after_pump", "delta_p": 200000, "efficiency": 0.75, "material": 3 },
     "valve_1": { "type": "Valve", "in": "after_pump",  "out": "product",   "pressure_ratio": 0.5,                "material": 3 }
   },
   "simulation": {
@@ -81,9 +81,9 @@ Every unit also requires a `material` integer field pointing to an `id` in the `
 
 | Unit Type | Mode | Description | Key Parameters |
 |-----------|------|-------------|----------------|
-| **Pump** | Steady-state (EO) | Adds pressure rise with efficiency losses | `deltaP`, `efficiency` |
+| **Pump** | Steady-state (EO) | Adds pressure rise with efficiency losses | `delta_p`, `efficiency` |
 | **Valve** | Steady-state (EO) | Isenthalpic pressure reduction | `pressure_ratio` |
-| **Strainer** | Steady-state (EO) | Fixed pressure drop element | `deltaP` |
+| **Strainer** | Steady-state (EO) | Fixed pressure drop element | `delta_p` |
 | **Pipes** | Steady-state (EO) & Dynamic | Laminar flow with friction losses | `delta_p`, `diameter` |
 | **Tank** | Dynamic only | Well-mixed molar tank (ODE) | `outlet_flow`, `initial_n`, `initial_T`, `P`, `duty` |
 | **Flash** | Steady-state (EO, SciPy backend) | Isothermal flash separator | `P` |

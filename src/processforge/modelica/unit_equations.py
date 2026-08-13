@@ -77,7 +77,7 @@ def pump_eq(
     sn = _sanitize_name(name)
     i, o = _sanitize_name(inlet), _sanitize_name(outlet)
     lines = [f"  // [{name}] Pump"]
-    lines.append(f"  {o}_P = {i}_P + {sn}_deltaP;")
+    lines.append(f"  {o}_P = {i}_P + {sn}_delta_p;")
     # Simplified adiabatic: T_out = T_in (ignoring small rise)
     lines.append(f"  {o}_T = {i}_T;")
     lines.append(f"  {o}_F = {i}_F;")
@@ -145,9 +145,9 @@ def strainer_eq(
     sn = _sanitize_name(name)
     i, o = _sanitize_name(inlet), _sanitize_name(outlet)
     lines = [f"  // [{name}] Strainer"]
-    delta_p = cfg.get("deltaP", 0.0)
+    delta_p = cfg.get("delta_p", 0.0)
     if delta_p != 0.0:
-        lines.append(f"  {o}_P = {i}_P - {sn}_deltaP;")
+        lines.append(f"  {o}_P = {i}_P - {sn}_delta_p;")
     else:
         lines.append(f"  {o}_P = {i}_P;")
     lines.append(f"  {o}_T = {i}_T;")
@@ -169,7 +169,7 @@ def pipes_eq(
     sn = _sanitize_name(name)
     i, o = _sanitize_name(inlet), _sanitize_name(outlet)
     lines = [f"  // [{name}] Pipes"]
-    delta_p = cfg.get("delta_p", cfg.get("deltaP", 0.0))
+    delta_p = cfg.get("delta_p", cfg.get("delta_p", 0.0))
     if delta_p != 0.0:
         lines.append(f"  {o}_P = {i}_P - {sn}_delta_p;")
     else:

@@ -47,37 +47,37 @@ def test_detect_drift_stream_composition():
 
 
 def test_detect_drift_unit_top_level_scalar():
-    """Top-level unit scalar keys (like deltaP) should be detected."""
+    """Top-level unit scalar keys (like delta_p) should be detected."""
     sm = StateManager("/tmp/_test_state.pfstate")
-    old = {"streams": {}, "units": {"pump_1": {"type": "Pump", "deltaP": 100000.0, "efficiency": 0.75}}}
-    new = {"streams": {}, "units": {"pump_1": {"type": "Pump", "deltaP": 200000.0, "efficiency": 0.75}}}
+    old = {"streams": {}, "units": {"pump_1": {"type": "Pump", "delta_p": 100000.0, "efficiency": 0.75}}}
+    new = {"streams": {}, "units": {"pump_1": {"type": "Pump", "delta_p": 200000.0, "efficiency": 0.75}}}
     drifted = sm.detect_drift(new, _make_state(old))
-    assert drifted == ["units.pump_1.deltaP"]
+    assert drifted == ["units.pump_1.delta_p"]
 
 
 def test_detect_drift_unit_multiple_scalars():
     """Multiple top-level scalar changes on the same unit."""
     sm = StateManager("/tmp/_test_state.pfstate")
-    old = {"streams": {}, "units": {"pump_1": {"type": "Pump", "deltaP": 100000.0, "efficiency": 0.75}}}
-    new = {"streams": {}, "units": {"pump_1": {"type": "Pump", "deltaP": 200000.0, "efficiency": 0.9}}}
+    old = {"streams": {}, "units": {"pump_1": {"type": "Pump", "delta_p": 100000.0, "efficiency": 0.75}}}
+    new = {"streams": {}, "units": {"pump_1": {"type": "Pump", "delta_p": 200000.0, "efficiency": 0.9}}}
     drifted = sm.detect_drift(new, _make_state(old))
-    assert set(drifted) == {"units.pump_1.deltaP", "units.pump_1.efficiency"}
+    assert set(drifted) == {"units.pump_1.delta_p", "units.pump_1.efficiency"}
 
 
 def test_detect_drift_unit_nested_parameters():
     """Nested 'parameters' dict changes should still be detected."""
     sm = StateManager("/tmp/_test_state.pfstate")
-    old = {"streams": {}, "units": {"pump_1": {"type": "Pump", "parameters": {"deltaP": 100000.0}}}}
-    new = {"streams": {}, "units": {"pump_1": {"type": "Pump", "parameters": {"deltaP": 200000.0}}}}
+    old = {"streams": {}, "units": {"pump_1": {"type": "Pump", "parameters": {"delta_p": 100000.0}}}}
+    new = {"streams": {}, "units": {"pump_1": {"type": "Pump", "parameters": {"delta_p": 200000.0}}}}
     drifted = sm.detect_drift(new, _make_state(old))
-    assert drifted == ["units.pump_1.parameters.deltaP"]
+    assert drifted == ["units.pump_1.parameters.delta_p"]
 
 
 def test_detect_drift_skips_non_scalar_keys():
     """Keys in the skip set (type, in, out, etc.) should NOT appear in drift paths."""
     sm = StateManager("/tmp/_test_state.pfstate")
-    old = {"streams": {}, "units": {"pump_1": {"type": "Pump", "in": "feed", "out": "out1", "deltaP": 100000.0}}}
-    new = {"streams": {}, "units": {"pump_1": {"type": "Pump", "in": "feed2", "out": "out2", "deltaP": 100000.0}}}
+    old = {"streams": {}, "units": {"pump_1": {"type": "Pump", "in": "feed", "out": "out1", "delta_p": 100000.0}}}
+    new = {"streams": {}, "units": {"pump_1": {"type": "Pump", "in": "feed2", "out": "out2", "delta_p": 100000.0}}}
     drifted = sm.detect_drift(new, _make_state(old))
     assert "units.pump_1.in" not in drifted
     assert "units.pump_1.out" not in drifted
@@ -90,7 +90,7 @@ def test_detect_drift_no_changes():
     sm = StateManager("/tmp/_test_state.pfstate")
     config = {
         "streams": {"feed": {"T": 298.15, "P": 101325, "flowrate": 1.0}},
-        "units": {"pump_1": {"type": "Pump", "deltaP": 100000.0, "efficiency": 0.75}},
+        "units": {"pump_1": {"type": "Pump", "delta_p": 100000.0, "efficiency": 0.75}},
     }
     drifted = sm.detect_drift(config, _make_state(config))
     assert drifted == []
@@ -103,14 +103,14 @@ def test_detect_drift_combined():
     sm = StateManager("/tmp/_test_state.pfstate")
     old = {
         "streams": {"feed": {"T": 298.15, "P": 101325, "flowrate": 1.0}},
-        "units": {"pump_1": {"type": "Pump", "deltaP": 100000.0}},
+        "units": {"pump_1": {"type": "Pump", "delta_p": 100000.0}},
     }
     new = {
         "streams": {"feed": {"T": 350.0, "P": 101325, "flowrate": 1.0}},
-        "units": {"pump_1": {"type": "Pump", "deltaP": 200000.0}},
+        "units": {"pump_1": {"type": "Pump", "delta_p": 200000.0}},
     }
     drifted = sm.detect_drift(new, _make_state(old))
-    assert set(drifted) == {"streams.feed.T", "units.pump_1.deltaP"}
+    assert set(drifted) == {"streams.feed.T", "units.pump_1.delta_p"}
 
 
 # --- detect_drift: dict-based state (not SnapshotState) ---
@@ -119,7 +119,7 @@ def test_detect_drift_combined():
 def test_detect_drift_dict_state():
     """detect_drift should work with dict-based state, not just SnapshotState."""
     sm = StateManager("/tmp/_test_state.pfstate")
-    old = {"config": {"streams": {}, "units": {"pump_1": {"type": "Pump", "deltaP": 100000.0}}}}
-    new = {"streams": {}, "units": {"pump_1": {"type": "Pump", "deltaP": 200000.0}}}
+    old = {"config": {"streams": {}, "units": {"pump_1": {"type": "Pump", "delta_p": 100000.0}}}}
+    new = {"streams": {}, "units": {"pump_1": {"type": "Pump", "delta_p": 200000.0}}}
     drifted = sm.detect_drift(new, old)
-    assert drifted == ["units.pump_1.deltaP"]
+    assert drifted == ["units.pump_1.delta_p"]

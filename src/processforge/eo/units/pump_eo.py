@@ -35,7 +35,7 @@ class PumpEOMixin(EOUnitModelMixin):
         except ImportError as exc:
             raise ImportError("PyomoBackend requires 'pyomo'.") from exc
 
-        delta_p = self.deltaP  # type: ignore[attr-defined]
+        delta_p = self.delta_p  # type: ignore[attr-defined]
         eta = max(self.efficiency, 1e-6)  # type: ignore[attr-defined]
         dt_pump = delta_p / (_RHO * _CP * eta)  # K per (Pa / (rho*Cp*eta))
 
@@ -66,7 +66,7 @@ class PumpEOMixin(EOUnitModelMixin):
         outlet_syms: dict,
         config: dict,
     ) -> list:
-        delta_p = self.deltaP  # type: ignore[attr-defined]
+        delta_p = self.delta_p  # type: ignore[attr-defined]
         eta = max(self.efficiency, 1e-6)  # type: ignore[attr-defined]
         dt_pump = delta_p / (_RHO * _CP * eta)
 
