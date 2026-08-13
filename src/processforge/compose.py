@@ -44,7 +44,7 @@ def generate_compose(
         # and host networking avoids that entirely.
         lines.append(f"    network_mode: host")
         lines.append(f"    volumes:")
-        lines.append(f'      - "${{PROCESSFORGE_OUTPUT_DIR:-{outputs_dir}}}:/data"')
+        lines.append(f'      - "${{OPENMC_DATA_ROOT:-{outputs_dir}}}:/data"')
         lines.append("")
 
     os.makedirs(pf_dir, exist_ok=True)
