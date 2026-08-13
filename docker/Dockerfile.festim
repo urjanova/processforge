@@ -15,8 +15,9 @@ RUN micromamba run -n base pip install processforge fastapi uvicorn
 COPY provider_server.py .
 
 ENV PROVIDER_TYPE=festim
-# Outputs must land on the mounted, writable /data volume, not root-owned /app.
-ENV PROCESSFORGE_OUTPUT_DIR=/data
+# Run artifacts are simulation-specific and ephemeral; write them to a
+# world-writable container-local dir rather than the /data volume.
+ENV PROCESSFORGE_OUTPUT_DIR=/tmp/processforge
 ENV PORT=9002
 VOLUME /data
 

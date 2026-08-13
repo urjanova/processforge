@@ -16,8 +16,10 @@ COPY provider_server.py .
 
 ENV PROVIDER_TYPE=openmc
 ENV OPENMC_DATA_ROOT=/data
-# Outputs must land on the mounted, writable /data volume, not root-owned /app.
-ENV PROCESSFORGE_OUTPUT_DIR=/data
+# Run artifacts are simulation-specific and ephemeral; write them to a
+# world-writable container-local dir rather than the (read-only to the
+# container user) /data cross-section mount or root-owned /app.
+ENV PROCESSFORGE_OUTPUT_DIR=/tmp/processforge
 ENV PORT=9001
 VOLUME /data
 
