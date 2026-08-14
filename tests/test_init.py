@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from processforge.lock import read_lock, write_lock, LOCK_VERSION
+from processforge.lock import read_lock, write_lock, LOCK_VERSION, flowsheet_env_dir
 from processforge.compose import generate_compose, COMPOSE_FILENAME
 from processforge.providers.registry import (
     _PROVIDER_CATALOG,
@@ -153,7 +153,7 @@ class TestLockFile:
             "coolprop": {"docker_image": None, "url": None},
         }
         write_lock(str(tmp_pf_dir), "test.json", providers, "0.2.34")
-        lock = read_lock(str(tmp_pf_dir))
+        lock = read_lock(str(tmp_pf_dir), "test.json")
 
         assert lock is not None
         assert lock["version"] == LOCK_VERSION
@@ -163,11 +163,27 @@ class TestLockFile:
         assert "coolprop" in lock["providers"]
         assert lock["providers"]["openmc"]["url"] == "http://localhost:9001"
 
+    def test_lock_written_to_per_flowsheet_dir(self, tmp_pf_dir):
+        write_lock(str(tmp_pf_dir), "a/test.json", {}, "0.2.34")
+        # No legacy root lock.json is written.
+        assert not (tmp_pf_dir / "lock.json").exists()
+        # Instead it lives in the hashed env dir.
+        assert (Path(flowsheet_env_dir(str(tmp_pf_dir), "a/test.json")) / "lock.json").exists()
+
+    def test_two_flowsheets_separate_dirs(self, tmp_pf_dir):
+        write_lock(str(tmp_pf_dir), "flows/a.json", {}, "0.2.34")
+        write_lock(str(tmp_pf_dir), "flows/b.json", {}, "0.2.34")
+        dir_a = Path(flowsheet_env_dir(str(tmp_pf_dir), "flows/a.json"))
+        dir_b = Path(flowsheet_env_dir(str(tmp_pf_dir), "flows/b.json"))
+        assert dir_a != dir_b
+        assert (dir_a / "lock.json").exists()
+        assert (dir_b / "lock.json").exists()
+
     def test_lock_creates_directory(self, tmp_path):
         pf_dir = tmp_path / ".processforge"
         providers = {"coolprop": {"docker_image": None, "url": None}}
         write_lock(str(pf_dir), "test.json", providers, "0.2.34")
-        assert read_lock(str(pf_dir)) is not None
+        assert read_lock(str(pf_dir), "test.json") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -183,11 +199,11 @@ class TestComposeGeneration:
                 "port": 9001,
             },
         }
-        generate_compose(str(tmp_pf_dir), docker_providers)
-        compose_path = tmp_pf_dir / COMPOSE_FILENAME
-        assert compose_path.exists()
+        generate_compose(str(tmp_pf_dir), docker_providers, flowsheet="a.json")
+        compose_path = os.path.join(flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME)
+        assert os.path.exists(compose_path)
 
-        content = compose_path.read_text()
+        content = Path(compose_path).read_text()
         assert "services:" in content
         assert "openmc:" in content
         assert "ghcr.io/urjanova/processforge-openmc:latest" in content
@@ -196,17 +212,17 @@ class TestComposeGeneration:
         assert "network_mode" not in content
 
     def test_generate_compose_empty_when_no_docker(self, tmp_pf_dir):
-        generate_compose(str(tmp_pf_dir), {})
-        compose_path = tmp_pf_dir / COMPOSE_FILENAME
-        assert not compose_path.exists()
+        generate_compose(str(tmp_pf_dir), {}, flowsheet="a.json")
+        compose_path = os.path.join(flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME)
+        assert not os.path.exists(compose_path)
 
     def test_generate_compose_multiple_providers(self, tmp_pf_dir):
         docker_providers = {
             "openmc": {"docker_image": "ghcr.io/test/openmc:latest", "port": 9001},
             "festim": {"docker_image": "ghcr.io/test/festim:latest", "port": 9002},
         }
-        generate_compose(str(tmp_pf_dir), docker_providers)
-        content = (tmp_pf_dir / COMPOSE_FILENAME).read_text()
+        generate_compose(str(tmp_pf_dir), docker_providers, flowsheet="a.json")
+        content = Path(os.path.join(flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME)).read_text()
         assert "openmc:" in content
         assert "festim:" in content
 
@@ -217,8 +233,8 @@ class TestComposeGeneration:
                 "port": 9001,
             },
         }
-        generate_compose(str(tmp_pf_dir), docker_providers)
-        content = (tmp_pf_dir / COMPOSE_FILENAME).read_text()
+        generate_compose(str(tmp_pf_dir), docker_providers, flowsheet="a.json")
+        content = Path(os.path.join(flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME)).read_text()
         assert "my-org/custom-openmc:v2" in content
         assert "ghcr.io/urjanova/processforge-openmc" not in content
 

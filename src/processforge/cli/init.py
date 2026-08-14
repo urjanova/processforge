@@ -12,6 +12,55 @@ import typer
 from loguru import logger
 
 from .common import extract_providers, is_local_provider_url
+from ..lock import flowsheet_env_dir, read_lock
+
+
+def _migrate_legacy_env(pf_dir: str) -> None:
+    """Move a legacy root-level lock.json / docker-compose.yml into a per-flowsheet dir.
+
+    Older processforge stored a single environment at ``.processforge/lock.json``
+    and ``.processforge/docker-compose.yml``. This relocates those into the hashed
+    env dir derived from the flowsheet recorded in the legacy lock, so an existing
+    repo keeps its provider environment after upgrading.
+    """
+    legacy_lock = os.path.join(pf_dir, "lock.json")
+    legacy_compose = os.path.join(pf_dir, "docker-compose.yml")
+    if not (os.path.exists(legacy_lock) or os.path.exists(legacy_compose)):
+        return
+
+    recorded = None
+    if os.path.exists(legacy_lock):
+        try:
+            recorded = read_lock(pf_dir).get("flowsheet")
+        except Exception:
+            recorded = None
+
+    if recorded and os.path.exists(recorded):
+        env_dir = flowsheet_env_dir(pf_dir, recorded)
+    else:
+        base = os.path.splitext(os.path.basename(recorded or "legacy"))[0] or "legacy"
+        env_dir = os.path.join(pf_dir, base)
+        logger.warning(
+            "Migrating legacy .processforge/lock.json + docker-compose.yml into "
+            f"'{os.path.relpath(env_dir, pf_dir)}/' (recorded flowsheet not found on "
+            "disk — re-run `pf init <flowsheet.json>` to restore the correct env dir)."
+        )
+
+    if os.path.exists(env_dir):
+        logger.warning(
+            f"Migration target {os.path.relpath(env_dir, pf_dir)}/ already exists — "
+            "skipping legacy migration."
+        )
+        return
+
+    os.makedirs(env_dir, exist_ok=True)
+    for src in (legacy_lock, legacy_compose):
+        if os.path.exists(src):
+            shutil.move(src, os.path.join(env_dir, os.path.basename(src)))
+    logger.info(
+        "Migrated legacy .processforge/ environment into per-flowsheet dir "
+        f"'{os.path.relpath(env_dir, pf_dir)}/'."
+    )
 
 
 def init(
@@ -41,6 +90,11 @@ def init(
 
     os.makedirs(pf_dir, exist_ok=True)
     os.makedirs(outputs_dir, exist_ok=True)
+
+    # Migrate a legacy single-environment layout (.processforge/lock.json and
+    # .processforge/docker-compose.yml at the root) into a per-flowsheet env
+    # dir so existing repos aren't silently broken by the new structure.
+    _migrate_legacy_env(pf_dir)
 
     # Remove stale .pfstate snapshot directories from outputs/
     stale_count = 0
@@ -131,13 +185,15 @@ def init(
     # Providers with an explicit remote URL are assumed to be running elsewhere
     # (e.g. a cloud deployment of the ghcr.io image) and are not touched here.
     if local_docker_providers:
-        compose_path = os.path.join(pf_dir, "docker-compose.yml")
+        compose_path = os.path.join(
+            flowsheet_env_dir(pf_dir, flowsheet_path), "docker-compose.yml"
+        )
         if os.path.exists(compose_path):
             logger.warning(
                 f"Environment already initialized — reinitializing from {flowsheet_path}"
             )
 
-        generate_compose(pf_dir, local_docker_providers, outputs_dir)
+        generate_compose(pf_dir, local_docker_providers, outputs_dir, flowsheet=flowsheet_path)
         logger.info(f"Generated {compose_path}")
 
         # Attempt docker compose pull — stream progress live
@@ -194,5 +250,5 @@ def init(
     from .. import __version__ as pf_version
 
     write_lock(pf_dir, flowsheet_path, lock_providers, pf_version)
-    logger.info(f"Wrote {os.path.join(pf_dir, 'lock.json')}")
+    logger.info(f"Wrote {os.path.join(flowsheet_env_dir(pf_dir, flowsheet_path), 'lock.json')}")
     logger.info(".processforge/ initialised successfully.")

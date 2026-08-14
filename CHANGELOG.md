@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.8] - 2026-08-14
+
+### Changed
+- **Breaking**: `pf init` now writes each flowsheet's `lock.json` and `docker-compose.yml` into its own `.processforge/<sha1(flowsheet-path)[:12]>/` directory instead of a single shared `.processforge/lock.json` / `.processforge/docker-compose.yml`. This lets multiple flowsheets keep separate provider environments without clobbering each other.
+- `pf init` migrates an existing legacy root-level `lock.json` / `docker-compose.yml` into the hashed per-flowsheet dir on first run (warns if the recorded flowsheet is no longer on disk).
+
 ## [0.3.7] - 2026-08-14
 
 ### Changed
