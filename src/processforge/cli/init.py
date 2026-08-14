@@ -224,6 +224,17 @@ def init(
             )
         except subprocess.TimeoutExpired:
             logger.warning("docker compose pull timed out after 600s.")
+
+        logger.info(
+            "To start the containerized provider(s), run:\n"
+            f"  docker compose -f {compose_path} up -d"
+        )
+        if any(info["type"] == "openmc" for info in local_docker_providers.values()):
+            logger.info(
+                "Running OpenMC — set OPENMC_DATA_ROOT to mount your OpenMC "
+                "data/workspace into the container (defaults to 'outputs'):\n"
+                f"  OPENMC_DATA_ROOT=/path/to/data docker compose -f {compose_path} up -d"
+            )
     elif remote_docker_providers:
         logger.info(
             "All containerized providers use remote URLs — skipping Docker setup."
