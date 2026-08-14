@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "processforge"
-version = "0.3.9"
+version = "0.3.10"
 description = "A Python-based process simulation framework for chemical engineering applications."
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -42,6 +42,7 @@ dependencies = [
 api = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
+    "s3fs>=2024.0",
 ]
 eo = [
     "pyomo>=6.7",

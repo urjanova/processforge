@@ -10,9 +10,7 @@ RUN micromamba install -y -n base -c conda-forge festim fenics-dolfinx && \
     micromamba clean --all --yes
 
 WORKDIR /app
-RUN micromamba run -n base pip install processforge fastapi uvicorn
-
-COPY provider_server.py .
+RUN micromamba run -n base pip install "processforge[api]"
 
 ENV PROVIDER_TYPE=festim
 # Run artifacts are simulation-specific and ephemeral; write them to a
@@ -22,4 +20,4 @@ ENV PORT=9002
 VOLUME /data
 
 EXPOSE 9002
-CMD ["micromamba", "run", "-n", "base", "python", "provider_server.py"]
+CMD ["micromamba", "run", "-n", "base", "python", "-m", "processforge.api.serve"]

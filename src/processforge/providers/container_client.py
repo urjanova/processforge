@@ -1,13 +1,13 @@
 """CLI-side HTTP client for containerized providers (OpenMC, FESTIM, …).
 
 A provider that runs in a Docker container does its real work inside the
-container (in ``docker/provider_server.py``).  The CLI side must NOT import the
+container (in ``processforge.api.serve``).  The CLI side must NOT import the
 backend library (OpenMC, FESTIM, …) locally — instead it speaks HTTP to the
 container's ``provider_server.py`` instance.  :class:`ContainerProviderClient`
 implements the :class:`~processforge.providers.base.AbstractProvider` contract
 as a thin HTTP wrapper around that server.
 
-Request/response contract (matches ``docker/provider_server.py``)
+Request/response contract (matches ``processforge.api.serve``)
 ----------------------------------------------------------------
 * ``POST /run`` with a JSON body
   ``{"unit_config", "materials", "inlet", "output_dir", "provider_config"}``.

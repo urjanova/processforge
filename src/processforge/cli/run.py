@@ -100,6 +100,10 @@ def run(
     logger.info(f"  Backend      : {display_backend(config, getattr(fs, 'backend', 'dynamic'))}")
     logger.info(f"Results saved to {zarr_path}")
 
+    for name, res in results.items():
+        if isinstance(res, dict) and (s3_uri := res.get("metadata", {}).get("s3_uri")):
+            logger.info(f"  Run outputs (S3): {s3_uri}")
+
     if export_images:
         try:
             plot_results(results, fname=f"{base_name}_results.png")

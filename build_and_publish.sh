@@ -2,6 +2,19 @@
 
 set -euo pipefail
 
+VERSION="$(grep -m1 '^version' pyproject.toml | sed -E 's/version *= *"([^"]+)".*/\1/')"
+TAG="v${VERSION}"
+
+tag_release() {
+	if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+		echo "Tag ${TAG} already exists; skipping."
+	else
+		echo "Creating tag ${TAG}..."
+		git tag -a "${TAG}" -m "Release ${VERSION}"
+		git push origin "${TAG}"
+	fi
+}
+
 usage() {
 	cat <<'EOF'
 Usage:
@@ -20,13 +33,16 @@ mode="${1:-}"
 case "$mode" in
 	test)
 		./build_and_upload_testpypi.sh
+		tag_release
 		;;
 	release)
 		./build_and_upload_pypi.sh
+		tag_release
 		;;
 	both)
 		./build_and_upload_testpypi.sh
 		./build_and_upload_pypi.sh
+		tag_release
 		;;
 	*)
 		usage
