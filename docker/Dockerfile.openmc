@@ -10,9 +10,8 @@ RUN micromamba install -y -n base -c conda-forge openmc && \
     micromamba clean --all --yes
 
 WORKDIR /app
-RUN micromamba run -n base pip install processforge fastapi uvicorn
+RUN micromamba run -n base pip install "processforge[api]"
 
-COPY provider_server.py .
 COPY fetch_openmc_data.sh .
 USER root
 RUN chmod +x /app/fetch_openmc_data.sh
@@ -29,4 +28,4 @@ VOLUME /data
 
 EXPOSE 9001
 ENTRYPOINT ["/app/fetch_openmc_data.sh"]
-CMD ["micromamba", "run", "-n", "base", "python", "provider_server.py"]
+CMD ["micromamba", "run", "-n", "base", "python", "-m", "processforge.api.serve"]
