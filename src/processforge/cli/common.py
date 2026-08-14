@@ -145,6 +145,21 @@ def load_state_manager(outputs_dir: str, base_name: str) -> tuple[StateManager, 
 # Provider checking
 # ---------------------------------------------------------------------------
 
+def is_local_provider_url(url: str | None) -> bool:
+    """Return True if *url* points at a locally-managed provider.
+
+    A provider is considered local — and thus a candidate for ``pf init`` to
+    generate docker-compose and pull its image — when it has no explicit URL
+    or its URL points at localhost / 127.0.0.1 / 0.0.0.0. Any other URL is
+    treated as an externally-managed (cloud / remote) provider that
+    ``pf init`` must not try to spin up or pull an image for.
+    """
+    if not url:
+        return True
+    lowered = url.lower()
+    return any(token in lowered for token in ("localhost", "127.0.0.1", "0.0.0.0"))
+
+
 def _resolve_provider_url(cfg: dict, ptype: str) -> str:
     """Build the provider URL, falling back to the default port."""
     from ..providers.registry import get_provider_default_port
@@ -154,6 +169,19 @@ def _resolve_provider_url(cfg: dict, ptype: str) -> str:
         port = get_provider_default_port(ptype) or 9000
         url = f"http://localhost:{port}"
     return url
+
+
+def _ping_provider_health(url: str, timeout: int = 5) -> tuple[bool, "dict | str"]:
+    """GET ``{url}/health`` and return ``(ok, payload_or_error)``.
+
+    Returns the parsed JSON health payload on success, or the error string on
+    failure (unreachable service, timeout, or non-JSON response).
+    """
+    try:
+        with urllib.request.urlopen(f"{url.rstrip('/')}/health", timeout=timeout) as resp:
+            return True, json.loads(resp.read().decode())
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError) as exc:
+        return False, str(exc)
 
 
 def check_providers(

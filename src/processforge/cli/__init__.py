@@ -31,7 +31,7 @@ def register_commands(app: typer.Typer) -> None:
     )(apply)
     app.command(
         "plan",
-        help="Validate a flowsheet, run DOF analysis, structural diff, and generate a Mermaid diagram",
+        help="Validate a flowsheet, run DOF analysis, structural diff, container health check, and generate a Mermaid diagram",
     )(plan)
     app.command("diagram", help="Generate a flowsheet diagram")(diagram)
     app.command(

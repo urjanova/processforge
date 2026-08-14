@@ -18,7 +18,12 @@ from .common import (
     require_existing_file,
     validate_snapshot_config,
 )
-from .display import print_dof_report, print_structural_diff, print_unit_mismatches
+from .display import (
+    print_dof_report,
+    print_provider_health,
+    print_structural_diff,
+    print_unit_mismatches,
+)
 
 
 def plan(
@@ -116,7 +121,10 @@ def plan(
         logger.info("  Warm-start available : No snapshot found")
         logger.info("  Homotopy eligible    : No (cold start)")
 
-    # Step 7: Mermaid diagram
+    # Step 7: Provider / container health check
+    health_failures = print_provider_health(config)
+
+    # Step 8: Mermaid diagram
     if not no_diagram:
         diagram_output_dir = output_dir or "diagrams"
         os.makedirs(diagram_output_dir, exist_ok=True)
@@ -129,5 +137,5 @@ def plan(
 
     # Exit non-zero on hard errors
     hard_errors = [m for m in mismatches if not m.compatible]
-    if hard_errors or report.system_dof < 0:
+    if hard_errors or report.system_dof < 0 or health_failures:
         raise SystemExit(1)

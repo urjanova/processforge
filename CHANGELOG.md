@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.7] - 2026-08-14
+
+### Changed
+- `pf init` now skips docker-compose generation and image pulls for providers whose `url` points at a remote (non-localhost) endpoint, avoiding wasted pulls when using cloud-deployed provider images.
+- Generated `docker-compose.yml` now publishes each provider's API-contract port (`ports: ["<port>:<port>"]`) instead of using `network_mode: host`.
+
+## [0.3.6] - 2026-08-14
+
+### Added
+- `pf plan` now health-checks Docker-containerized providers: probes each provider's `/health` endpoint and reports URL, status, and `provider_type`. Fails (non-zero exit) if a declared container provider is unreachable.
+
 ## [0.3.5] - 2026-08-13
 
 ### Changed

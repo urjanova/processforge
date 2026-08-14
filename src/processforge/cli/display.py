@@ -53,6 +53,61 @@ def print_unit_mismatches(mismatches: list[Any]) -> None:
             logger.warning(f"Unit annotation — stream '{m.stream_name}'.{m.property_name}: {m.message}")
 
 
+def print_provider_health(config: dict) -> list[str]:
+    """Log per-provider reachability for flowsheets using Docker containers.
+
+    For each provider declared in *config*:
+
+    * containerized providers are probed via ``GET /health`` and reported with
+      their URL, ``status``, and ``provider_type`` from the health payload;
+    * pip-installable providers are reported as importable or not.
+
+    Returns a list of failure messages — one per unreachable containerized
+    provider (empty means every provider is healthy/available).
+    """
+    import importlib
+
+    from ..providers.registry import is_containerized, _PROVIDER_CATALOG
+
+    providers = config.get("providers", {})
+    logger.info("=== Provider / Container Health ===")
+    failures: list[str] = []
+    if not providers:
+        logger.info("  No providers declared.")
+        return failures
+
+    for name, cfg in providers.items():
+        ptype = cfg.get("type", "")
+        if is_containerized(ptype):
+            from .common import _resolve_provider_url, _ping_provider_health
+
+            url = _resolve_provider_url(cfg, ptype)
+            ok, info = _ping_provider_health(url, timeout=5)
+            if ok:
+                payload = info if isinstance(info, dict) else {}
+                status = payload.get("status", "?")
+                provider_type = payload.get("provider_type", "?")
+                logger.info(
+                    f"  [OK] {name} [{ptype}] {url} — status={status} provider_type={provider_type}"
+                )
+            else:
+                msg = f"  [ERR] {name} [{ptype}] {url} — unreachable: {info}"
+                logger.error(msg)
+                failures.append(f"Provider '{name}' unreachable at {url}: {info}")
+        else:
+            catalog = _PROVIDER_CATALOG.get(ptype, {})
+            module = catalog.get("module", "")
+            try:
+                importlib.util.find_spec(module)
+                logger.info(f"  [OK] {name} [{ptype}] (pip — importable)")
+            except (ModuleNotFoundError, ValueError):
+                dep = catalog.get("optional_dep")
+                hint = f"pip install 'processforge[{dep}]'" if dep else "built-in"
+                logger.warning(f"  [WARN] {name} [{ptype}] — not installed ({hint})")
+
+    return failures
+
+
 def print_structural_diff(diff: dict) -> None:
     """Print a +/~/- structural diff of units."""
     logger.info("=== Structural Diff vs. Saved State ===")

@@ -37,11 +37,11 @@ def generate_compose(
         port = info.get("port") or 9000
         lines.append(f"  {name}:")
         lines.append(f"    image: {image}")
-        # Bind directly to the host network so the provider is reachable at
-        # http://localhost:<port>. Docker bridge port-publishing is unreliable
-        # on some hosts (the published port is not reachable from the host),
-        # and host networking avoids that entirely.
-        lines.append(f"    network_mode: host")
+        # Publish the provider's API-contract port (host:container) so the
+        # service is reachable at http://localhost:<port>, matching the
+        # PORT/EXPOSE declared in the provider Dockerfile.
+        lines.append(f"    ports:")
+        lines.append(f'      - "{port}:{port}"')
         lines.append(f"    volumes:")
         lines.append(f'      - "${{OPENMC_DATA_ROOT:-{outputs_dir}}}:/data"')
         lines.append("")

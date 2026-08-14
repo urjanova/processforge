@@ -192,6 +192,8 @@ class TestComposeGeneration:
         assert "openmc:" in content
         assert "ghcr.io/urjanova/processforge-openmc:latest" in content
         assert "9001:9001" in content
+        assert "ports:" in content
+        assert "network_mode" not in content
 
     def test_generate_compose_empty_when_no_docker(self, tmp_pf_dir):
         generate_compose(str(tmp_pf_dir), {})

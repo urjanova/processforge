@@ -3,7 +3,7 @@
 ## Plan / Apply Workflow
 
 1. `pf init` — creates `.processforge/config.json` and `outputs/`.
-2. `pf plan` — validates schema, DOF, units, and structural diff; no solver run.
+2. `pf plan` — validates schema, DOF, units, structural diff, and health-checks any Docker-containerized providers; no solver run.
 3. `pf apply` — loads the last snapshot as warm start, runs the solver, and saves a new snapshot on success.
 
 ## CLI Quick Start
@@ -21,6 +21,9 @@ Use `pf plan` to validate the flowsheet and preview changes without running the 
 ```bash
 pf init [--path PATH]
 pf plan flowsheets/hydraulic-chain.json [--no-diagram] [--output-dir diagrams/]
+# For flowsheets using Docker providers (OpenMC, FESTIM), plan probes each
+# provider's /health endpoint and fails if a container is unreachable.
+# Bring containers up first with: pf init <flowsheet.json>
 pf apply flowsheets/hydraulic-chain.json
 pf run flowsheets/closed-loop-chain.json [--export-images]
 pf diagram flowsheets/hydraulic-chain.json [--format svg] [--output-dir diagrams/]

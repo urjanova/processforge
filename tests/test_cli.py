@@ -442,6 +442,48 @@ class TestCmdRun:
             run(flowsheet=str(flowsheet), export_images=False)
 
 
+class TestCmdPlan:
+    @pytest.fixture
+    def container_flowsheet(self, tmp_path):
+        """Write a minimal valid flowsheet using a Docker-containerized provider."""
+        flowsheet = {
+            "providers": {"openmc": {"type": "openmc"}},
+            "streams": {},
+            "units": {},
+            "simulation": {"mode": "steady"},
+        }
+        path = tmp_path / "container.json"
+        with open(path, "w") as f:
+            json.dump(flowsheet, f)
+        return path
+
+    def test_container_provider_health_ok(self, container_flowsheet, log_output):
+        import processforge.cli.common as common_mod
+        from processforge.cli.plan import plan
+
+        health = {"status": "ready", "provider_type": "openmc"}
+        with patch.object(
+            common_mod, "_ping_provider_health", return_value=(True, health)
+        ), patch.object(common_mod, "_resolve_provider_url", return_value="http://localhost:9001"):
+            plan(flowsheet=str(container_flowsheet), no_diagram=True)
+
+        assert any("Provider / Container Health" in m for m in log_output)
+        assert any("[OK] openmc" in m and "provider_type=openmc" in m for m in log_output)
+
+    def test_container_provider_health_failure_exits(self, container_flowsheet, log_output):
+        import processforge.cli.common as common_mod
+        from processforge.cli.plan import plan
+
+        with patch.object(
+            common_mod, "_ping_provider_health", return_value=(False, "Connection refused")
+        ), patch.object(common_mod, "_resolve_provider_url", return_value="http://localhost:9001"), \
+                pytest.raises(SystemExit) as exc_info:
+            plan(flowsheet=str(container_flowsheet), no_diagram=True)
+
+        assert exc_info.value.code == 1
+        assert any("[ERR] openmc" in m and "unreachable" in m for m in log_output)
+
+
 class TestCmdApply:
     def _containerized_config(self, flowsheet_path):
         return {

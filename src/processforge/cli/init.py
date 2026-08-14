@@ -11,7 +11,7 @@ import subprocess
 import typer
 from loguru import logger
 
-from .common import extract_providers
+from .common import extract_providers, is_local_provider_url
 
 
 def init(
@@ -84,21 +84,32 @@ def init(
 
     # Categorize providers
     pip_providers: dict[str, dict] = {}
-    docker_providers: dict[str, dict] = {}
+    local_docker_providers: dict[str, dict] = {}
+    remote_docker_providers: dict[str, dict] = {}
     for name, cfg in providers.items():
         ptype = cfg.get("type", "")
         if is_containerized(ptype):
             url = cfg.get("url")
-            if not url:
+            if is_local_provider_url(url):
                 port = get_provider_default_port(ptype) or 9000
-                url = f"http://localhost:{port}"
-            docker_providers[name] = {
-                "type": ptype,
-                "url": url,
-                "docker_image": cfg.get("docker_image") or get_provider_docker_image(ptype),
-                "port": get_provider_default_port(ptype),
-            }
-            logger.info(f"  {name}: type={ptype}, url={url} (Docker)")
+                if not url:
+                    url = f"http://localhost:{port}"
+                local_docker_providers[name] = {
+                    "type": ptype,
+                    "url": url,
+                    "docker_image": cfg.get("docker_image") or get_provider_docker_image(ptype),
+                    "port": port,
+                }
+                logger.info(f"  {name}: type={ptype}, url={url} (Docker, local)")
+            else:
+                remote_docker_providers[name] = {
+                    "type": ptype,
+                    "url": url,
+                    "docker_image": cfg.get("docker_image") or get_provider_docker_image(ptype),
+                }
+                logger.info(
+                    f"  {name}: type={ptype}, url={url} (Docker, remote — skipping compose)"
+                )
         else:
             pip_providers[name] = {"type": ptype}
             logger.info(f"  {name}: type={ptype} (pip)")
@@ -116,15 +127,17 @@ def init(
             hint = f"pip install 'processforge[{dep}]'" if dep else "built-in"
             logger.warning(f"  {name} — not installed. Install with: {hint}")
 
-    # Generate compose for Docker providers
-    if docker_providers:
+    # Generate compose + pull images only for locally-managed Docker providers.
+    # Providers with an explicit remote URL are assumed to be running elsewhere
+    # (e.g. a cloud deployment of the ghcr.io image) and are not touched here.
+    if local_docker_providers:
         compose_path = os.path.join(pf_dir, "docker-compose.yml")
         if os.path.exists(compose_path):
             logger.warning(
                 f"Environment already initialized — reinitializing from {flowsheet_path}"
             )
 
-        generate_compose(pf_dir, docker_providers, outputs_dir)
+        generate_compose(pf_dir, local_docker_providers, outputs_dir)
         logger.info(f"Generated {compose_path}")
 
         # Attempt docker compose pull — stream progress live
@@ -155,6 +168,10 @@ def init(
             )
         except subprocess.TimeoutExpired:
             logger.warning("docker compose pull timed out after 600s.")
+    elif remote_docker_providers:
+        logger.info(
+            "All containerized providers use remote URLs — skipping Docker setup."
+        )
     else:
         logger.info("No containerized providers — skipping Docker setup.")
 
