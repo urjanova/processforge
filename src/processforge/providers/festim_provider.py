@@ -16,7 +16,10 @@ Architecture (three-layer strategy pattern)
 3. **FestimProvider** (``AbstractProvider`` subclass)
    Imports ``festim`` lazily, builds the model parts via the strategy's
    ``build`` method, then runs ``HydrogenTransportProblem.initialise()`` +
-   ``.run()`` in the resolved run directory (no Docker service).
+   ``.run()`` in the resolved run directory.  FESTIM is a Docker-only provider
+   (like OpenMC): this class is the engine executed inside the container by
+   ``processforge.api.serve``, and the CLI only ever reaches it through
+   ``ContainerProviderClient``.
 
 Adding a new sim_type::
 

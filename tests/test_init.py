@@ -108,8 +108,8 @@ class TestProviderCatalog:
 
     def test_festim_in_catalog(self):
         assert "festim" in _PROVIDER_CATALOG
-        assert _PROVIDER_CATALOG["festim"]["docker_image"] is None
-        assert _PROVIDER_CATALOG["festim"]["default_port"] is None
+        assert _PROVIDER_CATALOG["festim"]["docker_image"] is not None
+        assert _PROVIDER_CATALOG["festim"]["default_port"] == 9002
 
     def test_get_provider_docker_image(self):
         assert get_provider_docker_image("openmc") is not None
@@ -125,7 +125,7 @@ class TestProviderCatalog:
 
     def test_is_containerized(self):
         assert is_containerized("openmc") is True
-        assert is_containerized("festim") is False
+        assert is_containerized("festim") is True
         assert is_containerized("coolprop") is False
         assert is_containerized("cantera") is False
 

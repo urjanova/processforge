@@ -500,24 +500,24 @@ class TestFestimProviderConfig:
 
 
 class TestFestimCatalog:
-    """Festim catalog entry must reflect the in-process architecture."""
+    """Festim catalog entry must reflect the Docker container architecture."""
 
-    def test_no_docker_image(self):
+    def test_has_docker_image(self):
         from processforge.providers.registry import _PROVIDER_CATALOG
 
         info = _PROVIDER_CATALOG["festim"]
-        assert info["docker_image"] is None
+        assert info["docker_image"] == "ghcr.io/urjanova/processforge-festim:latest"
 
-    def test_no_default_port(self):
+    def test_has_default_port(self):
         from processforge.providers.registry import _PROVIDER_CATALOG
 
         info = _PROVIDER_CATALOG["festim"]
-        assert info["default_port"] is None
+        assert info["default_port"] == 9002
 
-    def test_is_not_containerized(self):
+    def test_is_containerized(self):
         from processforge.providers.registry import is_containerized
 
-        assert is_containerized("festim") is False
+        assert is_containerized("festim") is True
 
     def test_no_optional_dep(self):
         from processforge.providers.registry import _PROVIDER_CATALOG

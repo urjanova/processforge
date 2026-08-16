@@ -8,9 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- FESTIM runs in-process: `FestimProvider.run_simulation()` imports `festim`,
-  builds a `HydrogenTransportProblem` from the typed solver config, and runs it
-  in the resolved output directory — no Docker service required.
+- FESTIM stays a Docker-containerized provider (like OpenMC): the CLI always
+  talks to the container via `ContainerProviderClient` (local docker-compose from
+  `pf init`, or a remote/cloud `url`); the container runs the packaged
+  `processforge.api.serve`, which executes the simulation in-process with
+  `FestimProvider.run_simulation()`. No host-side `import festim` is ever needed.
 - New `processforge.schemas.festim.festim_model.FestimModel`: the single source
   of truth for the FESTIM `solver_config` block (mesh, subdomains, species,
   implicit species, Arrhenius reactions, particle sources, boundary conditions,
@@ -26,7 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `hydrogen_transport` HTTP-body strategy was removed) and the full problem is
   declared inside `solver_config`, validated by `FestimModel`. `mesh` supports
   `np.linspace`-style `segments` in addition to explicit `vertices`.
-- `flowsheets/festim/hydrogen_transport_1d.json` was migrated to the new schema.
+- `flowsheets/festim/hydrogen_transport_1d.json` was migrated to the new schema;
+  both FESTIM flowsheets now pin `url: http://localhost:9002` in their provider
+  blocks (the catalog default port).
 - Flowsheet validation (`_check_festim_unit_config`) now reports per-location
   Pydantic errors for FESTIM `solver_config` and checks volume-subdomain
   material references against the flowsheet materials registry.
