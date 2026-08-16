@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.11] - 2026-08-16
+
+### Changed
+- Hardened the OpenMC provider: runs execute via `Model.run(cwd=...)` (no process-wide `chdir`/env mutation), failures return `status="failed"` with `run_dir`/error metadata, and statepoint detection uses the path returned by the run instead of a batch-keyed glob.
+- `solver_config` is strictly validated — unknown keys rejected, `run_mode` typed as the OpenMC enum, mesh tally dimensions/scores/tally-id uniqueness checked up front.
+- Tighter material validation (nuclide/element entries, `percent_type`); duplicate material IDs and missing cross-section files now fail at initialization with clear errors.
+- Docker OpenMC image pins the conda-forge OpenMC version for reproducible rebuilds.
+
+### Fixed
+- Concurrent OpenMC runs via the provider HTTP API could corrupt each other's working directory and `OPENMC_CROSS_SECTIONS`; runs are now serialized and no longer mutate process-global state.
+
 ## [0.3.10] - 2026-08-14
 
 ### Added

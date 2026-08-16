@@ -5,8 +5,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
     rm -rf /var/lib/apt/lists/*
 USER $MAMBA_USER
 
-# OpenMC is only available on conda-forge
-RUN micromamba install -y -n base -c conda-forge openmc && \
+# OpenMC is only available on conda-forge. Pin the version so image rebuilds
+# are reproducible and the provider targets a known API surface.
+RUN micromamba install -y -n base -c conda-forge openmc=0.15.3 && \
     micromamba clean --all --yes
 
 WORKDIR /app

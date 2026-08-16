@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 
@@ -756,6 +756,22 @@ class MeshTallyConfig(BaseModel):
         description="Estimator type: ``\"tracklength\"`` | ``\"analog\"`` | ``\"collision\"``.",
     )
 
+    @model_validator(mode="after")
+    def _validate_mesh_shape(self) -> "MeshTallyConfig":
+        lengths = {len(self.lower_left), len(self.upper_right), len(self.dimension)}
+        if len(lengths) != 1 or not lengths or lengths == {0}:
+            raise ValueError(
+                "lower_left, upper_right and dimension must have the same non-zero "
+                f"length (got {len(self.lower_left)}, {len(self.upper_right)}, "
+                f"{len(self.dimension)})"
+            )
+        ndim = next(iter(lengths))
+        if ndim not in (2, 3):
+            raise ValueError(f"Mesh tally must be 2D or 3D, got {ndim} dimension(s)")
+        if not self.scores:
+            raise ValueError("scores must contain at least one entry")
+        return self
+
 
 class SolverConfig(BaseModel):
     """Typed representation of the ``solver_config`` block for OpenMC ``SolverUnit`` units.
@@ -765,10 +781,14 @@ class SolverConfig(BaseModel):
     by both validation and runtime code.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     batches: int = Field(default=20, description="Number of simulation batches.")
     inactive: int = Field(default=5, description="Number of inactive batches.")
     particles: int = Field(default=1000, description="Particles per generation.")
-    run_mode: str = Field(default="eigenvalue", description="Run mode (eigenvalue, fixed source, …).")
+    run_mode: RunMode = Field(
+        default=RunMode.eigenvalue, description="Run mode (eigenvalue, fixed source, …)."
+    )
     source_point: Optional[SourcePoint] = Field(default=None, description="Point source definition (used by fixed_source_point sim_type).")
     point_source_sphere_radius: float = Field(default=500.0, description="Radius (cm) of the bounding CSG sphere for point-source geometry.")
     point_source_material: Optional[str] = Field(default=None, description="Material name (must match a flowsheet materials key) filling the sphere.")
@@ -784,3 +804,14 @@ class SolverConfig(BaseModel):
         default=None,
         description="Path to cross-section XML or H5 file (overrides ``OPENMC_CROSS_SECTIONS``).",
     )
+
+    @model_validator(mode="after")
+    def _validate_tally_ids(self) -> "SolverConfig":
+        ids = [t.tally_id for t in self.mesh_tallies]
+        duplicates = sorted({tid for tid in ids if ids.count(tid) > 1})
+        if duplicates:
+            raise ValueError(
+                f"mesh_tallies tally_id values must be unique across tallies; "
+                f"duplicates: {duplicates}"
+            )
+        return self

@@ -38,6 +38,7 @@ import math
 import os
 import pathlib
 import tempfile
+import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
 
@@ -45,7 +46,12 @@ from loguru import logger
 
 from .base import AbstractProvider
 from .registry import register_provider
-from processforge.schemas.openmc.openmc_model import MeshTallyConfig, SolverConfig, SourcePoint
+from processforge.schemas.openmc.openmc_model import (
+    MeshTallyConfig,
+    RunMode,
+    SolverConfig,
+    SourcePoint,
+)
 
 
 def _resolve_omc_path(path: Optional[str]) -> Optional[str]:
@@ -53,6 +59,7 @@ def _resolve_omc_path(path: Optional[str]) -> Optional[str]:
     if path is None:
         return None
     return os.path.expandvars(path)
+
 
 if TYPE_CHECKING:
     from processforge.types import (
@@ -68,9 +75,17 @@ if TYPE_CHECKING:
 OpenMCSolverConfig = SolverConfig
 
 
+# Serializes OpenMC runs. Every run mutates process-global state (the
+# OPENMC_CROSS_SECTIONS env var read by the spawned `openmc` subprocess), so
+# concurrent runs sharing a process — e.g. the provider HTTP server threadpool —
+# must not interleave.
+_OPENMC_RUN_LOCK = threading.Lock()
+
+
 # ---------------------------------------------------------------------------
 # Build helpers
 # ---------------------------------------------------------------------------
+
 
 class OpenMCBuildHelpers:
     """Shared OpenMC model-building utilities injected into sim strategies.
@@ -150,7 +165,13 @@ class OpenMCBuildHelpers:
         settings.batches = solver_cfg.batches
         settings.inactive = solver_cfg.inactive
         settings.particles = solver_cfg.particles
-        settings.run_mode = solver_cfg.run_mode
+        # `run_mode` may be a RunMode enum (validated config) or a raw string
+        # (strategies apply it via `model_copy(update=...)`, which pydantic v2
+        # does not re-validate). Normalise to a plain string for OpenMC.
+        run_mode = solver_cfg.run_mode
+        settings.run_mode = (
+            run_mode.value if isinstance(run_mode, RunMode) else str(run_mode)
+        )
         settings.source = [source]
         if solver_cfg.temperature_default is not None:
             settings.temperature = {"default": solver_cfg.temperature_default}
@@ -160,6 +181,7 @@ class OpenMCBuildHelpers:
 # ---------------------------------------------------------------------------
 # Simulation type strategy registry
 # ---------------------------------------------------------------------------
+
 
 class OpenMCSimStrategy(ABC):
     """Base class for an OpenMC simulation type.
@@ -227,13 +249,17 @@ def get_registered_sim_types() -> dict[str, type]:
 # Built-in strategies
 # ---------------------------------------------------------------------------
 
-class _FixedSourcePointStrategy(OpenMCSimStrategy):
-    """Fixed-source point-source approximation using a simple CSG sphere geometry.
 
-    No DAGMC file required. Models the plant as a single point source inside
-    a homogeneous sphere of a given radius and material — useful for broad-scale
-    dose/flux estimates where full CAD geometry is not needed.
+class _PointSourceSphereStrategy(OpenMCSimStrategy):
+    """Shared build logic for CSG-sphere point-source simulations.
+
+    Models the plant as a single point source inside a homogeneous sphere of a
+    given radius and material. Subclasses differ only in ``sim_type``
+    (error/source-seed strings) and ``run_mode``. No DAGMC file required.
     """
+
+    sim_type: str = "point_source_csg"
+    run_mode: str = "eigenvalue"
 
     def build(
         self,
@@ -244,7 +270,7 @@ class _FixedSourcePointStrategy(OpenMCSimStrategy):
     ) -> tuple:
         if solver_cfg.source_point is None:
             raise ValueError(
-                "sim_type='fixed_source_point' requires 'source_point' in solver_config"
+                f"sim_type='{self.sim_type}' requires 'source_point' in solver_config"
             )
 
         fill_name = solver_cfg.point_source_material
@@ -256,24 +282,42 @@ class _FixedSourcePointStrategy(OpenMCSimStrategy):
 
         omc_materials = openmc.Materials(list(materials_map.values()))
 
-        sphere = openmc.Sphere(r=solver_cfg.point_source_sphere_radius, boundary_type="vacuum")
+        sphere = openmc.Sphere(
+            r=solver_cfg.point_source_sphere_radius, boundary_type="vacuum"
+        )
         fill_mat = materials_map[fill_name] if fill_name else None
-        geometry = openmc.Geometry([
-            openmc.Cell(fill=fill_mat, region=-sphere),
-            openmc.Cell(region=+sphere),
-        ])
+        geometry = openmc.Geometry(
+            [
+                openmc.Cell(fill=fill_mat, region=-sphere),
+                openmc.Cell(region=+sphere),
+            ]
+        )
 
         source = helpers.build_point_source(openmc, solver_cfg.source_point)
-        fixed_cfg = solver_cfg.model_copy(update={"run_mode": "fixed source"})
-        settings = helpers.build_settings(openmc, fixed_cfg, source)
+        run_cfg = solver_cfg.model_copy(update={"run_mode": self.run_mode})
+        settings = helpers.build_settings(openmc, run_cfg, source)
 
-        tally_objs = [helpers.build_mesh_tally(openmc, t) for t in solver_cfg.mesh_tallies]
+        tally_objs = [
+            helpers.build_mesh_tally(openmc, t) for t in solver_cfg.mesh_tallies
+        ]
         tallies = openmc.Tallies(tally_objs) if tally_objs else openmc.Tallies()
 
         return omc_materials, geometry, settings, tallies
 
 
-class _EigenvalueCSGStrategy(OpenMCSimStrategy):
+class _FixedSourcePointStrategy(_PointSourceSphereStrategy):
+    """Fixed-source point-source approximation using a simple CSG sphere geometry.
+
+    No DAGMC file required. Models the plant as a single point source inside
+    a homogeneous sphere of a given radius and material — useful for broad-scale
+    dose/flux estimates where full CAD geometry is not needed.
+    """
+
+    sim_type = "fixed_source_point"
+    run_mode = "fixed source"
+
+
+class _EigenvalueCSGStrategy(_PointSourceSphereStrategy):
     """Eigenvalue (criticality) simulation using a simple CSG sphere geometry.
 
     Computes k_eff for a homogeneous sphere of fissile material.  The initial
@@ -284,42 +328,8 @@ class _EigenvalueCSGStrategy(OpenMCSimStrategy):
     salt or other homogeneous fissile compositions.
     """
 
-    def build(
-        self,
-        openmc,
-        solver_cfg: SolverConfig,
-        materials_map: dict,
-        helpers: OpenMCBuildHelpers,
-    ) -> tuple:
-        if solver_cfg.source_point is None:
-            raise ValueError(
-                "sim_type='eigenvalue_csg' requires 'source_point' in solver_config"
-            )
-
-        fill_name = solver_cfg.point_source_material
-        if fill_name is not None and fill_name not in materials_map:
-            raise ValueError(
-                f"point_source_material='{fill_name}' not found in materials map. "
-                f"Available: {sorted(materials_map)}"
-            )
-
-        omc_materials = openmc.Materials(list(materials_map.values()))
-
-        sphere = openmc.Sphere(r=solver_cfg.point_source_sphere_radius, boundary_type="vacuum")
-        fill_mat = materials_map[fill_name] if fill_name else None
-        geometry = openmc.Geometry([
-            openmc.Cell(fill=fill_mat, region=-sphere),
-            openmc.Cell(region=+sphere),
-        ])
-
-        source = helpers.build_point_source(openmc, solver_cfg.source_point)
-        eigenvalue_cfg = solver_cfg.model_copy(update={"run_mode": "eigenvalue"})
-        settings = helpers.build_settings(openmc, eigenvalue_cfg, source)
-
-        tally_objs = [helpers.build_mesh_tally(openmc, t) for t in solver_cfg.mesh_tallies]
-        tallies = openmc.Tallies(tally_objs) if tally_objs else openmc.Tallies()
-
-        return omc_materials, geometry, settings, tallies
+    sim_type = "eigenvalue_csg"
+    run_mode = "eigenvalue"
 
 
 # Register built-ins at module load
@@ -331,14 +341,15 @@ register_openmc_sim_type("eigenvalue_csg", _EigenvalueCSGStrategy)
 # Material validation constants
 # ---------------------------------------------------------------------------
 
-_VALID_DENSITY_UNITS = frozenset({
-    "g/cm3", "g/cc", "kg/m3", "atom/b-cm", "atom/cm3", "sum", "macro"
-})
+_VALID_DENSITY_UNITS = frozenset(
+    {"g/cm3", "g/cc", "kg/m3", "atom/b-cm", "atom/cm3", "sum", "macro"}
+)
 
 
 # ---------------------------------------------------------------------------
 # OpenMCProvider
 # ---------------------------------------------------------------------------
+
 
 class OpenMCProvider(AbstractProvider):
     """Monte Carlo neutronics provider backed by OpenMC.
@@ -347,18 +358,22 @@ class OpenMCProvider(AbstractProvider):
     ----------------
     * **Material registry** — ``initialize()`` loads all material defs from the
       flowsheet and indexes them by ``id`` and name.
-    * **Working-directory management** — OpenMC writes XML and HDF5 output to
-      the current working directory.  The provider changes CWD to
-            ``<provider_output_dir>`` before each run and
-      restores it afterwards in a ``finally`` block.
+    * **Working-directory management** — each run executes in
+      ``<provider_output_dir>`` via ``openmc.model.Model.run(cwd=...)`` — no
+      process-wide ``chdir``. Falls back to a temp dir when the configured
+      output dir is not writable.
     * **Cross-section override** — If ``provider_config.cross_sections`` or
       ``solver_cfg.cross_sections`` is set, ``OPENMC_CROSS_SECTIONS`` is
-      temporarily overridden.
+      temporarily overridden. Runs are serialized behind a module-wide lock so
+      the process-global env var cannot race across concurrent requests.
     * **Simulation dispatch** — ``run_simulation()`` looks up the strategy from
-      ``_SIM_TYPE_REGISTRY`` by ``sim_type``, calls ``strategy.build()``, exports
-      XML, calls ``openmc.run()``, then parses the statepoint file.
+      ``_SIM_TYPE_REGISTRY`` by ``sim_type``, calls ``strategy.build()``, runs
+      via ``Model.run(cwd=...)``, then parses the returned statepoint.
+      Failures are returned as ``SimulationResult(status="failed")`` with
+      ``run_dir`` and error metadata rather than silently bubbling up.
     * **Result extraction** — extracts ``k_eff`` (eigenvalue mode) and per-tally
-      aggregate scalars (mean totals, representative std devs).
+      aggregate scalars (mean totals, representative std devs). Extraction
+      issues surface in ``metadata["tally_warnings"]``.
     """
 
     def __init__(self):
@@ -392,10 +407,31 @@ class OpenMCProvider(AbstractProvider):
             out_dir = os.path.join(root, out_dir)
         self._provider_output_dir = out_dir
         self._cross_sections = provider_config.cross_sections
-        self._materials = {}
 
+        # Material IDs must be unique — duplicate IDs were previously dropped
+        # silently, causing missing-material KeyErrors deep in the run.
+        id_to_name: dict = {}
+        duplicates = []
         for mat_name, mat_def in flowsheet_config.materials.items():
-            self._materials[mat_name] = mat_def
+            mid = mat_def.id
+            if mid in id_to_name:
+                duplicates.append(
+                    f"id={mid} shared by '{id_to_name[mid]}' and '{mat_name}'"
+                )
+            else:
+                id_to_name[mid] = mat_name
+        if duplicates:
+            raise ValueError(
+                "Flowsheet materials have duplicate OpenMC ids: "
+                + "; ".join(duplicates)
+            )
+
+        # Fail fast on a bad cross-section path instead of deep inside openmc.
+        resolved_xs = _resolve_omc_path(self._cross_sections)
+        if resolved_xs:
+            self._check_cross_sections_path(resolved_xs)
+
+        self._materials = dict(flowsheet_config.materials.items())
 
         self._initialized = True
         n_mats = len({v.id for v in self._materials.values()})
@@ -405,7 +441,9 @@ class OpenMCProvider(AbstractProvider):
         )
 
     def get_thermo_properties(self, stream: dict) -> dict:
-        raise NotImplementedError("OpenMCProvider does not support stream thermodynamics.")
+        raise NotImplementedError(
+            "OpenMCProvider does not support stream thermodynamics."
+        )
 
     def compute_unit(self, unit_type: str, config: dict, inlet: dict):
         """Return ``None`` — OpenMC uses ``run_simulation`` via ``SolverUnit``."""
@@ -421,18 +459,22 @@ class OpenMCProvider(AbstractProvider):
 
         Rules
         -----
-        * ``density`` and ``density_units`` are required.
+        * ``density`` is required unless ``density_units`` is ``"sum"``.
         * ``density_units`` must be one of the OpenMC-recognised strings.
         * At least one of ``nuclides`` or ``elements`` must be non-empty.
+        * Each ``nuclides`` entry needs ``name`` + numeric ``percent``;
+          each ``elements`` entry needs ``element`` + numeric ``percent``.
+        * ``percent_type`` must be ``"ao"`` or ``"wo"``.
 
         Returns:
             List of error strings (empty = valid).
         """
         errors = []
 
-        if mat_def.density is None:
+        if mat_def.density is None and mat_def.density_units != "sum":
             errors.append(
-                f"Material '{mat_name}' is missing 'density' (required for OpenMC)."
+                f"Material '{mat_name}' is missing 'density' (required for OpenMC; "
+                "only 'sum' density_units may omit it)."
             )
         if mat_def.density_units is None:
             errors.append(
@@ -452,22 +494,62 @@ class OpenMCProvider(AbstractProvider):
                 "Add at least one 'nuclides' or 'elements' entry."
             )
 
+        errors.extend(
+            cls._validate_component_entries(mat_name, "nuclides", mat_def.nuclides)
+        )
+        errors.extend(
+            cls._validate_component_entries(
+                mat_name, "elements", mat_def.extra.get("elements", [])
+            )
+        )
+
         return errors
 
-    def run_simulation(self, unit_config: "UnitConfig", inlet: dict) -> "SimulationResult":
+    @staticmethod
+    def _validate_component_entries(mat_name: str, kind: str, entries: list) -> list:
+        """Validate each nuclide/element component entry in a material."""
+        label_key = "name" if kind == "nuclides" else "element"
+        errors = []
+        for i, entry in enumerate(entries or []):
+            if not isinstance(entry, dict):
+                errors.append(
+                    f"Material '{mat_name}' {kind}[{i}] must be an object, "
+                    f"got {type(entry).__name__}."
+                )
+                continue
+            if not entry.get(label_key):
+                errors.append(
+                    f"Material '{mat_name}' {kind}[{i}] is missing '{label_key}'."
+                )
+            if not isinstance(entry.get("percent"), (int, float)):
+                errors.append(
+                    f"Material '{mat_name}' {kind}[{i}] must have a numeric 'percent'."
+                )
+            ptype = entry.get("percent_type", "ao")
+            if ptype not in ("ao", "wo"):
+                errors.append(
+                    f"Material '{mat_name}' {kind}[{i}] percent_type must be "
+                    f"'ao' or 'wo', got '{ptype}'."
+                )
+        return errors
+
+    def run_simulation(
+        self, unit_config: "UnitConfig", inlet: dict
+    ) -> "SimulationResult":
         """Build and run an OpenMC simulation from a typed ``UnitConfig``.
 
         Execution flow
         --------------
-        1. Parse ``solver_config`` → ``OpenMCSolverConfig``
+        1. Parse ``solver_config`` → ``SolverConfig``
         2. Look up strategy from ``_SIM_TYPE_REGISTRY``
         3. Build ``openmc.Material`` objects for all materials in the registry
         4. Call ``strategy.build()`` → ``(materials, geometry, settings, tallies)``
-        5. Create output directory and ``chdir`` into it
-        6. Apply cross-section env override if needed
-        7. Export XML and call ``openmc.run()``
-        8. Parse statepoint → extract k_eff and tally scalars
-        9. Restore CWD and return ``SimulationResult``
+        5. Resolve the run directory (with temp-dir fallback)
+        6. Apply the cross-section override inside a module-wide lock
+        7. Run via ``openmc.model.Model.run(cwd=run_dir, ...)`` (no ``chdir``)
+        8. Parse the returned statepoint → extract k_eff and tally scalars
+        9. Return ``SimulationResult``; failures surface as ``status="failed"``
+           with ``run_dir`` and error diagnostics in ``metadata``
         """
         import openmc
         from processforge.types import SimulationResult
@@ -501,54 +583,67 @@ class OpenMCProvider(AbstractProvider):
             f"{solver_cfg.batches} batches × {solver_cfg.particles} particles"
         )
 
-        omc_materials, geometry, settings, tallies = (
-            strategy_cls().build(openmc, solver_cfg, materials_map, helpers)
+        omc_materials, geometry, settings, tallies = strategy_cls().build(
+            openmc, solver_cfg, materials_map, helpers
         )
 
-        # --- Working directory management ---
-        run_dir = pathlib.Path(self._provider_output_dir)
-        try:
-            run_dir.mkdir(parents=True, exist_ok=True)
-        except (PermissionError, OSError) as exc:
-            # The configured output dir (often the mounted /data volume) may not
-            # be writable by the container user. Fall back to a temp dir so the
-            # simulation can still run; only the persisted XML artifacts are lost.
-            run_dir = pathlib.Path(tempfile.mkdtemp(prefix="processforge_openmc_"))
-            logger.warning(
-                f"OpenMCProvider: cannot use output dir "
-                f"'{self._provider_output_dir}' ({exc}); "
-                f"falling back to '{run_dir}'."
-            )
-        original_cwd = pathlib.Path.cwd()
+        run_dir = self._resolve_run_dir()
 
-        # --- Cross-section override ---
         xs_path = _resolve_omc_path(solver_cfg.cross_sections or self._cross_sections)
-        original_xs = os.environ.get("OPENMC_CROSS_SECTIONS")
         if xs_path:
-            os.environ["OPENMC_CROSS_SECTIONS"] = str(xs_path)
+            self._check_cross_sections_path(xs_path)
 
-        try:
-            os.chdir(run_dir)
-
-            # Export model XML files
-            omc_materials.export_to_xml()
-            geometry.export_to_xml()
-            settings.export_to_xml()
-            if tallies:
-                tallies.export_to_xml()
-
-            openmc.run()
-            logger.info(f"OpenMCProvider: '{sim_type}' completed in '{run_dir}'")
-
-            scalars, metadata = self._extract_results(openmc, solver_cfg, run_dir)
-
-        finally:
-            os.chdir(original_cwd)
+        # Runs spawn a fresh `openmc` subprocess that reads OPENMC_CROSS_SECTIONS
+        # from the environment. That env var is process-global, so the whole
+        # export+run window is serialized (see module-level comment).
+        with _OPENMC_RUN_LOCK:
+            original_xs = os.environ.get("OPENMC_CROSS_SECTIONS")
             if xs_path:
-                if original_xs is None:
-                    os.environ.pop("OPENMC_CROSS_SECTIONS", None)
-                else:
-                    os.environ["OPENMC_CROSS_SECTIONS"] = original_xs
+                os.environ["OPENMC_CROSS_SECTIONS"] = str(xs_path)
+            try:
+                model = openmc.model.Model(
+                    geometry=geometry,
+                    materials=omc_materials,
+                    settings=settings,
+                    tallies=tallies,
+                )
+                statepoint_path = model.run(cwd=str(run_dir), export_model_xml=False)
+                logger.info(f"OpenMCProvider: '{sim_type}' completed in '{run_dir}'")
+            except Exception as exc:  # noqa: BLE001
+                logger.exception(
+                    f"OpenMCProvider: '{sim_type}' failed in '{run_dir}': {exc}"
+                )
+                return SimulationResult(
+                    status="failed",
+                    sim_type=sim_type,
+                    scalars={},
+                    metadata={
+                        "run_dir": str(run_dir.resolve()),
+                        "error": str(exc),
+                    },
+                )
+            finally:
+                if xs_path:
+                    if original_xs is None:
+                        os.environ.pop("OPENMC_CROSS_SECTIONS", None)
+                    else:
+                        os.environ["OPENMC_CROSS_SECTIONS"] = original_xs
+
+        scalars, metadata = self._extract_results(
+            openmc, solver_cfg, statepoint_path, run_dir
+        )
+
+        if statepoint_path is None:
+            logger.warning(
+                f"OpenMCProvider: '{sim_type}' produced no statepoint in '{run_dir}'."
+            )
+            metadata.setdefault("error", "run produced no statepoint file")
+            return SimulationResult(
+                status="failed",
+                sim_type=sim_type,
+                scalars=scalars,
+                metadata=metadata,
+            )
 
         return SimulationResult(
             status="completed",
@@ -557,10 +652,41 @@ class OpenMCProvider(AbstractProvider):
             metadata=metadata,
         )
 
+    def _resolve_run_dir(self) -> pathlib.Path:
+        """Create the run output directory, falling back to a temp dir on failure.
+
+        The configured output dir (often the mounted /data volume) may not be
+        writable by the container user. Fall back to a temp dir so the
+        simulation can still run; only the persisted XML artifacts are lost.
+        """
+        run_dir = pathlib.Path(self._provider_output_dir)
+        try:
+            run_dir.mkdir(parents=True, exist_ok=True)
+        except (PermissionError, OSError) as exc:
+            run_dir = pathlib.Path(tempfile.mkdtemp(prefix="processforge_openmc_"))
+            logger.warning(
+                f"OpenMCProvider: cannot use output dir "
+                f"'{self._provider_output_dir}' ({exc}); "
+                f"falling back to '{run_dir}'."
+            )
+        return run_dir
+
+    @staticmethod
+    def _check_cross_sections_path(xs_path: str) -> None:
+        """Fail fast if a cross-section path does not exist."""
+        if pathlib.Path(xs_path).is_file():
+            return
+        raise RuntimeError(
+            f"OpenMC cross-sections file not found at '{xs_path}'. "
+            "Set a valid OPENMC_CROSS_SECTIONS / provider 'cross_sections' / "
+            "solver_config 'cross_sections' path."
+        )
+
     def _extract_results(
         self,
         openmc,
         solver_cfg: SolverConfig,
+        statepoint_path,
         run_dir: pathlib.Path,
     ) -> tuple:
         """Parse the statepoint file and return ``(scalars_dict, metadata_dict)``.
@@ -572,65 +698,66 @@ class OpenMCProvider(AbstractProvider):
           ``tally_{id}_{score}_mean_total`` — sum of all bin means
           ``tally_{id}_{score}_std_dev``    — RMS of per-bin std devs
 
-        ``metadata["statepoint_path"]`` holds the absolute HDF5 path for
-        downstream post-processing.
+        Extraction issues are collected in ``metadata["tally_warnings"]`` so
+        callers can observe degraded (but not failed) results. ``metadata``
+        always carries ``run_dir``; ``metadata["statepoint_path"]`` holds the
+        absolute HDF5 path for downstream post-processing.
         """
-        import glob as _glob
-
         scalars: dict = {}
         metadata: dict = {"run_dir": str(run_dir.resolve())}
+        warnings: list = []
 
-        sp_pattern = str(run_dir / f"statepoint.{solver_cfg.batches}.h5")
-        sp_files = _glob.glob(sp_pattern)
-        if not sp_files:
-            logger.warning(
-                f"OpenMCProvider: statepoint file not found at '{sp_pattern}'. "
-                "Scalars will be empty."
-            )
+        if statepoint_path is None:
+            warnings.append("run produced no statepoint file")
+            metadata["tally_warnings"] = warnings
             return scalars, metadata
 
-        sp_path = sp_files[0]
-        metadata["statepoint_path"] = str(pathlib.Path(sp_path).resolve())
+        metadata["statepoint_path"] = str(pathlib.Path(statepoint_path).resolve())
 
-        sp = openmc.StatePoint(sp_path)
-
-        # k_eff — only present in eigenvalue mode
-        if sp.keff is not None:
-            scalars["k_eff"] = float(sp.keff.n)
-            scalars["k_eff_std_dev"] = float(sp.keff.s)
-            logger.info(
-                f"OpenMCProvider: k_eff = {scalars['k_eff']:.6f} "
-                f"+/- {scalars['k_eff_std_dev']:.6f}"
-            )
-
-        # Tally scalars
-        for tally_cfg in solver_cfg.mesh_tallies:
-            try:
-                tally = sp.get_tally(id=tally_cfg.tally_id)
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    f"OpenMCProvider: tally id={tally_cfg.tally_id} not found "
-                    "in statepoint. Skipping."
+        sp = openmc.StatePoint(statepoint_path)
+        try:
+            # k_eff — only present in eigenvalue mode
+            if sp.keff is not None:
+                scalars["k_eff"] = float(sp.keff.n)
+                scalars["k_eff_std_dev"] = float(sp.keff.s)
+                logger.info(
+                    f"OpenMCProvider: k_eff = {scalars['k_eff']:.6f} "
+                    f"+/- {scalars['k_eff_std_dev']:.6f}"
                 )
-                continue
+            elif solver_cfg.run_mode == RunMode.eigenvalue:
+                warnings.append("eigenvalue run produced no k_eff in statepoint")
 
-            for score in tally_cfg.scores:
+            for tally_cfg in solver_cfg.mesh_tallies:
                 try:
-                    df = tally.get_pandas_dataframe(scores=[score])
-                    means = df["mean"].values
-                    std_devs = df["std. dev."].values
-                    key_prefix = f"tally_{tally_cfg.tally_id}_{score}"
-                    scalars[f"{key_prefix}_mean_total"] = float(means.sum())
-                    scalars[f"{key_prefix}_std_dev"] = (
-                        float(math.sqrt((std_devs ** 2).mean())) if len(std_devs) > 0 else 0.0
-                    )
+                    tally = sp.get_tally(id=tally_cfg.tally_id)
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        f"OpenMCProvider: could not extract score '{score}' "
-                        f"from tally {tally_cfg.tally_id}: {exc}"
+                    warnings.append(
+                        f"tally id={tally_cfg.tally_id} not found in statepoint: {exc}"
                     )
+                    continue
 
-        del sp
+                for score in tally_cfg.scores:
+                    try:
+                        df = tally.get_pandas_dataframe(scores=[score])
+                        means = df["mean"].values
+                        std_devs = df["std. dev."].values
+                        key_prefix = f"tally_{tally_cfg.tally_id}_{score}"
+                        scalars[f"{key_prefix}_mean_total"] = float(means.sum())
+                        scalars[f"{key_prefix}_std_dev"] = (
+                            float(math.sqrt((std_devs**2).mean()))
+                            if len(std_devs) > 0
+                            else 0.0
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        warnings.append(
+                            f"could not extract score '{score}' from tally "
+                            f"{tally_cfg.tally_id}: {exc}"
+                        )
+        finally:
+            del sp
+
+        if warnings:
+            metadata["tally_warnings"] = warnings
         return scalars, metadata
 
 
