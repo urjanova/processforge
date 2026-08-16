@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "processforge"
-version = "0.3.11"
+version = "0.3.12"
 description = "A Python-based process simulation framework for chemical engineering applications."
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -34,6 +34,7 @@ dependencies = [
     "graphviz>=0.20",
     "pandas>=2.2",
     "zarr>=3.0",
+    "pint>=0.24,<1.0",
     "coolprop>=7.2.0",
     "typer>=0.12",
 ]
@@ -63,9 +64,6 @@ cantera = [
 ]
 coolprop = [
     "coolprop>=6.6",
-]
-pcl = [
-    "pint>=0.24",
 ]
 dev = [
     "pytest>=7.0",

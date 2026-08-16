@@ -6,13 +6,32 @@ import os
 import time
 from typing import Literal
 
+import hashlib
+import json
+import os
 import typer
+from datetime import datetime, timezone
 from loguru import logger
+
+
+def _persist_run(archive, fs, results, run_info, config, base_name, snapshot_id):
+    """Build a standardized RunManifest and persist it to the archive."""
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + os.urandom(3).hex()
+    flowsheet_hash = hashlib.sha256(
+        json.dumps(config, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:16]
+    manifest = fs.collect_outputs(
+        run_id, config.get("simulation", {}).get("mode", "steady"),
+        base_name, provenance=run_info.model_dump(),
+    )
+    manifest.snapshot_id = snapshot_id
+    stream_results = {k: v for k, v in results.items() if not hasattr(v, "fields")}
+    archive.save_run(manifest, stream_results=stream_results)
+    logger.info(f"Run saved    : {run_id}")
+    return run_id
 
 from ..eo import EOFlowsheet
 from ..provenance import build_run_info
-from ..result import save_results_zarr
-from ..state import StateManager
 from .common import (
     build_divergence_report,
     build_run_metadata,
@@ -127,15 +146,14 @@ def apply(
             label="converged state",
         )
         run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
-        zarr_path = os.path.join(outputs_dir, f"{base_name}_results.zarr")
-        save_results_zarr(results, zarr_path, run_info=run_info)
+        saved_run_id = _persist_run(sm, fs, results, run_info, config, base_name, snapshot_id)
         logger.info("=== Apply Summary ===")
         logger.info("  Status       : CONVERGED")
         logger.info(f"  Final ||F||  : {fs.solver_stats.get('final_norm', '?'):.3e}")
         logger.info(f"  Iterations   : {fs.solver_stats.get('iterations', '?')}")
         logger.info(f"  Backend      : {display_backend(config, fs.backend)}")
         logger.info(f"  Snapshot ID  : {snapshot_id}")
-        logger.info(f"  Results zarr : {zarr_path}")
+        logger.info(f"  Run ID       : {saved_run_id}")
         logger.info(f"  Elapsed (s)  : {elapsed:.2f}")
         return
 
@@ -168,11 +186,7 @@ def apply(
                 label="homotopy solution",
             )
             run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
-            save_results_zarr(
-                results,
-                os.path.join(outputs_dir, f"{base_name}_results.zarr"),
-                run_info=run_info,
-            )
+            _persist_run(sm, fs, results, run_info, config, base_name, snapshot_id)
             logger.info("Homotopy apply succeeded. New snapshot saved.")
             return
 

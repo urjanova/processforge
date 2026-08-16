@@ -15,7 +15,7 @@ from loguru import logger
 
 from .. import __version__ as _pf_version
 from ..utils.validate_flowsheet import validate_flowsheet
-from ..state import StateManager
+from ..persistence.archive import ProcessStateArchive
 
 if TYPE_CHECKING:
     from ..state import SnapshotState
@@ -133,12 +133,12 @@ def extract_providers(flowsheet_path: str) -> dict:
 # State management
 # ---------------------------------------------------------------------------
 
-def load_state_manager(outputs_dir: str, base_name: str) -> tuple[StateManager, "SnapshotState | None"]:
-    """Create a StateManager and load the snapshot (if it exists)."""
-    state_path = os.path.join(outputs_dir, f"{base_name}.pfstate")
-    sm = StateManager(state_path)
-    state = sm.load_state()
-    return sm, state
+def load_state_manager(outputs_dir: str, base_name: str) -> tuple[ProcessStateArchive, "SnapshotState | None"]:
+    """Create a ProcessStateArchive and load the snapshot (if it exists)."""
+    archive_path = os.path.join(outputs_dir, f"{base_name}.pfarchive")
+    archive = ProcessStateArchive(archive_path)
+    state = archive.load_snapshot()
+    return archive, state
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +307,7 @@ def write_divergence_report(outputs_dir: str, base_name: str, divergence: dict) 
 # ---------------------------------------------------------------------------
 
 def save_snapshot(
-    sm: StateManager,
+    archive: ProcessStateArchive,
     config: dict,
     x_converged: Any,
     var_names: list[str],
@@ -318,7 +318,7 @@ def save_snapshot(
 ) -> str:
     """Save a state snapshot, logging a clear message on failure."""
     try:
-        return sm.save_state(
+        return archive.save_snapshot(
             config, x_converged, var_names,
             metadata=metadata,
             parent_snapshot_id=parent_snapshot_id,

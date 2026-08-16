@@ -5,7 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.12] - 2026-08-16
+
+### Added
+- **Standardized engine outputs**: every provider now emits a single canonical
+  `EngineOutput` model (typed, unit-aware `OutputField`s via `pint` + content-addressed
+  `OutputArtifact`s) instead of the old free-form `SimulationResult`. CoolProp/Cantera
+  stream thermo (`H`, `Cp`, `K_values`) are captured as `StreamOutput` records so all
+  engines are comparable. FESTIM exports now reduce to `{title}_mean_total` /
+  `{title}_std_dev` summaries (mirroring OpenMC tally convention) with full series
+  written to CSV artifacts.
+- **Unified `ProcessStateArchive`** (`<base>.pfarchive`): one store holding versioned
+  state snapshots, per-run `RunManifest`s, stream timeseries, an artifact registry, and
+  a field index — replacing the split of `.pfstate` + `_results.zarr` + loose run-dir files.
+- **Content-addressed `ArtifactStore`**: providers declare output files as artifacts; the
+  store computes a sha256, uploads to S3 under a deterministic key, and fills `remote_uris`
+  (no more whole-directory dumps). Dockerized outputs are uploaded in-container and the
+  CLI reconciles `remote` vs `unavailable` artifacts via the shared `run_id`.
+
+### Changed
+- **Breaking**: `SimulationResult` removed; `provider.run_simulation()` returns
+  `EngineOutput`. `pint` is now a core dependency (was the `pcl` extra).
+
+### Notes
+- **No `pf outputs` subcommand**: to keep the CLI surface minimal, there is no
+  dedicated command for browsing the archive. Runs are written by `pf run` /
+  `pf apply` into the `ProcessStateArchive`, and inspected programmatically via
+  `processforge.persistence.ProcessStateArchive` (e.g. `list_runs()`,
+  `load_run()`, `field_occurrences()`, `read_stream()`).
 
 ### Added
 - FESTIM stays a Docker-containerized provider (like OpenMC): the CLI always
@@ -452,3 +479,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 [0.2.0]: https://github.com/urjanova/processforge/compare/v0.1.0...HEAD
+
+[0.3.12]: https://github.com/urjanova/processforge/compare/v0.3.11...v0.3.12

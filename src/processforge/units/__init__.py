@@ -1,5 +1,7 @@
 """Unit operation models for processforge."""
 
+from ..quantity import Quantity
+
 from .registry import get_unit_class, get_all_unit_types, register_unit
 
 from .pump import Pump
@@ -17,5 +19,6 @@ __all__ = [
     "Pump", "Valve", "Strainer", "Tank", "Pipes",
     "Flash", "Heater", "CSTR", "PFR",
     "SolverUnit",
+    "Quantity",
     "get_unit_class", "get_all_unit_types", "register_unit",
 ]

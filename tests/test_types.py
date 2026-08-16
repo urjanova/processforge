@@ -6,13 +6,16 @@ import pytest
 from processforge.types import (
     CanteraProviderConfig,
     CoolPropProviderConfig,
+    EngineOutput,
     FestimProviderConfig,
     FlowsheetConfig,
     MaterialDef,
     ModelicaProviderConfig,
     OpenMCProviderConfig,
+    OutputField,
+    OutputProvenance,
+    Quantity,
     RunInfo,
-    SimulationResult,
     SnapshotState,
     UnitConfig,
     provider_config_from_dict,
@@ -327,29 +330,45 @@ class TestFlowsheetConfig:
 # SimulationResult
 # ---------------------------------------------------------------------------
 
-class TestSimulationResult:
+class TestEngineOutput:
     def test_construction(self):
-        r = SimulationResult(status="completed", sim_type="heat_2d")
-        assert r.status == "completed"
-        assert r.sim_type == "heat_2d"
-
-    def test_as_dict_flattens_scalars(self):
-        r = SimulationResult(
-            status="completed",
-            sim_type="heat_2d",
-            scalars={"T_max": 1200.0, "flux": 0.5},
+        out = EngineOutput(
+            unit="reactor",
+            engine="openmc",
+            sim_type="eigenvalue",
+            fields=[
+                OutputField(
+                    name="k_eff",
+                    quantity=Quantity(value=[1.05], unit="", std_dev=0.01),
+                    kind="scalar",
+                    source="keff",
+                )
+            ],
+            artifacts=[],
+            provenance=OutputProvenance(run_id="r1", timestamp="t", config_hash="h"),
         )
-        d = r.as_dict()
-        assert d == {"status": "completed", "sim_type": "heat_2d", "T_max": 1200.0, "flux": 0.5}
+        assert out.unit == "reactor"
+        assert out.fields[0].quantity.value == [1.05]
+        assert out.fields[0].quantity.std_dev == 0.01
 
-    def test_as_dict_excludes_metadata(self):
-        r = SimulationResult(
-            status="completed",
-            sim_type="heat_2d",
-            metadata={"xdmf_files": ["out.xdmf"]},
+    def test_roundtrip_json(self):
+        out = EngineOutput(
+            unit="reactor",
+            engine="openmc",
+            sim_type="eigenvalue",
+            fields=[OutputField(name="x", quantity=Quantity(value=[2.0], unit="m"), kind="scalar")],
+            artifacts=[],
+            provenance=OutputProvenance(run_id="r1", timestamp="t", config_hash="h"),
         )
-        d = r.as_dict()
-        assert "metadata" not in d
+        data = out.model_dump()
+        restored = EngineOutput.model_validate(data)
+        assert restored == out
+
+    def test_quantity_to_pint(self):
+        q = Quantity(value=[1.05], unit="", std_dev=0.01)
+        assert q.is_dimensionless()
+        kv = q.to_pint()
+        assert kv == 1.05
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 from .jacobian import GlobalJacobianManager
 from .solver import EOSolver
-from ..types import SnapshotState
+from ..types import EngineOutput, SnapshotState
 from ..utils.topology import get_inlets, get_outlets
 
 
@@ -70,6 +70,7 @@ class EOFlowsheet:
         """
         from processforge.providers.manager import teardown_providers
         manager = self._build()
+        self.engine_outputs: dict = {}
         try:
             x0 = self._warm_start(manager)
             self.x0: "np.ndarray" = x0.copy()
@@ -102,11 +103,45 @@ class EOFlowsheet:
                     logger.info(f"EOFlowsheet: running standalone SolverUnit '{unit_name}'")
                     unit_result = unit._run_impl({})
                     results[unit_name] = unit_result
+                    self.engine_outputs[unit_name] = unit_result
 
             logger.info("EOFlowsheet: simulation complete.")
+            self.results = results
             return results
         finally:
             teardown_providers(self._provider_map)
+
+    # ------------------------------------------------------------------
+    # Standardized output collection
+    # ------------------------------------------------------------------
+    def _thermo_provider(self):
+        """Return the first provider capable of stream thermo properties."""
+        provider_map = getattr(self, "_provider_map", None) or {}
+        for provider in provider_map.values():
+            name = type(provider).__name__
+            if "Container" in name:
+                continue
+            if callable(getattr(provider, "get_thermo_properties", None)):
+                return provider
+        return None
+
+    def collect_outputs(self, run_id: str, mode: str, flowsheet_name: str, provenance: dict | None = None):
+        """Assemble a :class:`RunManifest` from this run's results."""
+        from ..output_collector import build_run_manifest
+
+        stream_results = {
+            k: v for k, v in getattr(self, "results", {}).items()
+            if not isinstance(v, EngineOutput)
+        }
+        return build_run_manifest(
+            run_id=run_id,
+            mode=mode,
+            flowsheet_name=flowsheet_name,
+            provenance=provenance or {},
+            engine_outputs=getattr(self, "engine_outputs", {}),
+            stream_results=stream_results,
+            thermo_provider=self._thermo_provider(),
+        )
 
     # ------------------------------------------------------------------
     # Build phase

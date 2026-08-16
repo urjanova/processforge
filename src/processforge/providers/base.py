@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from processforge.types import (
+        EngineOutput,
         FlowsheetConfig,
         MaterialDef,
         ProviderConfig,
-        SimulationResult,
         UnitConfig,
     )
 
@@ -95,12 +95,12 @@ class AbstractProvider(ABC):
         self,
         unit_config: "UnitConfig",
         inlet: dict,
-    ) -> "SimulationResult":
+    ) -> "EngineOutput":
         """Run a provider-native standalone simulation (FEM, neutronics, etc.).
 
         Called by ``SolverUnit._run_impl()``. Receives a typed ``UnitConfig``
         (including ``sim_type`` and ``solver_config``) and the inlet stream
-        state dict. Returns a typed ``SimulationResult``.
+        state dict. Returns a typed :class:`~processforge.types.EngineOutput`.
 
         Providers that only handle stream-transforming units (CoolProp, Cantera)
         need not override — the default raises ``NotImplementedError`` so the
@@ -111,7 +111,8 @@ class AbstractProvider(ABC):
             inlet:       Current inlet stream state dict.
 
         Returns:
-            A :class:`~processforge.types.SimulationResult` with status and any scalar outputs.
+            A :class:`~processforge.types.EngineOutput` with status and
+            standardized, unit-tagged fields/artifacts.
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not implement run_simulation. "

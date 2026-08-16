@@ -33,10 +33,9 @@ from loguru import logger
 
 from .base import BaseUnitMixin
 from .registry import register_unit
-from processforge.types import UnitConfig
+from processforge.types import EngineOutput, UnitConfig
 
 if TYPE_CHECKING:
-    from processforge.types import SimulationResult
     from processforge.providers.base import AbstractProvider
 
 
@@ -64,7 +63,7 @@ class SolverUnit(BaseUnitMixin):
     def __init__(self, name: str, **params):
         self.name = name
         self.params = params
-        self._last_result: Optional["SimulationResult"] = None
+        self._last_result: Optional["EngineOutput"] = None
         # Set by flowsheet._build_unit() after construction
         self._provider: Optional["AbstractProvider"] = None
 
@@ -107,7 +106,13 @@ class SolverUnit(BaseUnitMixin):
 
         result = self._provider.run_simulation(unit_cfg, inlet)
         self._last_result = result
-        return result.as_dict()
+        # Stamp the producing unit so downstream aggregation can key on it.
+        if result is not None and not getattr(result, "unit", ""):
+            try:
+                result.unit = self.name
+            except Exception:
+                pass
+        return result
 
 
 register_unit("SolverUnit", SolverUnit)

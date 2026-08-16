@@ -13,6 +13,8 @@ from typing import Optional, Union
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
+from .quantity import Quantity
+
 
 class MaterialDef(BaseModel):
     """Framework-level representation of a material loaded from the flowsheet JSON.
@@ -366,22 +368,157 @@ class FlowsheetConfig(BaseModel):
         return self.extra.get(key, default)
 
 
-class SimulationResult(BaseModel):
-    """Result returned by ``provider.run_simulation()``.
+# ===========================================================================
+# Standardized engine output model
+# ===========================================================================
+#
+# Every provider (OpenMC, FESTIM, CoolProp, Cantera, …) emits an
+# :class:`EngineOutput` so outputs are comparable across engines.  Scalars and
+# vectors carry real :class:`~processforge.units.Quantity` units; large
+# field/timeseries data is referenced via :class:`OutputArtifact` rather than
+# inlined.  ``metadata``/``scalars`` free-form bags are gone.
+#
+# ``SimulationResult`` has been retired; code that previously called
+# ``result.as_dict()`` or read ``result.scalars`` should use the typed fields
+# below (``EngineOutput.fields``, ``EngineOutput.artifacts``).
 
-    ``scalars`` holds named scalar outputs (hydrogen_flux, k_effective, …)
-    that downstream units or result writers can consume.
-    ``metadata`` holds non-scalar information such as output file paths.
+
+class Axis(BaseModel):
+    """A single coordinate axis of an output :class:`Domain`."""
+
+    name: str
+    unit: str = ""
+    coordinates: list[float] = Field(default_factory=list)
+
+
+class Domain(BaseModel):
+    """Spatial/temporal domain of a field or timeseries output.
+
+    ``type`` is one of ``"structured"``, ``"unstructured"``, ``"timeseries"``,
+    ``"point"``.  ``axes`` describe each independent variable; ``shape`` is the
+    array shape of the data along those axes.
     """
 
-    status: str                                  # "completed" | "failed"
+    type: str = "point"
+    axes: list[Axis] = Field(default_factory=list)
+    shape: list[int] = Field(default_factory=list)
+
+
+class OutputField(BaseModel):
+    """A single named, unit-aware output of an engine.
+
+    ``kind`` is one of ``"scalar"``, ``"vector"``, ``"field"``,
+    ``"timeseries"``.  ``source`` records provenance (e.g. ``"tally_1/flux"``,
+    ``"PropsSI(H)"``, ``"keff"``).  ``domain`` applies to field/timeseries data.
+    For high-dimensional data, ``quantity`` holds a *reduced* summary (e.g.
+    ``mean_total``/``std_dev``) and the full data lives in an
+    :class:`OutputArtifact` referenced by ``source``.
+    """
+
+    name: str
+    quantity: Quantity
+    kind: str = "scalar"
+    source: str = ""
+    domain: Optional[Domain] = None
+    timestamp: Optional[str] = None
+
+
+class OutputArtifact(BaseModel):
+    """A file produced by a simulation, with content-addressing + locations.
+
+    ``artifact_id`` is a content hash (sha256).  ``local_path`` points at the
+    file on the producing machine; ``remote_uris`` lists object-store URIs
+    (e.g. ``s3://…``) populated by the :class:`~processforge.persistence.artifact_store.ArtifactStore`.
+    ``source`` is ``"local"`` (CLI-side file) or ``"remote"`` (only reachable
+    via ``remote_uris``, e.g. a container-produced artifact the CLI cannot see).
+    """
+
+    name: str
+    kind: str                                       # statepoint|xdmf|csv|h5|vtk|png|zarr
+    local_path: Optional[str] = None
+    remote_uris: list[str] = Field(default_factory=list)
+    size_bytes: Optional[int] = None
+    checksum: Optional[str] = None
+    content_type: str = ""
+    source: str = "local"
+    artifact_id: str = ""
+
+
+class OutputProvenance(BaseModel):
+    """Provenance attached to every engine output."""
+
+    run_id: str = ""
+    timestamp: str = ""
+    config_hash: str = ""
+    git_hash: str = ""
+    solver_settings: dict = Field(default_factory=dict)
+    provider_version: str = ""
+
+
+class EngineOutput(BaseModel):
+    """Canonical, engine-agnostic result of a single unit/stream simulation.
+
+    Replaces the old free-form ``SimulationResult``.  Every provider returns
+    this type from ``run_simulation()``; stream thermo outputs (CoolProp /
+    Cantera) are captured into one of these by the flowsheet ``OutputCollector``.
+    """
+
+    engine: str
     sim_type: str
-    scalars: dict = {}                           # {name: float}
-    metadata: dict = {}                          # e.g. {"xdmf_files": [...]}
+    status: str = "completed"                       # completed|failed|partial
+    unit: str = ""
+    fields: list[OutputField] = Field(default_factory=list)
+    artifacts: list[OutputArtifact] = Field(default_factory=list)
+    diagnostics: dict = Field(default_factory=dict)
+    provenance: OutputProvenance = Field(default_factory=OutputProvenance)
+
+    # -- convenience accessors -------------------------------------------
+    def get_field(self, name: str) -> Optional[OutputField]:
+        for f in self.fields:
+            if f.name == name:
+                return f
+        return None
+
+    def field_value(self, name: str):
+        f = self.get_field(name)
+        return f.quantity.value if f is not None else None
 
     def as_dict(self) -> dict:
-        """Flat dict for flowsheet result storage."""
-        return {"status": self.status, "sim_type": self.sim_type, **self.scalars}
+        """Debug/legacy flat view (no longer the storage contract)."""
+        d: dict = {"status": self.status, "sim_type": self.sim_type, "engine": self.engine}
+        for f in self.fields:
+            d[f.name] = f.quantity.value
+        d["metadata"] = {
+            "artifacts": [a.model_dump() for a in self.artifacts],
+            **self.diagnostics,
+        }
+        return d
+
+
+class StreamOutput(BaseModel):
+    """Standardized thermo output of a stream (produced via CoolProp/Cantera)."""
+
+    stream: str
+    engine: str
+    fields: list[OutputField] = Field(default_factory=list)
+    artifacts: list[OutputArtifact] = Field(default_factory=list)
+    provenance: OutputProvenance = Field(default_factory=OutputProvenance)
+
+
+class RunManifest(BaseModel):
+    """Aggregate record of one ``pf run`` / ``pf apply`` execution.
+
+    Persisted by :class:`~processforge.persistence.archive.ProcessStateArchive`.
+    """
+
+    run_id: str
+    snapshot_id: Optional[str] = None
+    mode: str = "steady"
+    flowsheet: str = ""
+    timestamp: str = ""
+    units: dict[str, EngineOutput] = Field(default_factory=dict)
+    streams: dict[str, StreamOutput] = Field(default_factory=dict)
+    provenance: dict = Field(default_factory=dict)
 
 
 class RunInfo(BaseModel):

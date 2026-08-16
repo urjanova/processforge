@@ -388,7 +388,7 @@ class TestCmdRun:
                           return_value=self._containerized_config(flowsheet)), \
              patch.object(run_mod, "check_providers"), \
              patch.object(run_mod, "EOFlowsheet", return_value=mock_fs), \
-             patch.object(run_mod, "save_results_zarr"):
+             patch.object(run_mod, "ProcessStateArchive", MagicMock()):
             run(flowsheet=str(flowsheet), export_images=False)
 
     def test_coolprop_flowsheet_no_lifecycle(self, tmp_path):
@@ -414,7 +414,7 @@ class TestCmdRun:
                                         "_config_path": str(flowsheet)}), \
              patch.object(run_mod, "check_providers"), \
              patch.object(run_mod, "EOFlowsheet", return_value=mock_fs), \
-             patch.object(run_mod, "save_results_zarr"):
+             patch.object(run_mod, "ProcessStateArchive", MagicMock()):
             run(flowsheet=str(flowsheet), export_images=False)
 
     def test_no_compose_no_lifecycle(self, tmp_path):
@@ -437,7 +437,7 @@ class TestCmdRun:
                           return_value=self._containerized_config(flowsheet)), \
              patch.object(run_mod, "check_providers"), \
              patch.object(run_mod, "EOFlowsheet", return_value=mock_fs), \
-             patch.object(run_mod, "save_results_zarr"):
+             patch.object(run_mod, "ProcessStateArchive", MagicMock()):
             mock_os.path.exists.return_value = False  # no compose file
             run(flowsheet=str(flowsheet), export_images=False)
 
@@ -523,7 +523,7 @@ class TestCmdApply:
              patch.object(apply_mod, "check_providers"), \
              patch.object(apply_mod, "EOFlowsheet", return_value=mock_fs), \
              patch.object(apply_mod, "save_snapshot", return_value="snap-1"), \
-             patch.object(apply_mod, "save_results_zarr"):
+             patch.object(apply_mod, "load_state_manager", return_value=(MagicMock(), None)):
             apply(flowsheet=str(flowsheet))
 
     def test_coolprop_flowsheet_no_lifecycle(self, tmp_path):
@@ -552,7 +552,7 @@ class TestCmdApply:
              patch.object(apply_mod, "check_providers"), \
              patch.object(apply_mod, "EOFlowsheet", return_value=mock_fs), \
              patch.object(apply_mod, "save_snapshot", return_value="snap-1"), \
-             patch.object(apply_mod, "save_results_zarr"):
+             patch.object(apply_mod, "load_state_manager", return_value=(MagicMock(), None)):
             apply(flowsheet=str(flowsheet))
 
 

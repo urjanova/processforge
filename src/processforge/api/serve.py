@@ -74,11 +74,20 @@ def run(body: dict):
     # Build a minimal flowsheet config holding materials.
     flowsheet_config = type("FS", (), {"materials": materials})()
 
+    run_id = body.get("run_id", "")
+    flowsheet_hash = body.get("flowsheet_hash", "")
+
     try:
         provider.initialize(provider_config, flowsheet_config)
         result = provider.run_simulation(unit_cfg, body.get("inlet", {}))
-        _maybe_upload_run_outputs(result)
-        return result.as_dict() | {"metadata": result.metadata}
+        # Upload any declared artifacts to object storage (fills remote_uris).
+        # No-op when S3 is not configured.
+        from processforge.persistence.artifact_store import ArtifactStore
+
+        ArtifactStore().persist_outputs(
+            result, run_id=run_id, flowsheet_hash=flowsheet_hash, unit=getattr(result, "unit", "")
+        )
+        return result.model_dump()
     except HTTPException:
         raise
     except Exception as exc:
@@ -88,26 +97,6 @@ def run(body: dict):
         ) from exc
     finally:
         provider.teardown()
-
-
-def _maybe_upload_run_outputs(result) -> None:
-    """Upload the provider's run_dir to S3 when configured.
-
-    No-op unless ``S3_BUCKET`` is set in the container environment and the
-    provider recorded a ``run_dir`` in its result metadata. Upload failures are
-    logged and never fail the run.
-    """
-    run_dir = result.metadata.get("run_dir")
-    if not run_dir:
-        return
-    try:
-        from processforge.utils.s3_upload import upload_directory_to_s3
-
-        s3_uri = upload_directory_to_s3(run_dir)
-        if s3_uri:
-            result.metadata["s3_uri"] = s3_uri
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(f"S3 upload of {run_dir} failed: {exc}")
 
 
 if __name__ == "__main__":

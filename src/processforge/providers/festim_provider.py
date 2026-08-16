@@ -61,13 +61,19 @@ from processforge.schemas.festim.festim_model import (
 
 from .base import AbstractProvider
 from .registry import register_provider
+from processforge.types import (
+    EngineOutput,
+    OutputArtifact,
+    OutputField,
+    OutputProvenance,
+)
+from processforge.units import Quantity
 
 if TYPE_CHECKING:
     from processforge.types import (
         FestimProviderConfig,
         FlowsheetConfig,
         MaterialDef,
-        SimulationResult,
         UnitConfig,
     )
 
@@ -667,7 +673,7 @@ class FestimProvider(AbstractProvider):
 
     def run_simulation(
         self, unit_config: "UnitConfig", inlet: dict
-    ) -> "SimulationResult":
+    ) -> "EngineOutput":
         """Build and run a FESTIM simulation from a typed ``UnitConfig``.
 
         Execution flow
@@ -678,9 +684,9 @@ class FestimProvider(AbstractProvider):
         4. Call ``strategy.build()`` → ``HydrogenTransportProblem`` kwargs
         5. Resolve the run directory (with temp-dir fallback)
         6. ``os.chdir(run_dir)``, then ``initialise()`` + ``run()``
-        7. Extract per-export scalars and time-series
-        8. Return ``SimulationResult``; failures surface as ``status="failed"``
-           with ``run_dir`` and error diagnostics in ``metadata``
+        7. Extract per-export scalars and time-series (reduced + artifacts)
+        8. Return :class:`EngineOutput`; failures surface as ``status="failed"``
+           with ``run_dir`` and error diagnostics.
         """
         if not self._initialized:
             raise RuntimeError(
@@ -697,7 +703,13 @@ class FestimProvider(AbstractProvider):
             )
 
         import festim
-        from processforge.types import SimulationResult
+        from processforge.types import (
+            EngineOutput,
+            OutputArtifact,
+            OutputField,
+            OutputProvenance,
+            Quantity,
+        )
 
         festim_model = FestimModel.model_validate(unit_config.solver_config or {})
 
@@ -728,11 +740,11 @@ class FestimProvider(AbstractProvider):
             logger.exception(
                 f"FestimProvider: '{sim_type}' failed in '{run_dir}': {exc}"
             )
-            return SimulationResult(
+            return EngineOutput(
                 status="failed",
+                engine="festim",
                 sim_type=sim_type,
-                scalars={},
-                metadata={
+                diagnostics={
                     "run_dir": str(run_dir.resolve()),
                     "error": str(exc),
                 },
@@ -740,12 +752,17 @@ class FestimProvider(AbstractProvider):
         finally:
             os.chdir(prev_cwd)
 
-        scalars, metadata = self._extract_results(problem_kwargs["exports"], run_dir)
-        return SimulationResult(
+        fields, artifacts, diagnostics = self._extract_results(
+            problem_kwargs["exports"], run_dir
+        )
+        return EngineOutput(
             status="completed",
+            engine="festim",
             sim_type=sim_type,
-            scalars=scalars,
-            metadata=metadata,
+            fields=fields,
+            artifacts=artifacts,
+            diagnostics=diagnostics,
+            provenance=OutputProvenance(),
         )
 
     def _resolve_run_dir(self) -> pathlib.Path:
@@ -769,41 +786,105 @@ class FestimProvider(AbstractProvider):
 
     @staticmethod
     def _extract_results(exports, run_dir: pathlib.Path) -> tuple:
-        """Return ``(scalars_dict, metadata_dict)`` from a list of FESTIM exports.
+        """Return ``(fields, artifacts, diagnostics)`` from FESTIM exports.
 
         * Every export exposing a ``title`` + ``value`` (surface fluxes, total
-          volumes) contributes a scalar.
+          volumes) contributes a scalar :class:`OutputField`.
         * Every export exposing ``t`` + ``data`` (incl. ``Profile1DExport``)
-          contributes a time-series to ``metadata["series"]``; profile data is
-          stored per time step under ``metadata["series"][title]["profiles"]``.
-        * ``metadata`` always carries ``run_dir``.
+          contributes a reduced ``{title}_mean_total`` / ``{title}_std_dev``
+          :class:`OutputField` (mirroring the OpenMC tally convention) plus the
+          full series written to a content-addressed CSV :class:`OutputArtifact`.
+          The field carries a ``timeseries`` ``Domain`` so downstream code can
+          reconstruct the shape without the file.
+
+        ``diagnostics`` always carries ``run_dir``.
         """
-        scalars: dict = {}
-        metadata: dict = {"run_dir": str(run_dir.resolve())}
-        series: dict = {}
+        import csv
+
+        from processforge.types import Axis, Domain, OutputArtifact, OutputField, Quantity
+
+        fields: list = []
+        artifacts: list = []
+        diagnostics: dict = {"run_dir": str(run_dir.resolve())}
 
         for export in exports:
             title = getattr(export, "title", None)
             value = getattr(export, "value", None)
             if title is not None and value is not None:
-                scalars[title] = float(value)
+                fields.append(OutputField(
+                    name=str(title),
+                    quantity=Quantity(value=[float(value)], unit=""),
+                    kind="scalar",
+                    source=str(title),
+                ))
 
             t = getattr(export, "t", None)
             data = getattr(export, "data", None)
-            if t and data:
-                entry = {"t": list(t), "values": []}
-                for step in data:
-                    if hasattr(step, "tolist"):
-                        entry["values"].append(step.tolist())
-                    else:
-                        entry["values"].append(float(step))
-                key = title if title is not None else str(getattr(export, "field", ""))
-                if key:
-                    series[key] = entry
+            if not (t and data):
+                continue
 
-        if series:
-            metadata["series"] = series
-        return scalars, metadata
+            key = str(title if title is not None else getattr(export, "field", ""))
+            if not key:
+                continue
+
+            # Flatten all time steps into a single value array for statistics.
+            flat: list[float] = []
+            rows: list[list[float]] = []
+            for step in data:
+                if hasattr(step, "tolist"):
+                    arr = step.tolist()
+                else:
+                    arr = [float(step)]
+                if not isinstance(arr, list):
+                    arr = [arr]
+                rows.append(arr)
+                flat.extend(arr)
+
+            import numpy as np
+
+            flat_arr = np.asarray(flat, dtype=float)
+            mean_total = float(flat_arr.mean()) if flat_arr.size else 0.0
+            std_dev = float(flat_arr.std()) if flat_arr.size else 0.0
+
+            domain = Domain(
+                type="timeseries",
+                axes=[Axis(name="t", unit="s", coordinates=list(map(float, t)))],
+                shape=[len(rows), max((len(r) for r in rows), default=0)],
+            )
+            fields.append(OutputField(
+                name=f"{key}_mean_total",
+                quantity=Quantity(value=mean_total, unit=""),
+                kind="timeseries",
+                source=f"{key}/mean",
+                domain=domain,
+            ))
+            fields.append(OutputField(
+                name=f"{key}_std_dev",
+                quantity=Quantity(value=std_dev, unit=""),
+                kind="timeseries",
+                source=f"{key}/std_dev",
+                domain=domain,
+            ))
+
+            # Persist the full series as a CSV artifact (not inlined over HTTP).
+            csv_name = f"{key}.csv"
+            csv_path = pathlib.Path(run_dir) / csv_name
+            try:
+                with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+                    writer = csv.writer(fh)
+                    writer.writerow(["t"] + [f"v{i}" for i in range(max((len(r) for r in rows), default=0))])
+                    for ti, row in zip(t, rows):
+                        writer.writerow([float(ti)] + list(row))
+                artifacts.append(OutputArtifact(
+                    name=csv_name,
+                    kind="csv",
+                    local_path=str(csv_path.resolve()),
+                    source="local",
+                ))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"FestimProvider: failed to write series CSV '{csv_name}': {exc}")
+
+        return fields, artifacts, diagnostics
 
 
 # Register the provider

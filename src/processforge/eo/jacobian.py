@@ -332,12 +332,16 @@ class GlobalJacobianManager:
             return {}
         return self.scalars_from_results(self._results)
 
-    def scalars_from_results(self, results: dict[str, dict]) -> dict[str, dict]:
-        """Extract scalars from unit results dict."""
+    def scalars_from_results(self, results: dict) -> dict:
+        """Extract solver-unit outputs from a results dict.
+
+        Solver-unit results are :class:`~processforge.types.EngineOutput`
+        instances; stream entries are plain dicts and are ignored here.
+        """
+        from processforge.types import EngineOutput
+
         return {
-            k: v
-            for k, v in results.items()
-            if isinstance(v, dict) and "status" in v
+            k: v for k, v in results.items() if isinstance(v, EngineOutput)
         }
 
     # ------------------------------------------------------------------

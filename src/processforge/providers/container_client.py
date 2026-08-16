@@ -29,10 +29,10 @@ from .registry import get_provider_default_port
 
 if TYPE_CHECKING:
     from processforge.types import (
+        EngineOutput,
         FlowsheetConfig,
         MaterialDef,
         ProviderConfig,
-        SimulationResult,
         UnitConfig,
     )
 
@@ -58,6 +58,15 @@ class ContainerProviderClient(AbstractProvider):
         self._provider_config: Optional["ProviderConfig"] = None
         self._materials: dict = {}
         self._initialized: bool = False
+        # Run context, set by the CLI so container-side artifact uploads carry
+        # the same run_id / flowsheet_hash as the on-host ProcessStateArchive.
+        self._run_id: str = ""
+        self._flowsheet_hash: str = ""
+
+    def set_run_context(self, run_id: str, flowsheet_hash: str = "") -> None:
+        """Associate subsequent /run calls with a CLI-generated run id."""
+        self._run_id = run_id
+        self._flowsheet_hash = flowsheet_hash
 
     # ------------------------------------------------------------------
     # Helpers
@@ -154,9 +163,17 @@ class ContainerProviderClient(AbstractProvider):
         """Release provider state."""
         self._initialized = False
 
-    def run_simulation(self, unit_config: "UnitConfig", inlet: dict) -> "SimulationResult":
-        """Serialise the request, POST it to the container, return the result."""
-        from processforge.types import SimulationResult
+    def run_simulation(self, unit_config: "UnitConfig", inlet: dict, run_id: str | None = None, flowsheet_hash: str | None = None) -> "EngineOutput":
+        """Serialise the request, POST it to the container, return the result.
+
+        The container returns a serialized :class:`EngineOutput`.  Artifact
+        ``local_path`` values point at files *inside* the container and are not
+        reachable from the CLI, so any artifact that carries ``remote_uris``
+        (uploaded to object storage) is reconciled to ``source="remote"`` with
+        its container-local path dropped; artifacts with no remote location are
+        marked ``"unavailable"``.
+        """
+        from processforge.types import EngineOutput, OutputArtifact
 
         if not self._url:
             raise RuntimeError(
@@ -175,11 +192,13 @@ class ContainerProviderClient(AbstractProvider):
             "inlet": inlet,
             "output_dir": self._provider_output_dir,
             "provider_config": provider_config_dump,
+            "run_id": run_id,
+            "flowsheet_hash": flowsheet_hash,
         }
 
         logger.info(
             f"ContainerProviderClient: POST {self._url}/run "
-            f"sim_type='{unit_config.sim_type}'"
+            f"sim_type='{unit_config.sim_type}' run_id='{run_id}'"
         )
 
         payload = json.dumps(body).encode()
@@ -203,16 +222,15 @@ class ContainerProviderClient(AbstractProvider):
                 f"Provider '{self._ptype}' service unreachable at {self._url}: {exc}"
             ) from exc
 
-        scalars = {
-            k: v
-            for k, v in data.items()
-            if k not in ("status", "sim_type", "metadata")
-        }
-        return SimulationResult(
-            status=data.get("status", "completed"),
-            sim_type=data.get("sim_type", unit_config.sim_type or ""),
-            scalars=scalars,
-            metadata=data.get("metadata", {}),
-        )
+        output = EngineOutput.model_validate(data)
+
+        # Reconcile artifacts: container-local paths are meaningless on the CLI.
+        for art in output.artifacts:
+            if art.remote_uris:
+                art.local_path = None
+                art.source = "remote"
+            elif art.local_path:
+                art.source = "unavailable"
+        return output
 
 

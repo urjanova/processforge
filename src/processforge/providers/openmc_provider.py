@@ -52,6 +52,13 @@ from processforge.schemas.openmc.openmc_model import (
     SolverConfig,
     SourcePoint,
 )
+from processforge.types import (
+    EngineOutput,
+    OutputArtifact,
+    OutputField,
+    OutputProvenance,
+)
+from processforge.units import Quantity
 
 
 def _resolve_omc_path(path: Optional[str]) -> Optional[str]:
@@ -66,7 +73,6 @@ if TYPE_CHECKING:
         FlowsheetConfig,
         MaterialDef,
         OpenMCProviderConfig,
-        SimulationResult,
         UnitConfig,
     )
 
@@ -535,7 +541,7 @@ class OpenMCProvider(AbstractProvider):
 
     def run_simulation(
         self, unit_config: "UnitConfig", inlet: dict
-    ) -> "SimulationResult":
+    ) -> "EngineOutput":
         """Build and run an OpenMC simulation from a typed ``UnitConfig``.
 
         Execution flow
@@ -548,11 +554,17 @@ class OpenMCProvider(AbstractProvider):
         6. Apply the cross-section override inside a module-wide lock
         7. Run via ``openmc.model.Model.run(cwd=run_dir, ...)`` (no ``chdir``)
         8. Parse the returned statepoint → extract k_eff and tally scalars
-        9. Return ``SimulationResult``; failures surface as ``status="failed"``
-           with ``run_dir`` and error diagnostics in ``metadata``
+        9. Return :class:`EngineOutput`; failures surface as ``status="failed"``
+           with ``run_dir`` and error diagnostics in ``diagnostics``
         """
         import openmc
-        from processforge.types import SimulationResult
+        from processforge.types import (
+            EngineOutput,
+            OutputArtifact,
+            OutputField,
+            OutputProvenance,
+            Quantity,
+        )
 
         sim_type = unit_config.sim_type
         strategy_cls = _SIM_TYPE_REGISTRY.get(sim_type)
@@ -613,11 +625,11 @@ class OpenMCProvider(AbstractProvider):
                 logger.exception(
                     f"OpenMCProvider: '{sim_type}' failed in '{run_dir}': {exc}"
                 )
-                return SimulationResult(
+                return EngineOutput(
                     status="failed",
+                    engine="openmc",
                     sim_type=sim_type,
-                    scalars={},
-                    metadata={
+                    diagnostics={
                         "run_dir": str(run_dir.resolve()),
                         "error": str(exc),
                     },
@@ -629,7 +641,7 @@ class OpenMCProvider(AbstractProvider):
                     else:
                         os.environ["OPENMC_CROSS_SECTIONS"] = original_xs
 
-        scalars, metadata = self._extract_results(
+        fields, artifacts, diagnostics = self._extract_results(
             openmc, solver_cfg, statepoint_path, run_dir
         )
 
@@ -637,19 +649,24 @@ class OpenMCProvider(AbstractProvider):
             logger.warning(
                 f"OpenMCProvider: '{sim_type}' produced no statepoint in '{run_dir}'."
             )
-            metadata.setdefault("error", "run produced no statepoint file")
-            return SimulationResult(
+            diagnostics.setdefault("error", "run produced no statepoint file")
+            return EngineOutput(
                 status="failed",
+                engine="openmc",
                 sim_type=sim_type,
-                scalars=scalars,
-                metadata=metadata,
+                fields=fields,
+                artifacts=artifacts,
+                diagnostics=diagnostics,
             )
 
-        return SimulationResult(
+        return EngineOutput(
             status="completed",
+            engine="openmc",
             sim_type=sim_type,
-            scalars=scalars,
-            metadata=metadata,
+            fields=fields,
+            artifacts=artifacts,
+            diagnostics=diagnostics,
+            provenance=OutputProvenance(),
         )
 
     def _resolve_run_dir(self) -> pathlib.Path:
@@ -689,40 +706,55 @@ class OpenMCProvider(AbstractProvider):
         statepoint_path,
         run_dir: pathlib.Path,
     ) -> tuple:
-        """Parse the statepoint file and return ``(scalars_dict, metadata_dict)``.
+        """Parse the statepoint file and return ``(fields, artifacts, diagnostics)``.
 
-        Scalar extraction
-        -----------------
-        * ``k_eff``, ``k_eff_std_dev`` — eigenvalue mode only (``sp.keff.n/.s``)
+        Standardized fields
+        -------------------
+        * ``k_eff`` (dimensionless) with ``std_dev`` — eigenvalue mode only
         * Per mesh tally and score:
           ``tally_{id}_{score}_mean_total`` — sum of all bin means
           ``tally_{id}_{score}_std_dev``    — RMS of per-bin std devs
 
-        Extraction issues are collected in ``metadata["tally_warnings"]`` so
-        callers can observe degraded (but not failed) results. ``metadata``
-        always carries ``run_dir``; ``metadata["statepoint_path"]`` holds the
-        absolute HDF5 path for downstream post-processing.
+        The full statepoint HDF5 is registered as an
+        :class:`OutputArtifact` (uploaded to object storage by the boundary
+        ``ArtifactStore``).  Extraction issues are collected in
+        ``diagnostics["tally_warnings"]``.
         """
-        scalars: dict = {}
-        metadata: dict = {"run_dir": str(run_dir.resolve())}
+        from processforge.types import OutputArtifact, OutputField, Quantity
+
+        fields: list = []
+        artifacts: list = []
+        diagnostics: dict = {"run_dir": str(run_dir.resolve())}
         warnings: list = []
 
         if statepoint_path is None:
             warnings.append("run produced no statepoint file")
-            metadata["tally_warnings"] = warnings
-            return scalars, metadata
+            diagnostics["tally_warnings"] = warnings
+            return fields, artifacts, diagnostics
 
-        metadata["statepoint_path"] = str(pathlib.Path(statepoint_path).resolve())
+        sp_path = str(pathlib.Path(statepoint_path).resolve())
+        artifacts.append(OutputArtifact(
+            name="statepoint",
+            kind="statepoint",
+            local_path=sp_path,
+            source="local",
+        ))
 
         sp = openmc.StatePoint(statepoint_path)
         try:
             # k_eff — only present in eigenvalue mode
             if sp.keff is not None:
-                scalars["k_eff"] = float(sp.keff.n)
-                scalars["k_eff_std_dev"] = float(sp.keff.s)
+                fields.append(OutputField(
+                    name="k_eff",
+                    quantity=Quantity(
+                        value=[float(sp.keff.n)], unit="", std_dev=float(sp.keff.s)
+                    ),
+                    kind="scalar",
+                    source="keff",
+                ))
                 logger.info(
-                    f"OpenMCProvider: k_eff = {scalars['k_eff']:.6f} "
-                    f"+/- {scalars['k_eff_std_dev']:.6f}"
+                    f"OpenMCProvider: k_eff = {float(sp.keff.n):.6f} "
+                    f"+/- {float(sp.keff.s):.6f}"
                 )
             elif solver_cfg.run_mode == RunMode.eigenvalue:
                 warnings.append("eigenvalue run produced no k_eff in statepoint")
@@ -742,12 +774,24 @@ class OpenMCProvider(AbstractProvider):
                         means = df["mean"].values
                         std_devs = df["std. dev."].values
                         key_prefix = f"tally_{tally_cfg.tally_id}_{score}"
-                        scalars[f"{key_prefix}_mean_total"] = float(means.sum())
-                        scalars[f"{key_prefix}_std_dev"] = (
-                            float(math.sqrt((std_devs**2).mean()))
-                            if len(std_devs) > 0
-                            else 0.0
-                        )
+                        fields.append(OutputField(
+                            name=f"{key_prefix}_mean_total",
+                            quantity=Quantity(value=[float(means.sum())], unit=""),
+                            kind="scalar",
+                            source=f"tally_{tally_cfg.tally_id}/{score}",
+                        ))
+                        fields.append(OutputField(
+                            name=f"{key_prefix}_std_dev",
+                            quantity=Quantity(
+                                value=(
+                                    float(math.sqrt((std_devs**2).mean()))
+                                    if len(std_devs) > 0 else 0.0
+                                ),
+                                unit="",
+                            ),
+                            kind="scalar",
+                            source=f"tally_{tally_cfg.tally_id}/{score}",
+                        ))
                     except Exception as exc:  # noqa: BLE001
                         warnings.append(
                             f"could not extract score '{score}' from tally "
@@ -757,8 +801,8 @@ class OpenMCProvider(AbstractProvider):
             del sp
 
         if warnings:
-            metadata["tally_warnings"] = warnings
-        return scalars, metadata
+            diagnostics["tally_warnings"] = warnings
+        return fields, artifacts, diagnostics
 
 
 # Register the provider

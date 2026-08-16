@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from .providers.manager import ProviderMap
 
 from .providers.manager import build_provider_map, teardown_providers
-from .types import FlowsheetConfig, MergedInletTimeseries, StreamTimeseries
+from .types import EngineOutput, FlowsheetConfig, MergedInletTimeseries, StreamTimeseries
 from .solver import Solver
 from .providers.manager import UnitProviderConfig
 from .units.registry import get_unit_class
@@ -228,6 +228,7 @@ class Flowsheet:
         logger.info("Starting simulation")
         flowsheet_cfg = FlowsheetConfig.from_dict(self.config)
         provider_map = build_provider_map(providers_config=flowsheet_cfg.providers, flowsheet_config=flowsheet_cfg)
+        self.engine_outputs: dict = {}
         try:
             self.build_units(provider_map=provider_map)
             mode = self.config.get("simulation", {}).get("mode", "steady")
@@ -261,6 +262,8 @@ class Flowsheet:
             cfg = self.config["units"][unit_name]
             inlet = self._get_merged_inlet(results, cfg)
             unit_out = unit.run(inlet)
+            if isinstance(unit_out, EngineOutput):
+                self.engine_outputs[unit_name] = unit_out
             if "out" in cfg:
                 out_val = cfg["out"]
                 if isinstance(out_val, list):
@@ -276,6 +279,50 @@ class Flowsheet:
         self.results = results
         logger.info("Steady-state simulation completed")
         return results
+
+    # ------------------------------------------------------------------
+    # Standardized output collection
+    # ------------------------------------------------------------------
+    def _thermo_provider(self):
+        """Return the first provider capable of stream thermo properties."""
+        provider_map = getattr(self, "_provider_map", None) or {}
+        for provider in provider_map.values():
+            name = type(provider).__name__
+            if "Container" in name:
+                continue
+            method = getattr(provider, "get_thermo_properties", None)
+            if callable(method):
+                # ContainerProviderClient raises NotImplementedError; skip those.
+                try:
+                    from inspect import signature
+
+                    return provider
+                except Exception:  # noqa: BLE001
+                    continue
+        return None
+
+    def collect_outputs(self, run_id: str, mode: str, flowsheet_name: str, provenance: dict | None = None):
+        """Assemble a :class:`RunManifest` from this run's results.
+
+        Combines solver-unit :class:`EngineOutput` objects with stream thermo
+        :class:`StreamOutput` records into the canonical, unit-aware store
+        entry consumed by :class:`ProcessStateArchive`.
+        """
+        from .output_collector import build_run_manifest
+
+        stream_results = {
+            k: v for k, v in getattr(self, "results", {}).items()
+            if not isinstance(v, EngineOutput)
+        }
+        return build_run_manifest(
+            run_id=run_id,
+            mode=mode,
+            flowsheet_name=flowsheet_name,
+            provenance=provenance or {},
+            engine_outputs=getattr(self, "engine_outputs", {}),
+            stream_results=stream_results,
+            thermo_provider=self._thermo_provider(),
+        )
 
     @staticmethod
     def _flow_weighted_merge_streams(streams: list[dict]) -> dict:
@@ -367,6 +414,8 @@ class Flowsheet:
                 cfg = self.config["units"][unit_name]
                 inlet = self._get_merged_inlet(results, cfg)
                 unit_out = unit.run(inlet)
+                if isinstance(unit_out, EngineOutput):
+                    self.engine_outputs[unit_name] = unit_out
                 if "out" in cfg:
                     out_val = cfg["out"]
                     if isinstance(out_val, list):
