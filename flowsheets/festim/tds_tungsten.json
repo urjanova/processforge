@@ -1,0 +1,135 @@
+{
+  "metadata": {
+    "name": "FESTIM TDS — Tungsten Thermal Desorption",
+    "description": "Thermo-desorption spectra (TDS) for a tungsten sample. Gaussian implantation source (400 s), resting phase, then a temperature ramp from 300 K at 8 K/s to desorb trapped hydrogen. Two trapping sites modelled via implicit empty-trap species. Reproduces notebooks_task02.ipynb.py.",
+    "version": "1.0"
+  },
+  "providers": {
+    "festim": {
+      "type": "festim",
+      "output_dir": "festim"
+    }
+  },
+  "materials": {
+    "tungsten": {
+      "id": 1,
+      "extra": {
+        "D_0": 4.1e-7,
+        "E_D": 0.39
+      }
+    }
+  },
+  "streams": {},
+  "units": {
+    "tds_solver": {
+      "type": "SolverUnit",
+      "provider": "festim",
+      "sim_type": "hydrogen_transport_tds",
+      "solver_config": {
+        "mesh": {
+          "segments": [
+            { "start": 0.0, "stop": 30e-9, "num": 200 },
+            { "start": 30e-9, "stop": 3e-6, "num": 300 },
+            { "start": 3e-6, "stop": 20e-6, "num": 200 }
+          ]
+        },
+        "subdomains": {
+          "volume": [
+            { "id": 1, "borders": [0.0, 20e-6], "material": "tungsten" }
+          ],
+          "surface": [
+            { "id": 1, "x": 0.0 },
+            { "id": 2, "x": 20e-6 }
+          ]
+        },
+        "species": [
+          { "name": "H", "mobile": true },
+          { "name": "trapped_H1", "mobile": false },
+          { "name": "trapped_H2", "mobile": false }
+        ],
+        "implicit_species": [
+          { "name": "empty_trap1", "n": 135.99814960153805, "others": ["trapped_H1"] },
+          { "name": "empty_trap2", "n": 41.84558449278094, "others": ["trapped_H2"] }
+        ],
+        "reactions": [
+          {
+            "type": "arrhenius",
+            "reactant": ["H", "empty_trap1"],
+            "product": ["trapped_H1"],
+            "k_0": 53983071.22305305,
+            "E_k": 0.39,
+            "p_0": 1e13,
+            "E_p": 0.87,
+            "volume": 1
+          },
+          {
+            "type": "arrhenius",
+            "reactant": ["H", "empty_trap2"],
+            "product": ["trapped_H2"],
+            "k_0": 53983071.22305305,
+            "E_k": 0.39,
+            "p_0": 1e13,
+            "E_p": 1.0,
+            "volume": 1
+          }
+        ],
+        "sources": [
+          {
+            "type": "particle",
+            "species": "H",
+            "volume": 1,
+            "value": {
+              "type": "gaussian",
+              "amplitude": 4.151347667934617e-05,
+              "center": 4.5e-9,
+              "width": 2.5e-9,
+              "active_until": 400
+            }
+          }
+        ],
+        "boundary_conditions": [
+          { "type": "fixed_concentration", "subdomain": 1, "species": "H", "value": 0 },
+          { "type": "fixed_concentration", "subdomain": 2, "species": "H", "value": 0 }
+        ],
+        "temperature": {
+          "type": "ramp",
+          "T0": 300,
+          "start_t": 450,
+          "ramp_rate": 8
+        },
+        "exports": [
+          { "type": "surface_flux", "field": "H", "surface": 1, "filename": "flux_left.csv" },
+          { "type": "surface_flux", "field": "H", "surface": 2, "filename": "flux_right.csv" },
+          { "type": "total_volume", "field": "H", "volume": 1, "filename": "total_mobile_H.csv" },
+          { "type": "total_volume", "field": "trapped_H1", "volume": 1, "filename": "total_trapped_H1.csv" },
+          { "type": "total_volume", "field": "trapped_H2", "volume": 1, "filename": "total_trapped_H2.csv" },
+          { "type": "profile_1d", "field": "H", "volume": 1, "times": [400, 450, 500] },
+          { "type": "profile_1d", "field": "trapped_H1", "volume": 1, "times": [400, 450, 500] },
+          { "type": "profile_1d", "field": "trapped_H2", "volume": 1, "times": [400, 450, 500] }
+        ],
+        "atol": 1e-10,
+        "rtol": 1e-10,
+        "max_iterations": 30,
+        "transient": true,
+        "final_time": 500,
+        "element_degree": 1,
+        "stepsize": {
+          "initial_value": 0.5,
+          "growth_factor": 1.1,
+          "cutback_factor": 0.9,
+          "target_nb_iterations": 4,
+          "max_stepsize": {
+            "type": "after_t",
+            "after_t": 450,
+            "value": 0.5
+          },
+          "milestones": [400, 450, 500]
+        },
+        "convergence_criterion": "residual"
+      }
+    }
+  },
+  "simulation": {
+    "mode": "steady"
+  }
+}

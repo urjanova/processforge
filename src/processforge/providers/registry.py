@@ -62,9 +62,9 @@ _PROVIDER_CATALOG: dict[str, dict[str, str | None | int]] = {
         "module": "processforge.providers.festim_provider",
         "class": "FestimProvider",
         "optional_dep": None,
-        "description": "Hydrogen transport FEM via FESTIM (Docker service)",
-        "docker_image": "ghcr.io/urjanova/processforge-festim:latest",
-        "default_port": 9002,
+        "description": "Hydrogen transport FEM via FESTIM (in-process)",
+        "docker_image": None,
+        "default_port": None,
     },
 }
 

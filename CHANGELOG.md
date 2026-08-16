@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- FESTIM runs in-process: `FestimProvider.run_simulation()` imports `festim`,
+  builds a `HydrogenTransportProblem` from the typed solver config, and runs it
+  in the resolved output directory — no Docker service required.
+- New `processforge.schemas.festim.festim_model.FestimModel`: the single source
+  of truth for the FESTIM `solver_config` block (mesh, subdomains, species,
+  implicit species, Arrhenius reactions, particle sources, boundary conditions,
+  temperature, exports, settings). Expression-like values are expressed as
+  structured profiles (`GaussianProfile`, `RampProfile`, `AfterTProfile`).
+- `hydrogen_transport_tds` simulation type with implicit-trap trapping model.
+- New TDS flowsheet `flowsheets/festim/tds_tungsten.json` reproducing
+  `notebooks_task02.ipynb.py` (tungsten implantation, resting, and desorption
+  phases).
+
+### Changed
+- **Breaking**: the FESTIM sim type is now `hydrogen_transport_tds` (the legacy
+  `hydrogen_transport` HTTP-body strategy was removed) and the full problem is
+  declared inside `solver_config`, validated by `FestimModel`. `mesh` supports
+  `np.linspace`-style `segments` in addition to explicit `vertices`.
+- `flowsheets/festim/hydrogen_transport_1d.json` was migrated to the new schema.
+- Flowsheet validation (`_check_festim_unit_config`) now reports per-location
+  Pydantic errors for FESTIM `solver_config` and checks volume-subdomain
+  material references against the flowsheet materials registry.
+- FESTIM material validation is stricter: `D_0` must be positive, `E_D`
+  non-negative, and `K_S_0`/`E_K_S` must be paired.
+
 ## [0.3.11] - 2026-08-16
 
 ### Changed

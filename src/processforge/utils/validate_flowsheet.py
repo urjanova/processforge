@@ -613,12 +613,13 @@ def _check_festim_unit_config(config: dict) -> None:
     Checks (only applied to units whose ``provider`` resolves to a FESTIM provider):
 
     1. ``sim_type`` is present and registered.
-    2. Unit has required keys: ``mesh``, ``species``, ``subdomains``.
-    3. ``solver_config`` has ``atol`` and ``rtol``.
-    4. ``mesh.vertices`` is a non-empty list.
-    5. ``subdomains`` has ``volume`` and ``surface`` entries.
-    6. ``boundary_conditions`` reference valid subdomain IDs.
-    7. ``exports`` reference valid species names and subdomain IDs.
+    2. ``solver_config`` validates against ``festim_model.FestimModel`` — the
+       single source of truth for the whole problem (mesh, subdomains, species,
+       reactions, sources, boundary conditions, exports, settings,
+       temperature).  Pydantic errors are reported per-location.
+    3. Every material referenced by a volume subdomain exists in the flowsheet
+       ``materials`` registry (the schema cannot check this — materials live
+       outside ``solver_config``).
     """
     providers = config.get("providers", {})
     festim_provider_names = {
@@ -651,97 +652,38 @@ def _check_festim_unit_config(config: dict) -> None:
             continue
 
         sc = unit_cfg.get("solver_config") or {}
+        if not sc:
+            errors.append(
+                f"❌ Unit '{unit_name}': solver_config is empty — define the FESTIM "
+                "problem (mesh, subdomains, species, …) in 'solver_config'."
+            )
+            continue
 
-        # Required solver_config keys
-        for key in ("atol", "rtol"):
-            if key not in sc:
+        try:
+            from processforge.schemas.festim.festim_model import FestimModel  # noqa: PLC0415
+            from pydantic import ValidationError as PydanticValidationError  # noqa: PLC0415
+
+            festim_model = FestimModel.model_validate(sc)
+        except PydanticValidationError as exc:
+            for err in exc.errors():
+                loc = ".".join(str(part) for part in err["loc"])
+                where = f"solver_config.{loc}" if loc else "solver_config"
+                errors.append(f"❌ Unit '{unit_name}': {where} — {err['msg']}")
+            continue
+        except Exception as exc:  # noqa: BLE001
+            errors.append(
+                f"❌ Unit '{unit_name}': solver_config failed FESTIM schema "
+                f"validation: {exc}"
+            )
+            continue
+
+        # Material references must exist in the flowsheet materials registry.
+        for vol in festim_model.subdomains.volume:
+            if vol.material not in materials:
                 errors.append(
-                    f"❌ Unit '{unit_name}': solver_config is missing required key '{key}'."
-                )
-
-        # Required unit-level keys (problem definition)
-        for key in ("mesh", "species", "subdomains"):
-            if key not in unit_cfg:
-                errors.append(
-                    f"❌ Unit '{unit_name}' is missing required key '{key}'."
-                )
-
-        # Mesh validation
-        mesh = unit_cfg.get("mesh", {})
-        vertices = mesh.get("vertices")
-        if not isinstance(vertices, list) or len(vertices) < 2:
-            errors.append(
-                f"❌ Unit '{unit_name}': mesh.vertices must be a list with at least 2 points."
-            )
-
-        # Species validation
-        species_cfgs = unit_cfg.get("species", [])
-        if not species_cfgs:
-            errors.append(
-                f"❌ Unit '{unit_name}': species list is empty."
-            )
-        species_names = {s["name"] for s in species_cfgs if "name" in s}
-
-        # Subdomains validation
-        subs = unit_cfg.get("subdomains", {})
-        volume_subs = subs.get("volume", [])
-        surface_subs = subs.get("surface", [])
-        if not volume_subs:
-            errors.append(
-                f"❌ Unit '{unit_name}': subdomains.volume is empty."
-            )
-        if not surface_subs:
-            errors.append(
-                f"❌ Unit '{unit_name}': subdomains.surface is empty."
-            )
-
-        volume_mat_names = {v.get("material") for v in volume_subs}
-        for mat_name in volume_mat_names:
-            if mat_name and mat_name not in materials:
-                errors.append(
-                    f"❌ Unit '{unit_name}': subdomain references unknown material '{mat_name}'. "
+                    f"❌ Unit '{unit_name}': volume subdomain id={vol.id} references "
+                    f"unknown material '{vol.material}'. "
                     f"Available: {sorted(materials)}"
-                )
-
-        surface_ids = {s["id"] for s in surface_subs if "id" in s}
-        volume_ids = {v["id"] for v in volume_subs if "id" in v}
-
-        # Boundary conditions validation
-        for bc in unit_cfg.get("boundary_conditions", []):
-            sub_id = bc.get("subdomain_id")
-            if sub_id is not None and sub_id not in surface_ids:
-                errors.append(
-                    f"❌ Unit '{unit_name}': boundary condition references "
-                    f"unknown surface subdomain_id={sub_id}. "
-                    f"Available surface IDs: {sorted(surface_ids)}"
-                )
-            bc_species = bc.get("species")
-            if bc_species and bc_species not in species_names:
-                errors.append(
-                    f"❌ Unit '{unit_name}': boundary condition references "
-                    f"unknown species '{bc_species}'. "
-                    f"Available: {sorted(species_names)}"
-                )
-
-        # Exports validation
-        for exp in unit_cfg.get("exports", []):
-            field = exp.get("field")
-            if field and field not in species_names:
-                errors.append(
-                    f"❌ Unit '{unit_name}': export references unknown species '{field}'. "
-                    f"Available: {sorted(species_names)}"
-                )
-            vol_id = exp.get("volume_id")
-            if vol_id is not None and vol_id not in volume_ids:
-                errors.append(
-                    f"❌ Unit '{unit_name}': export references unknown volume_id={vol_id}. "
-                    f"Available volume IDs: {sorted(volume_ids)}"
-                )
-            surf_id = exp.get("surface_id")
-            if surf_id is not None and surf_id not in surface_ids:
-                errors.append(
-                    f"❌ Unit '{unit_name}': export references unknown surface_id={surf_id}. "
-                    f"Available surface IDs: {sorted(surface_ids)}"
                 )
 
     if errors:

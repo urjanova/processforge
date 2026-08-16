@@ -212,33 +212,16 @@ class OpenMCProviderConfig(BaseModel):
 class FestimProviderConfig(BaseModel):
     """Configuration for the FESTIM hydrogen transport provider.
 
-    FESTIM runs as an external Docker service. The ``url`` field points to
-    the service's HTTP endpoint (default ``http://localhost:9002``).
+    FESTIM runs in-process (installed via ``pip install festim``); no Docker
+    service is required. The ``url`` field is retained for backwards
+    compatibility with existing flowsheets but is ignored.
 
-    Flowsheet JSON examples::
-
-        "providers": {
-            "festim": {
-                "type": "festim",
-                "url": "http://localhost:9002"
-            }
-        }
-
-    Custom Docker image::
+    Flowsheet JSON example::
 
         "providers": {
             "festim": {
                 "type": "festim",
-                "docker_image": "my-org/custom-festim:v2"
-            }
-        }
-
-    Cloud deployment::
-
-        "providers": {
-            "festim": {
-                "type": "festim",
-                "url": "https://festim-production.up.railway.app"
+                "output_dir": "outputs/festim"
             }
         }
     """
