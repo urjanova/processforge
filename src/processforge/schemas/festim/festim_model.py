@@ -5,7 +5,7 @@ and the runtime ``FestimProvider``.  They mirror the constructor signatures of
 the FESTIM 2.0 API (see ``flowsheets/festim/FESTIM-main/src/festim``)::
 
     Mesh1D, Material, Species, ImplicitSpecies, VolumeSubdomain1D,
-    SurfaceSubdomain1D, ArrheniusReaction, ParticleSource,
+    SurfaceSubdomain1D, Reaction, ParticleSource,
     FixedConcentrationBC, ParticleFluxBC, SievertsBC, HenrysBC,
     Settings, Stepsize, SurfaceFlux, TotalVolume, Profile1DExport
 

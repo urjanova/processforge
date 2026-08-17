@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.14] - 2026-08-17
+
+### Fixed
+- **FESTIM provider**: the FESTIM 2.0 API renamed `ArrheniusReaction` → `Reaction`; the
+  provider now builds `festim.Reaction` objects (the kwargs were already compatible), so the
+  `tds_tungsten.json` flowsheet no longer fails with `module 'festim' has no attribute
+  'ArrheniusReaction'`.
+- **Dockerfile.festim**: pinned `festim=2.0` so the image is reproducible instead of pulling
+  whatever latest 2.0-series build is on conda-forge (which is what exposed the rename).
+
 ## [0.3.12] - 2026-08-16
 
 ### Added
@@ -480,4 +490,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [0.2.0]: https://github.com/urjanova/processforge/compare/v0.1.0...HEAD
 
+[0.3.14]: https://github.com/urjanova/processforge/compare/v0.3.13...v0.3.14
 [0.3.12]: https://github.com/urjanova/processforge/compare/v0.3.11...v0.3.12

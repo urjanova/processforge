@@ -94,7 +94,7 @@ class _FakeSurfaceSubdomain1D:
         self.x = x
 
 
-class _FakeArrheniusReaction:
+class _FakeReaction:
     def __init__(self, reactant, k_0, E_k, volume, product=None, p_0=None, E_p=None):
         self.reactant = reactant
         self.k_0 = k_0
@@ -254,7 +254,7 @@ def make_fake_festim() -> types.ModuleType:
     mod.ImplicitSpecies = _FakeImplicitSpecies
     mod.VolumeSubdomain1D = _FakeVolumeSubdomain1D
     mod.SurfaceSubdomain1D = _FakeSurfaceSubdomain1D
-    mod.ArrheniusReaction = _FakeArrheniusReaction
+    mod.Reaction = _FakeReaction
     mod.ParticleSource = _FakeParticleSource
     mod.InitialConcentration = _FakeInitialConcentration
     mod.FixedConcentrationBC = _FakeFixedConcentrationBC

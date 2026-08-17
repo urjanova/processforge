@@ -269,7 +269,7 @@ class FestimBuildHelpers:
 
     @staticmethod
     def build_reactions(festim, model: FestimModel, all_map: dict, volume_map: dict):
-        """Construct ``festim.ArrheniusReaction`` objects."""
+        """Construct ``festim.Reaction`` objects."""
         reactions = []
         for r in model.reactions:
             reactant = [all_map[name] for name in r.reactant]
@@ -285,7 +285,7 @@ class FestimBuildHelpers:
                     p_0=r.p_0,
                     E_p=r.E_p,
                 )
-            reactions.append(festim.ArrheniusReaction(**kwargs))
+            reactions.append(festim.Reaction(**kwargs))
         return reactions
 
     @staticmethod
