@@ -500,9 +500,6 @@ class StepsizeConfig(BaseModel):
         default=None,
         description="Times (s) the simulation must pass through exactly.",
     )
-    milestone_tolerance: float = Field(
-        default=1e-5, gt=0, description="Relative tolerance for milestone hits."
-    )
 
     @model_validator(mode="after")
     def _validate_adaptive(self) -> "StepsizeConfig":

@@ -198,7 +198,6 @@ class _FakeStepsize:
         target_nb_iterations=None,
         max_stepsize=None,
         milestones=None,
-        milestone_tolerance=1e-5,
     ):
         self.initial_value = initial_value
         self.growth_factor = growth_factor
@@ -206,7 +205,6 @@ class _FakeStepsize:
         self.target_nb_iterations = target_nb_iterations
         self.max_stepsize = max_stepsize
         self.milestones = milestones or []
-        self.milestone_tolerance = milestone_tolerance
 
 
 class _FakeSettings:

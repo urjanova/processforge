@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.15] - 2026-08-17
+
+### Fixed
+- **FESTIM provider**: the FESTIM 2.0 `Stepsize` constructor no longer accepts a
+  `milestone_tolerance` keyword, so `build_settings` no longer passes it (the
+  `tds_tungsten.json` flowsheet was failing with
+  `Stepsize.__init__() got an unexpected keyword argument 'milestone_tolerance'`).
+  The now-orphaned `milestone_tolerance` field was also removed from
+  `StepsizeConfig`. All other `festim.*` API calls already match the FESTIM 2.0
+  signatures.
+
 ## [0.3.14] - 2026-08-17
 
 ### Fixed

@@ -424,10 +424,7 @@ class FestimBuildHelpers:
             if ss.max_stepsize is not None:
                 kwargs["max_stepsize"] = _build_max_stepsize(ss.max_stepsize)
             if ss.milestones is not None:
-                kwargs.update(
-                    milestones=ss.milestones,
-                    milestone_tolerance=ss.milestone_tolerance,
-                )
+                kwargs.update(milestones=ss.milestones)
             stepsize = festim.Stepsize(**kwargs)
 
         return festim.Settings(
