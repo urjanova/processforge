@@ -1,0 +1,30 @@
+# Local dev image: installs processforge from the local working tree
+# (build context must be the repo root) so un-published source changes —
+# e.g. the festim solubility_law default fix — are picked up without a
+# PyPI release. NOT for production use.
+#
+#   docker build -f docker/Dockerfile.festim.local -t processforge-festim:local .
+#   docker run -p 9002:9002 -v "$PWD/outputs:/data" processforge-festim:local
+
+FROM mambaorg/micromamba:1.5.8
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/*
+USER $MAMBA_USER
+
+# FESTIM + FEniCSx are only available on conda-forge
+RUN micromamba install -y -n base -c conda-forge festim fenics-dolfinx && \
+    micromamba clean --all --yes
+
+WORKDIR /src
+COPY . /src
+RUN micromamba run -n base pip install -e ".[api]"
+
+ENV PROVIDER_TYPE=festim
+ENV PROCESSFORGE_OUTPUT_DIR=/tmp/processforge
+ENV PORT=9002
+VOLUME /data
+
+EXPOSE 9002
+CMD ["micromamba", "run", "-n", "base", "python", "-m", "processforge.api.serve"]

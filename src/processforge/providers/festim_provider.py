@@ -154,20 +154,54 @@ class FestimBuildHelpers:
     provider), which is what lets tests substitute a ``fake_festim``.
     """
 
+    # Optional FESTIM material properties read from ``extra``. FESTIM accepts
+    # ``None`` for all of these *except* ``solubility_law`` (its setter raises on
+    # ``None``), so that one needs a real default. Every field missing from
+    # ``extra`` is logged as a WARNING so users know a default was applied.
+    _MATERIAL_FIELD_DEFAULTS = {
+        "solubility_law": "none",
+        "K_S_0": None,
+        "E_K_S": None,
+        "thermal_conductivity": None,
+        "density": None,
+        "heat_capacity": None,
+    }
+
     @staticmethod
     def build_material(festim, mat_name: str, mat_def: "MaterialDef"):
         """Construct a ``festim.Material`` from a flowsheet ``MaterialDef``."""
         extra = mat_def.extra or {}
+        for field, default in FestimBuildHelpers._MATERIAL_FIELD_DEFAULTS.items():
+            if field not in extra:
+                logger.warning(
+                    f"FestimProvider: material '{mat_name}' is missing "
+                    f"'extra.{field}'; defaulting to {default!r}."
+                )
         return festim.Material(
             D_0=extra["D_0"],
             E_D=extra["E_D"],
-            K_S_0=extra.get("K_S_0"),
-            E_K_S=extra.get("E_K_S"),
-            thermal_conductivity=extra.get("thermal_conductivity"),
-            density=extra.get("density"),
-            heat_capacity=extra.get("heat_capacity"),
+            K_S_0=extra.get(
+                "K_S_0", FestimBuildHelpers._MATERIAL_FIELD_DEFAULTS["K_S_0"]
+            ),
+            E_K_S=extra.get(
+                "E_K_S", FestimBuildHelpers._MATERIAL_FIELD_DEFAULTS["E_K_S"]
+            ),
+            thermal_conductivity=extra.get(
+                "thermal_conductivity",
+                FestimBuildHelpers._MATERIAL_FIELD_DEFAULTS["thermal_conductivity"],
+            ),
+            density=extra.get(
+                "density", FestimBuildHelpers._MATERIAL_FIELD_DEFAULTS["density"]
+            ),
+            heat_capacity=extra.get(
+                "heat_capacity",
+                FestimBuildHelpers._MATERIAL_FIELD_DEFAULTS["heat_capacity"],
+            ),
             name=mat_name,
-            solubility_law=extra.get("solubility_law"),
+            solubility_law=extra.get(
+                "solubility_law",
+                FestimBuildHelpers._MATERIAL_FIELD_DEFAULTS["solubility_law"],
+            ),
         )
 
     @staticmethod

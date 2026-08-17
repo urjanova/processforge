@@ -52,12 +52,15 @@ class _FakeMaterial:
         density=None,
         heat_capacity=None,
         name=None,
-        solubility_law=None,
+        solubility_law="none",
     ):
         self.D_0 = D_0
         self.E_D = E_D
         self.K_S_0 = K_S_0
         self.E_K_S = E_K_S
+        self.thermal_conductivity = thermal_conductivity
+        self.density = density
+        self.heat_capacity = heat_capacity
         self.name = name
         self.solubility_law = solubility_law
 
@@ -353,6 +356,69 @@ class TestFestimMaterialValidation:
         )
         errors = FestimProvider.validate_material("steel", mat_def, unit_cfg)
         assert errors == []
+
+    def test_build_material_without_solubility_law(self, fake_festim):
+        from processforge.providers.festim_provider import FestimBuildHelpers
+
+        mat = FestimBuildHelpers.build_material(
+            fake_festim,
+            "tungsten",
+            MaterialDef(id=1, extra={"D_0": 4.1e-7, "E_D": 0.39}),
+        )
+        assert mat.D_0 == 4.1e-7
+        assert mat.E_D == 0.39
+        # No solubility_law key was passed, so FESTIM applies its own NONE default
+        # (the fake defaults to "none" and rejects None).
+        assert mat.solubility_law == "none"
+
+    def test_build_material_passes_solubility_law(self, fake_festim):
+        from processforge.providers.festim_provider import FestimBuildHelpers
+
+        mat = FestimBuildHelpers.build_material(
+            fake_festim,
+            "tungsten",
+            MaterialDef(
+                id=1, extra={"D_0": 4.1e-7, "E_D": 0.39, "solubility_law": "sievert"}
+            ),
+        )
+        assert mat.solubility_law == "sievert"
+
+    def test_build_material_warns_on_missing_optional_fields(self, fake_festim):
+        from loguru import logger
+
+        from processforge.providers.festim_provider import FestimBuildHelpers
+
+        captured = []
+        hid = logger.add(lambda m: captured.append(m), level="WARNING")
+        try:
+            mat = FestimBuildHelpers.build_material(
+                fake_festim,
+                "tungsten",
+                MaterialDef(id=1, extra={"D_0": 4.1e-7, "E_D": 0.39}),
+            )
+        finally:
+            logger.remove(hid)
+
+        # Defaults applied for every missing optional field.
+        assert mat.solubility_law == "none"
+        assert mat.K_S_0 is None
+        assert mat.E_K_S is None
+        assert mat.thermal_conductivity is None
+        assert mat.density is None
+        assert mat.heat_capacity is None
+
+        # A WARNING was emitted for each missing optional field.
+        for field in (
+            "solubility_law",
+            "K_S_0",
+            "E_K_S",
+            "thermal_conductivity",
+            "density",
+            "heat_capacity",
+        ):
+            assert any(
+                f"extra.{field}" in m and "defaulting to" in m for m in captured
+            ), f"expected warning for missing {field}; got: {captured}"
 
     def test_missing_D_0(self):
         from processforge.providers.festim_provider import FestimProvider
