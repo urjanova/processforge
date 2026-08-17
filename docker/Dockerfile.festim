@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 USER $MAMBA_USER
 
 # FESTIM + FEniCSx are only available on conda-forge
-RUN micromamba install -y -n base -c conda-forge 'festim=2.0' fenics-dolfinx && \
+RUN micromamba install -y -n base -c conda-forge 'python>=3.12' 'festim=2.0' fenics-dolfinx && \
     micromamba clean --all --yes
 
 WORKDIR /app
