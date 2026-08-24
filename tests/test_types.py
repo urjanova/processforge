@@ -90,19 +90,19 @@ class TestUnitConfig:
 
     def test_from_dict_string_in_becomes_single_input(self):
         u = UnitConfig.from_dict({"type": "SolverUnit", "in": "stream_1"})
-        assert u.inputs == ["stream_1"]
+        assert u.inlets == ["stream_1"]
 
     def test_from_dict_list_in_passes_through(self):
         u = UnitConfig.from_dict({"type": "SolverUnit", "in": ["a", "b"]})
-        assert u.inputs == ["a", "b"]
+        assert u.inlets == ["a", "b"]
 
     def test_from_dict_no_in_defaults_empty(self):
         u = UnitConfig.from_dict({"type": "SolverUnit"})
-        assert u.inputs == []
+        assert u.inlets == []
 
     def test_from_dict_in_is_none(self):
         u = UnitConfig.from_dict({"type": "SolverUnit", "in": None})
-        assert u.inputs == []
+        assert u.inlets == []
 
     def test_from_dict_separates_extra(self):
         u = UnitConfig.from_dict({"type": "SolverUnit", "mesh": "fine", "tolerance": 1e-6})

@@ -1,0 +1,172 @@
+{
+  "metadata": {
+    "name": "MSRE coupled neutronics + thermal (CoolProp thermo source)",
+    "description": "Demonstrates cross-engine parameter coupling using the per-unit 'inputs' block. A CoolProp-backed heater produces the 'coolant' stream; its temperature feeds both the OpenMC reactor material temperature and the FESTIM thermal model. The OpenMC reactor's fission power then drives a second OpenMC fixed-source unit, exercising the iterative coupling resolver (units are resolved in topological order and converged over iterations).",
+    "version": "1.0"
+  },
+  "providers": {
+    "openmc": {
+      "type": "openmc",
+      "url": "http://localhost:9001",
+      "output_dir": "openmc/msre_coupled_run",
+      "cross_sections": "${OPENMC_DATA_ROOT}/cross_sections/cross_sections.xml"
+    },
+    "festim": {
+      "type": "festim",
+      "url": "http://localhost:9002",
+      "output_dir": "festim/msre_coupled_run"
+    },
+    "coolprop": {
+      "type": "coolprop"
+    }
+  },
+  "materials": {
+    "graphite": {
+      "id": 1,
+      "density": 2.26,
+      "density_units": "g/cm3",
+      "temperature": 300.0,
+      "elements": [{ "element": "C", "percent": 1.0, "percent_type": "ao" }]
+    },
+    "inconel": {
+      "id": 4,
+      "density": 8.9,
+      "density_units": "g/cm3",
+      "temperature": 300.0,
+      "elements": [
+        { "element": "Ni", "percent": 0.72, "percent_type": "ao" },
+        { "element": "Cr", "percent": 0.20, "percent_type": "ao" },
+        { "element": "Fe", "percent": 0.08, "percent_type": "ao" }
+      ]
+    },
+    "salt": {
+      "id": 3,
+      "density": 2.2,
+      "density_units": "g/cm3",
+      "temperature": 300.0,
+      "depletable": true,
+      "nuclides": [
+        { "name": "Li7",  "percent": 0.335000, "percent_type": "ao" },
+        { "name": "U235", "percent": 0.000527, "percent_type": "ao" },
+        { "name": "U238", "percent": 0.001053, "percent_type": "ao" }
+      ],
+      "elements": [
+        { "element": "F",  "percent": 0.534653, "percent_type": "ao" },
+        { "element": "Be", "percent": 0.076667, "percent_type": "ao" },
+        { "element": "Zr", "percent": 0.010000, "percent_type": "ao" }
+      ]
+    },
+    "tungsten": {
+      "id": 6,
+      "extra": { "D_0": 1, "E_D": 0.0 }
+    }
+  },
+  "streams": {
+    "feed": {
+      "T": 900.0,
+      "P": 101325.0,
+      "flowrate": 1.0,
+      "z": { "salt": 1.0 }
+    }
+  },
+  "units": {
+    "coolant_heater": {
+      "type": "Heater",
+      "provider": "coolprop",
+      "material": 1,
+      "in": "feed",
+      "out": "coolant",
+      "solver_config": { "delta_T": 0.0 }
+    },
+    "openmc_reactor": {
+      "type": "SolverUnit",
+      "provider": "openmc",
+      "sim_type": "eigenvalue_reactor",
+      "material": 3,
+      "solver_config": {
+        "batches": 20,
+        "inactive": 5,
+        "particles": 20000
+      },
+      "geometry_config": {
+        "type": "reactor_core",
+        "core_radius": 72.5,
+        "core_height": 160.0,
+        "reflector_thickness": 50.0,
+        "core_material": "salt",
+        "reflector_material": "graphite",
+        "vessel_material": "inconel",
+        "source_point": { "xyz": [0.0, 0.0, 0.0] }
+      },
+      "inputs": {
+        "solver_config.temperature_default": { "ref": "coolant.T", "as_unit": "K" }
+      }
+    },
+    "thermal": {
+      "type": "SolverUnit",
+      "provider": "festim",
+      "sim_type": "hydrogen_transport_tds",
+      "material": 6,
+      "solver_config": {
+        "mesh": {
+          "vertices": [0.0, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01]
+        },
+        "subdomains": {
+          "volume": [
+            { "id": 1, "borders": [0.0, 0.01], "material": "tungsten" }
+          ],
+          "surface": [
+            { "id": 2, "x": 0.0 },
+            { "id": 3, "x": 0.01 }
+          ]
+        },
+        "species": [
+          { "name": "H", "mobile": true }
+        ],
+        "boundary_conditions": [
+          { "type": "fixed_concentration", "subdomain": 2, "species": "H", "value": 1 },
+          { "type": "fixed_concentration", "subdomain": 3, "species": "H", "value": 0 }
+        ],
+        "exports": [
+          { "type": "profile_1d", "field": "H", "volume": 1, "times": [0.05, 0.1, 0.2, 0.5, 1] }
+        ],
+        "atol": 1e-10,
+        "rtol": 1e-10,
+        "final_time": 2,
+        "temperature": 300,
+        "stepsize": {
+          "initial_value": 0.05,
+          "growth_factor": 1.1,
+          "cutback_factor": 0.9,
+          "target_nb_iterations": 4,
+          "milestones": [0.05, 0.1, 0.2, 0.5, 1]
+        }
+      },
+      "inputs": {
+        "solver_config.temperature": { "ref": "coolant.T", "as_unit": "K" }
+      }
+    },
+    "openmc_source": {
+      "type": "SolverUnit",
+      "provider": "openmc",
+      "sim_type": "fixed_source_point",
+      "material": 3,
+      "solver_config": {
+        "batches": 20,
+        "inactive": 5,
+        "particles": 20000
+      },
+      "geometry_config": {
+        "source_point": { "xyz": [0.0, 0.0, 0.0] },
+        "sphere_radius": 200.0,
+        "sphere_material": "salt"
+      },
+      "inputs": {
+        "solver_config.source_strength": { "ref": "openmc_reactor.power", "as_unit": "W" }
+      }
+    }
+  },
+  "simulation": {
+    "mode": "steady"
+  }
+}

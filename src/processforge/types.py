@@ -84,24 +84,25 @@ class UnitConfig(BaseModel):
     type: str
     material: Optional[int] = None
     provider: Optional[str] = None
-    inputs: list = []                                # JSON "in" key
+    inlets: list = []                                # JSON "in" key (stream feeds)
     out: Optional[str] = None
     retentate_out: Optional[str] = None
     permeate_out: Optional[str] = None
     sim_type: Optional[str] = None
     solver_config: dict = {}
     geometry_config: dict = {}
+    inputs: dict = {}                                # coupling decls: dotted path -> {ref: "unit.field", ...}
     extra: dict = {}
 
     @classmethod
     def from_dict(cls, d: dict) -> "UnitConfig":
         """Construct from a raw unit config dict."""
         raw_in = d.get("in", [])
-        inputs = [raw_in] if isinstance(raw_in, str) else list(raw_in or [])
-        known_keys = cls.model_fields.keys() - {"extra", "inputs"}
+        inlets = [raw_in] if isinstance(raw_in, str) else list(raw_in or [])
+        known_keys = cls.model_fields.keys() - {"extra", "inlets"}
         known = {k: v for k, v in d.items() if k in known_keys}
         extra = {k: v for k, v in d.items() if k not in known_keys and k != "in"}
-        return cls(inputs=inputs, **known, extra=extra)
+        return cls(inlets=inlets, **known, extra=extra)
 
 
 # ---------------------------------------------------------------------------

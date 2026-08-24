@@ -85,7 +85,7 @@ class ContainerProviderClient(AbstractProvider):
         """Serialise a ``UnitConfig`` into the ``unit_config`` block of the body."""
         return {
             "type": unit_config.type,
-            "in": unit_config.inputs,
+            "in": unit_config.inlets,
             "material": unit_config.material,
             "provider": unit_config.provider,
             "out": unit_config.out,

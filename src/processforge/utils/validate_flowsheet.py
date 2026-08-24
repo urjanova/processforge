@@ -1,6 +1,7 @@
 """Flowsheet configuration validation: schema and graph-based connectivity checks."""
 from dataclasses import dataclass
 import json
+import re
 from jsonschema import validate, ValidationError
 from loguru import logger
 
@@ -58,6 +59,7 @@ def _validate_config_impl(config: dict, source_name: str) -> dict:
     _check_provider_material_props(config)
     _check_openmc_unit_config(config)
     _check_festim_unit_config(config)
+    _check_coupling_refs(config)
     _resolve_material_mix_streams(config)
     _check_convergence_signal(config)
     return config
@@ -622,6 +624,80 @@ def _check_openmc_unit_config(config: dict) -> None:
                 errors.append(
                     f"❌ Unit '{unit_name}' material '{mat_name}' failed "
                     f"OpenMC schema validation: {exc}"
+                )
+
+    if errors:
+        raise ValueError("\n".join(errors))
+
+
+# ---------------------------------------------------------------------------
+# Coupling references (cross-engine parameter coupling)
+# ---------------------------------------------------------------------------
+
+_COUPLE_REF_RE = re.compile(r"^[A-Za-z0-9_]+\.[A-Za-z0-9_]+$")
+_COUPLE_REDUCE = {"mean", "sum", "max", "min"}
+
+
+def _check_coupling_refs(config: dict) -> None:
+    """Validate ``inputs`` coupling declarations on every unit.
+
+    Each entry maps a dotted config path to ``{"ref": "<unit>.<field>", ...}``.
+    We check the ref format and that its source (a unit or a stream) exists.
+    Cycles between coupled units are allowed — the flowsheet driver iterates
+    until they converge.
+    """
+    units = config.get("units", {})
+    streams = set(config.get("streams", {}).keys())
+    # Streams produced by a unit (``out``) are also valid coupling sources.
+    for unit_cfg in units.values():
+        out = unit_cfg.get("out")
+        if isinstance(out, str):
+            streams.add(out)
+        elif isinstance(out, list):
+            streams.update(out)
+    unit_names = set(units.keys())
+    errors: list = []
+
+    for unit_name, unit_cfg in units.items():
+        inputs = unit_cfg.get("inputs")
+        if not inputs:
+            continue
+        if not isinstance(inputs, dict):
+            errors.append(
+                f"❌ Unit '{unit_name}': 'inputs' must be an object of "
+                f"dotted-path -> coupling spec."
+            )
+            continue
+        for path, spec in inputs.items():
+            if not isinstance(spec, dict) or "ref" not in spec:
+                errors.append(
+                    f"❌ Unit '{unit_name}': coupling '{path}' must be an object "
+                    f"with a 'ref' key."
+                )
+                continue
+            ref = spec["ref"]
+            if not isinstance(ref, str) or not _COUPLE_REF_RE.match(ref):
+                errors.append(
+                    f"❌ Unit '{unit_name}': coupling '{path}' has invalid ref "
+                    f"'{ref}' (expected '<unit>.<field>')."
+                )
+                continue
+            src = ref.split(".")[0]
+            if src not in unit_names and src not in streams:
+                errors.append(
+                    f"❌ Unit '{unit_name}': coupling '{path}' references unknown "
+                    f"source '{src}' (not a declared unit or stream)."
+                )
+            reduce_mode = spec.get("reduce")
+            if reduce_mode is not None and reduce_mode not in _COUPLE_REDUCE:
+                errors.append(
+                    f"❌ Unit '{unit_name}': coupling '{path}' has invalid "
+                    f"reduce '{reduce_mode}' (expected one of {sorted(_COUPLE_REDUCE)})."
+                )
+            as_unit = spec.get("as_unit")
+            if as_unit is not None and not isinstance(as_unit, str):
+                errors.append(
+                    f"❌ Unit '{unit_name}': coupling '{path}' 'as_unit' must be a string."
                 )
 
     if errors:

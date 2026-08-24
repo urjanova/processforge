@@ -5,6 +5,10 @@ sequential-modular (SM) flowsheet engine, including automatic provider
 delegation when a provider (e.g. ``CanteraProvider``) is attached.
 """
 
+from typing import Optional
+
+from loguru import logger
+
 
 class BaseUnitMixin:
     """Base mixin for all SM unit models.
@@ -18,8 +22,13 @@ class BaseUnitMixin:
     logic.
     """
 
-    def run(self, inlet: dict) -> dict:
-        """Process *inlet* stream, delegating to provider if attached."""
+    def run(self, inlet: dict, overrides: Optional[dict] = None) -> dict:
+        """Process *inlet* stream, delegating to provider if attached.
+
+        *overrides* is ignored by default (only :class:`SolverUnit` consumes
+        it, for coupling-parameter injection); the signature is widened so the
+        flowsheet driver can pass it uniformly to every unit.
+        """
         provider = getattr(self, "_provider", None)
         if provider is not None:
             result = provider.compute_unit(

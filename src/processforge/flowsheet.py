@@ -242,20 +242,26 @@ class Flowsheet:
         """
         Runs a steady-state simulation for the flowsheet.
         This method initializes the results dictionary with the configured streams,
-        then iterates through each unit in the flowsheet. For flowsheets with recycles,
-        it uses iterative convergence with optional Wegstein acceleration.
+        then iterates through each unit in the flowsheet. For flowsheets with recycles
+        or cross-engine couplings, it uses iterative convergence with optional
+        Wegstein acceleration.
         Returns:
             dict: A dictionary containing the updated stream results after simulation.
         """
         logger.info("Running steady-state simulation")
-        
+
         # Determine processing order (this also detects recycles)
         processing_order = self._get_processing_order()
-        
-        if self.has_recycles:
-            return self._run_steady_with_recycle(processing_order)
-        
-        # Simple sequential processing for non-recycle flowsheets
+
+        self.has_couplings = any(
+            isinstance(u.get("inputs"), dict) and u.get("inputs")
+            for u in self.config.get("units", {}).values()
+        )
+
+        if self.has_recycles or self.has_couplings:
+            return self._run_steady_iterative(processing_order)
+
+        # Simple sequential processing for non-recycle, non-coupled flowsheets
         results = {k: deepcopy(v) for k, v in self.config["streams"].items()}
         for unit_name in processing_order:
             unit = self.units[unit_name]
@@ -363,36 +369,83 @@ class Flowsheet:
             [results.get(name, {}) for name in inlets]
         )
 
-    def _run_steady_with_recycle(self, processing_order):
+    def _register_stream(self, store, stream_name: str, stream_dict: dict) -> None:
+        """Register a stream's scalars (and thermo fields) into the coupling store."""
+        store.register_stream(stream_name, stream_dict)
+        try:
+            from .output_collector import collect_stream_outputs
+
+            tp = self._thermo_provider()
+            if tp is not None:
+                so = collect_stream_outputs(tp, {stream_name: stream_dict})
+                for _name, s_out in so.items():
+                    for f in s_out.fields:
+                        store.register(stream_name, f.name, f.quantity)
+        except Exception:  # noqa: BLE001
+            # Thermo enrichment is best-effort; never block coupling on it.
+            pass
+
+    def _run_steady_iterative(self, processing_order):
         """
-        Runs steady-state simulation with recycle loop convergence.
-        Uses iterative sequential modular approach with Wegstein acceleration.
-        
+        Runs steady-state simulation with iterative convergence.
+
+        Convergence is checked jointly on (a) recycle tear-stream properties
+        and (b) cross-engine coupling parameters (when ``has_couplings``).  The
+        latter resolve one solver unit's output field into another's input via
+        the :mod:`processforge.coupling` resolver, with unit conversion.
+
+        Uses iterative sequential modular approach with Wegstein acceleration
+        for tear streams.
+
         Args:
             processing_order: List of unit names in processing order.
-            
+
         Returns:
             dict: Converged stream results.
         """
-        logger.info("Running steady-state simulation with recycle convergence")
-        
-        max_iter = 100
-        tolerance = 1e-6
+        logger.info("Running steady-state simulation with iterative convergence")
+        from .coupling import ParameterStore, CouplingResolver, CouplingError
+
+        max_iter = 100 if self.has_recycles else 30
+        tear_tolerance = 1e-6
+        coupling_tolerance = 1e-3
+        coupling_units = (
+            {
+                name: cfg["inputs"]
+                for name, cfg in self.config.get("units", {}).items()
+                if isinstance(cfg.get("inputs"), dict) and cfg["inputs"]
+            }
+            if self.has_couplings
+            else {}
+        )
+        store = ParameterStore()
 
         # Initialize results with feed streams
         results = {k: deepcopy(v) for k, v in self.config["streams"].items()}
 
         # Auto-initialize tear streams from the first available feed stream
-        default_stream = deepcopy(next(iter(self.config["streams"].values())))
+        default_stream = None
+        if self.tear_streams and self.config.get("streams"):
+            try:
+                default_stream = deepcopy(next(iter(self.config["streams"].values())))
+            except StopIteration:
+                default_stream = None
         for stream_name in self.tear_streams:
             if stream_name not in results:
                 results[stream_name] = deepcopy(default_stream)
                 logger.debug(f"Auto-initialized tear stream '{stream_name}' from feed values")
-        
+
+        # Seed the coupling store with feed/initial streams so downstream units
+        # may reference them (e.g. a CoolProp stream temperature).
+        for sname, sdict in results.items():
+            if isinstance(sdict, dict):
+                self._register_stream(store, sname, sdict)
+
         # Wegstein acceleration storage
         wegstein_prev = {}  # Previous iteration values for each tear stream property
         wegstein_prev2 = {}  # Two iterations ago
-        
+
+        prev_injected: dict = {}  # (unit, path) -> resolved scalar from last iter
         converged = False
         for iteration in range(max_iter):
             # Store old tear stream values for convergence check.
@@ -409,13 +462,31 @@ class Flowsheet:
                     }
             
             # Process all units in order
+            injected_all: dict = {}
             for unit_name in processing_order:
                 unit = self.units[unit_name]
                 cfg = self.config["units"][unit_name]
                 inlet = self._get_merged_inlet(results, cfg)
-                unit_out = unit.run(inlet)
+
+                # Resolve cross-engine coupling inputs for this unit.
+                overrides = {}
+                if self.has_couplings and unit_name in coupling_units:
+                    resolver = CouplingResolver(store)
+                    try:
+                        overrides, injected = resolver.build_overrides(
+                            cfg["inputs"]
+                        )
+                        for path, val in injected.items():
+                            injected_all[(unit_name, path)] = val
+                    except CouplingError as exc:
+                        logger.error(
+                            f"Coupling resolution failed for unit '{unit_name}': {exc}"
+                        )
+
+                unit_out = unit.run(inlet, overrides=overrides)
                 if isinstance(unit_out, EngineOutput):
                     self.engine_outputs[unit_name] = unit_out
+                    store.register_unit(unit_name, unit_out)
                 if "out" in cfg:
                     out_val = cfg["out"]
                     if isinstance(out_val, list):
@@ -427,6 +498,15 @@ class Flowsheet:
                     for out_key in ["retentate_out", "permeate_out"]:
                         if out_key in cfg and out_key in unit_out:
                             results[cfg[out_key]] = unit_out[out_key]
+
+                # Register any produced streams into the coupling store.
+                if "out" in cfg:
+                    out_val = cfg["out"]
+                    targets = out_val if isinstance(out_val, list) else [out_val]
+                    for stream_name in targets:
+                        sdict = results.get(stream_name)
+                        if isinstance(sdict, dict):
+                            self._register_stream(store, stream_name, sdict)
             
             # Check convergence on tear streams
             max_error = 0.0
@@ -460,11 +540,37 @@ class Flowsheet:
                                 error = abs(new_z - old_z)
                             max_error = max(max_error, error)
             
-            logger.debug(f"Iteration {iteration + 1}: max relative error = {max_error:.2e}")
-            
-            if max_error < tolerance:
-                converged = True
-                logger.info(f"Recycle converged after {iteration + 1} iterations (error: {max_error:.2e})")
+            # Coupling convergence: compare resolved scalars to last iteration.
+            coupling_error = 0.0
+            if self.has_couplings and iteration > 0:
+                for (u, path), val in injected_all.items():
+                    prev = prev_injected.get((u, path))
+                    if prev is None:
+                        continue
+                    denom = abs(prev) if abs(prev) > 1e-12 else 1.0
+                    coupling_error = max(coupling_error, abs(val - prev) / denom)
+            if self.has_couplings and iteration == 0:
+                coupling_error = float("inf")  # force at least one more pass
+
+            logger.debug(
+                f"Iteration {iteration + 1}: tear error = {max_error:.2e}, "
+                f"coupling error = {coupling_error:.2e}"
+            )
+
+            converged = True
+            if self.tear_streams and max_error >= tear_tolerance:
+                converged = False
+            if (
+                self.has_couplings
+                and iteration < max_iter - 1
+                and coupling_error >= coupling_tolerance
+            ):
+                converged = False
+            if converged:
+                logger.info(
+                    f"Converged after {iteration + 1} iterations "
+                    f"(tear error: {max_error:.2e}, coupling error: {coupling_error:.2e})"
+                )
                 break
             
             # Apply Wegstein acceleration if we have enough history
@@ -482,10 +588,14 @@ class Flowsheet:
             wegstein_prev = {k: {"T": v["T"], "P": v["P"], "flowrate": v["flowrate"]} for k, v in old_tear_values.items()}
         
         if not converged:
-            logger.warning(f"Recycle did not converge after {max_iter} iterations (error: {max_error:.2e})")
-        
+            logger.warning(
+                f"Iterative steady-state did not converge after {max_iter} "
+                f"iterations (tear error: {max_error:.2e}, "
+                f"coupling error: {coupling_error:.2e})"
+            )
+
         self.results = results
-        logger.info("Steady-state simulation with recycle completed")
+        logger.info("Steady-state simulation with iterative convergence completed")
         return results
 
     def _apply_wegstein(self, new_val, prev_val, prev2_val):

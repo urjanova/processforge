@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **OpenMC provider**: consolidated the hand-rolled `SolverConfig` into the rich `OpenMCSetting` model and split solver settings from per-strategy geometry (`geometry_config`), shrinking flowsheet `solver_config`. Added an approximate `reactor_core` geometry (core + reflector + vessel + gap + structure) using all declared materials, replacing the single homogeneous sphere. Mesh tallies are now optional (auto-default bounding-box tally). Result extraction now emits unit-bearing `power` (W) / `flux` (n/cm²/s) / `fission` (1/cm³/s) outputs plus a raw mesh-field CSV artifact, enabling comparison with CoolProp/FESTIM. Removed duplicated `inactive < batches` / `point_source_material` validation checks (now schema-enforced).
+- **UnitConfig**: renamed the stream-inlet field from `inputs` to `inlets` so the JSON key `inputs` is now reserved for cross-engine coupling declarations (see Added).
+
+### Added
+- **Multi-physics coupling resolver** (`processforge.coupling`): scalar/uniform parameter coupling between heterogeneous solver units. Each `SolverUnit` may declare an `inputs` block mapping a dotted config path to `{"ref": "<unit>.<field>", "reduce": "mean|sum|max|min", "as_unit": "<unit>"}`. A shared `ParameterStore` collects every unit/stream output as a unit-bearing `Quantity`; the resolver reduces array fields, converts units via the process-wide `pint` registry, and injects the magnitude into the consumer's config before it runs. The steady-state driver now iterates (jointly with recycle convergence) until coupling parameters stabilize. CoolProp stream thermo (e.g. `coolant.T`) is a valid coupling source. New flowsheet `flowsheets/coupled/msre_coupled.json` demonstrates OpenMC↔FESTIM↔CoolProp coupling.
 
 ## [0.3.15] - 2026-08-17
 

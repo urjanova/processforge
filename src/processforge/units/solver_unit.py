@@ -67,11 +67,36 @@ class SolverUnit(BaseUnitMixin):
         # Set by flowsheet._build_unit() after construction
         self._provider: Optional["AbstractProvider"] = None
 
-    def _run_impl(self, inlet: dict) -> dict:
+    def run(self, inlet: dict, overrides: Optional[dict] = None) -> dict:
+        """Run the unit, optionally applying *overrides* (coupling injection).
+
+        Args:
+            inlet: Current inlet stream state dict (may be empty for standalone sims).
+            overrides: Optional nested dict of coupling-resolved parameters to
+                deep-merge into this unit's configuration before dispatch.
+        """
+        provider = getattr(self, "_provider", None)
+        if provider is not None:
+            try:
+                result = provider.compute_unit(
+                    type(self).__name__,
+                    getattr(self, "params", {}),
+                    inlet,
+                    overrides=overrides,
+                )
+            except (TypeError, AttributeError):
+                result = None
+            if result is not None:
+                return result
+        return self._run_impl(inlet, overrides=overrides)
+
+    def _run_impl(self, inlet: dict, overrides: Optional[dict] = None) -> dict:
         """Convert params to a typed ``UnitConfig`` and call ``provider.run_simulation()``.
 
         Args:
             inlet: Current inlet stream state dict (may be empty for standalone sims).
+            overrides: Optional nested dict of coupling-resolved parameters to
+                deep-merge into this unit's configuration before dispatch.
 
         Returns:
             Flat dict suitable for flowsheet result storage:
@@ -84,8 +109,8 @@ class SolverUnit(BaseUnitMixin):
         if not hasattr(self, "_provider") or self._provider is None:
             raise RuntimeError(
                 f"SolverUnit '{self.name}' has no provider attached. "
-                "Declare a 'provider' key in the unit config pointing to a "
-                "provider declared in the flowsheet 'providers' block."
+                "Declare a 'provider' key in the unit config pointing to "
+                "a provider declared in the flowsheet 'providers' block."
             )
 
         # build_units filters 'type' and 'material' from **params before passing
@@ -97,6 +122,10 @@ class SolverUnit(BaseUnitMixin):
         }
         if hasattr(self, "material"):
             full_params.setdefault("material", self.material)
+        if overrides:
+            from processforge.coupling import deep_merge
+
+            full_params = deep_merge(full_params, overrides)
 
         unit_cfg = UnitConfig.from_dict(full_params)
         logger.info(
