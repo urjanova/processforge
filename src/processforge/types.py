@@ -90,6 +90,7 @@ class UnitConfig(BaseModel):
     permeate_out: Optional[str] = None
     sim_type: Optional[str] = None
     solver_config: dict = {}
+    geometry_config: dict = {}
     extra: dict = {}
 
     @classmethod

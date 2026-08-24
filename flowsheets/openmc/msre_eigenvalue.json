@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "name": "MSRE Eigenvalue — CSG geometry",
-    "description": "Molten Salt Reactor Experiment criticality calculation. Fission source at reactor centre inside a homogeneous salt sphere. 5 materials: graphite, inor, salt, inconel, helium.",
-    "version": "1.3"
+    "name": "MSRE Eigenvalue — approximate reactor geometry",
+    "description": "Molten Salt Reactor Experiment criticality calculation using an approximate cylindrical reactor-core geometry (salt core, graphite reflector, inconel vessel, helium gap, inor structure). Uses all 5 declared materials. Fission source at reactor centre.",
+    "version": "1.4"
   },
   "providers": {
     "openmc": {
@@ -78,34 +78,25 @@
       "type": "SolverUnit",
       "provider": "openmc",
       "material": 3,
-      "sim_type": "eigenvalue_csg",
+      "sim_type": "eigenvalue_reactor",
       "solver_config": {
         "batches": 20,
         "inactive": 5,
-        "particles": 20000,
-        "source_point": {
-          "xyz": [0.0, 0.0, 0.0]
-        },
-        "point_source_sphere_radius": 200.0,
-        "point_source_material": "salt",
-        "mesh_tallies": [
-          {
-            "tally_id": 1,
-            "name": "flux1",
-            "lower_left":  [-125, -125,  90],
-            "upper_right": [ 125,  125, 110],
-            "dimension": [400, 400, 1],
-            "scores": ["flux", "fission"]
-          },
-          {
-            "tally_id": 2,
-            "name": "flux2",
-            "lower_left":  [-175, -10, -50],
-            "upper_right": [ 175,  10, 400],
-            "dimension": [400, 1, 400],
-            "scores": ["flux", "fission"]
-          }
-        ]
+        "particles": 20000
+      },
+      "geometry_config": {
+        "type": "reactor_core",
+        "core_radius": 72.5,
+        "core_height": 160.0,
+        "reflector_thickness": 50.0,
+        "vessel_thickness": 5.0,
+        "gap_thickness": 3.0,
+        "core_material": "salt",
+        "reflector_material": "graphite",
+        "vessel_material": "inconel",
+        "gap_material": "helium",
+        "structure_material": "inor",
+        "source_point": {"xyz": [0.0, 0.0, 0.0]}
       }
     }
   },

@@ -5,7 +5,6 @@ The provider only imports ``openmc`` lazily (inside ``initialize`` /
 exercise the full build → run → extract pipeline without the real package.
 """
 
-import math
 import os
 import pathlib
 import sys
@@ -17,7 +16,10 @@ import pytest
 from pydantic import ValidationError
 
 from processforge.providers.openmc_provider import OpenMCProvider
-from processforge.schemas.openmc.openmc_model import SolverConfig
+from processforge.schemas.openmc.openmc_model import (
+    OpenMCSetting,
+    ReactorCoreGeometryConfig,
+)
 from processforge.types import MaterialDef, OpenMCProviderConfig, UnitConfig
 
 
@@ -130,6 +132,35 @@ class _FakeSphere:
         return self
 
 
+class _FakeRegion:
+    def __init__(self, surf=None, neg=False):
+        self.surf = surf
+        self.neg = neg
+
+    def __or__(self, other):
+        return _FakeRegion()
+
+    def __and__(self, other):
+        return _FakeRegion()
+
+    def __pos__(self):
+        return self
+
+    def __neg__(self):
+        return self
+
+
+class _FakeSurface:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __pos__(self):
+        return _FakeRegion(self)
+
+    def __neg__(self):
+        return _FakeRegion(self, neg=True)
+
+
 class _FakeCell:
     def __init__(self, fill=None, region=None):
         self.fill = fill
@@ -190,6 +221,12 @@ def make_fake_openmc() -> types.ModuleType:
     mod.IndependentSource = _FakeIndependentSource
     mod.Settings = _FakeSettings
     mod.Sphere = _FakeSphere
+    mod.ZCylinder = _FakeSurface
+    mod.XPlane = _FakeSurface
+    mod.YPlane = _FakeSurface
+    mod.ZPlane = _FakeSurface
+    mod.Union = _FakeRegion
+    mod.Intersection = _FakeRegion
     mod.Cell = _FakeCell
     mod.Geometry = _FakeGeometry
     mod.StatePoint = _FakeStatePoint
@@ -231,14 +268,21 @@ def _mat(id_, name, **overrides):
     return MaterialDef.from_dict(base)
 
 
+def _point_geometry(material="salt", **overrides):
+    geo = {
+        "source_point": {"xyz": [0.0, 0.0, 0.0]},
+        "sphere_radius": 200.0,
+        "sphere_material": material,
+    }
+    geo.update(overrides)
+    return geo
+
+
 def _unit_config(sim_type="eigenvalue_csg", **sc_overrides):
     sc = {
         "batches": 20,
         "inactive": 5,
         "particles": 1000,
-        "source_point": {"xyz": [0.0, 0.0, 0.0]},
-        "point_source_sphere_radius": 200.0,
-        "point_source_material": "salt",
         "mesh_tallies": [
             {
                 "tally_id": 1,
@@ -252,8 +296,44 @@ def _unit_config(sim_type="eigenvalue_csg", **sc_overrides):
     }
     sc.update(sc_overrides)
     return UnitConfig.from_dict(
-        {"type": "SolverUnit", "sim_type": sim_type, "solver_config": sc}
+        {
+            "type": "SolverUnit",
+            "sim_type": sim_type,
+            "solver_config": sc,
+            "geometry_config": _point_geometry(),
+        }
     )
+
+
+def _unit_config_reactor(**sc_overrides):
+    sc = {"batches": 20, "inactive": 5, "particles": 1000}
+    sc.update(sc_overrides)
+    geo = {
+        "type": "reactor_core",
+        "core_radius": 72.5,
+        "core_height": 160.0,
+        "reflector_thickness": 50.0,
+        "core_material": "salt",
+        "reflector_material": "graphite",
+        "vessel_material": "inconel",
+        "source_point": {"xyz": [0.0, 0.0, 0.0]},
+    }
+    return UnitConfig.from_dict(
+        {
+            "type": "SolverUnit",
+            "sim_type": "eigenvalue_reactor",
+            "solver_config": sc,
+            "geometry_config": geo,
+        }
+    )
+
+
+def _default_materials():
+    return {
+        "salt": _mat(3, "salt"),
+        "graphite": _mat(1, "graphite"),
+        "inconel": _mat(4, "inconel"),
+    }
 
 
 def _init_provider(tmp_path, materials, cross_sections=None):
@@ -264,10 +344,6 @@ def _init_provider(tmp_path, materials, cross_sections=None):
     flowsheet = SimpleNamespace(materials=materials)
     provider.initialize(cfg, flowsheet)
     return provider
-
-
-def _default_materials():
-    return {"salt": _mat(3, "salt")}
 
 
 # ---------------------------------------------------------------------------
@@ -284,12 +360,15 @@ def test_run_eigenvalue_extracts_keff_and_tallies(tmp_path, fake_openmc):
     result = provider.run_simulation(_unit_config(), {})
 
     assert result.status == "completed"
-    assert result.scalars["k_eff"] == pytest.approx(1.02)
-    assert result.scalars["k_eff_std_dev"] == pytest.approx(0.004)
-    assert result.scalars["tally_1_flux_mean_total"] == pytest.approx(30.0)
-    assert result.scalars["tally_1_flux_std_dev"] == pytest.approx(math.sqrt(5.0))
-    assert result.metadata["run_dir"] == str((tmp_path / "openmc_run").resolve())
-    assert result.metadata["statepoint_path"].endswith("statepoint.7.h5")
+    assert result.field_value("k_eff") == pytest.approx(1.02)
+    assert result.get_field("k_eff").quantity.std_dev == pytest.approx(0.004)
+    # Fake mesh exposes no geometry -> cell volume falls back to 1.0, so the
+    # volume-weighted integral is the sum of the per-cell means (10 + 20 = 30)
+    # and the mean is 15.0.
+    assert result.field_value("tally_1_flux_mean") == pytest.approx(15.0)
+    assert result.field_value("tally_1_flux_integrated") == pytest.approx(30.0)
+    assert result.diagnostics["run_dir"] == str((tmp_path / "openmc_run").resolve())
+    assert result.diagnostics["statepoint_path"].endswith("statepoint.7.h5")
 
 
 def test_statepoint_path_comes_from_model_run_return(tmp_path, fake_openmc):
@@ -299,7 +378,7 @@ def test_statepoint_path_comes_from_model_run_return(tmp_path, fake_openmc):
     result = provider.run_simulation(_unit_config(batches=999), {})
 
     assert result.status == "completed"
-    assert result.metadata["statepoint_path"].endswith("statepoint.7.h5")
+    assert result.diagnostics["statepoint_path"].endswith("statepoint.7.h5")
 
 
 def test_cwd_never_changes(tmp_path, fake_openmc):
@@ -351,8 +430,8 @@ def test_run_exception_returns_failed_result(tmp_path, fake_openmc):
     result = provider.run_simulation(_unit_config(cross_sections=str(xs_file)), {})
 
     assert result.status == "failed"
-    assert "boom" in result.metadata["error"]
-    assert result.metadata["run_dir"] == str((tmp_path / "openmc_run").resolve())
+    assert "boom" in result.diagnostics["error"]
+    assert result.diagnostics["run_dir"] == str((tmp_path / "openmc_run").resolve())
     assert os.environ.get("OPENMC_CROSS_SECTIONS") == prior
 
 
@@ -361,7 +440,7 @@ def test_run_without_statepoint_returns_failed(tmp_path, fake_openmc):
     result = provider.run_simulation(_unit_config(), {})
 
     assert result.status == "failed"
-    assert "no statepoint" in result.metadata["error"]
+    assert "no statepoint" in result.diagnostics["error"]
 
 
 def test_missing_tally_recorded_as_warning(tmp_path, fake_openmc):
@@ -386,7 +465,7 @@ def test_missing_tally_recorded_as_warning(tmp_path, fake_openmc):
     )
 
     assert result.status == "completed"
-    assert any("tally id=7" in w for w in result.metadata["tally_warnings"])
+    assert any("tally id=7" in w for w in result.diagnostics["tally_warnings"])
 
 
 # ---------------------------------------------------------------------------
@@ -463,28 +542,38 @@ def test_validate_material_rejects_non_dict_element(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# SolverConfig schema validation
+# OpenMCSetting schema validation
 # ---------------------------------------------------------------------------
 
 
-def test_solver_config_rejects_unknown_keys():
+def test_openmc_setting_minimal_defaults():
+    cfg = OpenMCSetting()
+    assert cfg.batches == 20
+    assert cfg.inactive == 5
+    assert cfg.particles == 1000
+    assert cfg.run_mode.value == "eigenvalue"
+
+
+def test_openmc_setting_rejects_invalid_run_mode():
     with pytest.raises(ValidationError):
-        SolverConfig(seed=12345)
+        OpenMCSetting(run_mode="fixed_source_with_underscores")
 
 
-def test_solver_config_rejects_invalid_run_mode():
-    with pytest.raises(ValidationError):
-        SolverConfig(run_mode="fixed_source_with_underscores")
-
-
-def test_solver_config_accepts_enum_string_coercion():
-    cfg = SolverConfig(run_mode="fixed source")
+def test_openmc_setting_accepts_enum_string_coercion():
+    cfg = OpenMCSetting(run_mode="fixed source")
     assert cfg.run_mode.value == "fixed source"
 
 
-def test_solver_config_rejects_inconsistent_mesh_dims():
+def test_openmc_setting_resolution_preset_overrides():
+    cfg = OpenMCSetting(resolution="high")
+    assert cfg.batches == 50
+    assert cfg.inactive == 10
+    assert cfg.particles == 100000
+
+
+def test_openmc_setting_rejects_inconsistent_mesh_dims():
     with pytest.raises(ValidationError):
-        SolverConfig(
+        OpenMCSetting(
             mesh_tallies=[
                 {
                     "tally_id": 1,
@@ -497,7 +586,7 @@ def test_solver_config_rejects_inconsistent_mesh_dims():
         )
 
 
-def test_solver_config_rejects_duplicate_tally_ids():
+def test_openmc_setting_rejects_duplicate_tally_ids():
     tally = {
         "tally_id": 1,
         "lower_left": [0, 0, 0],
@@ -506,12 +595,12 @@ def test_solver_config_rejects_duplicate_tally_ids():
         "scores": ["flux"],
     }
     with pytest.raises(ValidationError):
-        SolverConfig(mesh_tallies=[tally, dict(tally)])
+        OpenMCSetting(mesh_tallies=[tally, dict(tally)])
 
 
-def test_solver_config_rejects_empty_scores():
+def test_openmc_setting_rejects_empty_scores():
     with pytest.raises(ValidationError):
-        SolverConfig(
+        OpenMCSetting(
             mesh_tallies=[
                 {
                     "tally_id": 1,
@@ -522,3 +611,49 @@ def test_solver_config_rejects_empty_scores():
                 }
             ]
         )
+
+
+# ---------------------------------------------------------------------------
+# ReactorCoreGeometryConfig validation
+# ---------------------------------------------------------------------------
+
+
+def test_reactor_core_geometry_rejects_unknown_material():
+    with pytest.raises(ValidationError):
+        ReactorCoreGeometryConfig.model_validate(
+            {
+                "core_radius": 72.5,
+                "core_height": 160.0,
+                "core_material": "nope",
+                "reflector_material": "graphite",
+                "vessel_material": "inconel",
+            },
+            context={"materials": {"graphite", "inconel"}},
+        )
+
+
+def test_reactor_core_geometry_accepts_valid():
+    cfg = ReactorCoreGeometryConfig.model_validate(
+        {
+            "core_radius": 72.5,
+            "core_height": 160.0,
+            "core_material": "salt",
+            "reflector_material": "graphite",
+            "vessel_material": "inconel",
+        },
+        context={"materials": {"salt", "graphite", "inconel"}},
+    )
+    assert cfg.core_material == "salt"
+
+
+def test_run_reactor_core_builds_and_runs(tmp_path, fake_openmc):
+    """The approximate reactor geometry builds and runs in eigenvalue mode."""
+    provider = _init_provider(tmp_path, _default_materials())
+    _CTRL.result = str(tmp_path / "openmc_run" / "statepoint.20.h5")
+    _CTRL.sp_keff = SimpleNamespace(n=1.01, s=0.003)
+
+    result = provider.run_simulation(_unit_config_reactor(), {})
+
+    assert result.status == "completed"
+    assert result.field_value("k_eff") == pytest.approx(1.01)
+    assert _CTRL.calls[-1]["run_mode"] == "eigenvalue"

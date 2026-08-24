@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -379,10 +379,12 @@ class KeffTrigger(BaseModel):
 
 
 class OpenMCSetting(BaseModel):
-    setting_id: int = Field(examples=[1], description="Unique identifier for the setting as an integer.")
-    batches: int = Field(examples=[100, 200], description="Number of batches to simulate.")
-    inactive: int = Field(examples=[10, 20], description="Number of inactive batches.")
-    particles: int = Field(examples=[1000, 2000], description="Number of particles per generation.")
+    # ``setting_id`` is optional at runtime — it is only meaningful when the
+    # full ``OpenMCSetting`` is used as a standalone settings document.
+    setting_id: Optional[int] = Field(default=None, examples=[1], description="Optional identifier for the setting as an integer.")
+    batches: int = Field(default=20, examples=[100, 200], description="Number of batches to simulate.")
+    inactive: int = Field(default=5, examples=[10, 20], description="Number of inactive batches.")
+    particles: int = Field(default=1000, examples=[1000, 2000], description="Number of particles per generation.")
     source: Optional[SourceSettings] = Field(
         default=None,
         examples=[{"space": {"x": 0.0, "y": 0.0, "z": 0.0}, "energy": 14e6}],
@@ -399,6 +401,25 @@ class OpenMCSetting(BaseModel):
             "particle restart",
         ],
         description="Type of calculation to perform.",
+    )
+    # --- Processforge runtime extensions -------------------------------------
+    # These fields parallel the legacy ``SolverConfig`` so flowsheets only need
+    # to declare what a given sim_type actually uses.
+    temperature_default: Optional[float] = Field(
+        default=None,
+        description="Default material temperature in Kelvin (sets settings.temperature['default']).",
+    )
+    cross_sections: Optional[str] = Field(
+        default=None,
+        description="Path to cross-section XML/H5 (overrides OPENMC_CROSS_SECTIONS).",
+    )
+    mesh_tallies: List["MeshTallyConfig"] = Field(
+        default_factory=list,
+        description="Mesh tally definitions. Optional — auto-defaulted from geometry when empty.",
+    )
+    resolution: Optional[Literal["quick", "standard", "high"]] = Field(
+        default=None,
+        description="Named resolution preset overriding batches/inactive/particles when set.",
     )
     # In OpenMCSettings:
     output: Optional[OutputSettings] = Field(default=None, description="Settings for output files and directories.")
@@ -706,6 +727,36 @@ class OpenMCSetting(BaseModel):
         description="Write the initial source distribution to file.",
     )
 
+    @model_validator(mode="after")
+    def _validate_and_normalize(self) -> "OpenMCSetting":
+        # inactive must be strictly less than batches.
+        if self.batches is not None and self.inactive is not None:
+            if self.inactive >= self.batches:
+                raise ValueError(
+                    f"inactive ({self.inactive}) must be less than batches ({self.batches})"
+                )
+
+        # Named resolution preset overrides the explicit particle counts.
+        if self.resolution is not None:
+            presets = {
+                "quick": (10, 3, 5000),
+                "standard": (20, 5, 20000),
+                "high": (50, 10, 100000),
+            }
+            b, i, p = presets[self.resolution]
+            self.batches = b
+            self.inactive = i
+            self.particles = p
+
+        # Mesh tally ids must be unique across all tallies.
+        ids = [t.tally_id for t in self.mesh_tallies]
+        duplicates = sorted({tid for tid in ids if ids.count(tid) > 1})
+        if duplicates:
+            raise ValueError(
+                f"mesh_tallies tally_id values must be unique across tallies; "
+                f"duplicates: {duplicates}"
+            )
+        return self
 
 
 class OpenMCModel(BaseModel):
@@ -773,45 +824,74 @@ class MeshTallyConfig(BaseModel):
         return self
 
 
-class SolverConfig(BaseModel):
-    """Typed representation of the ``solver_config`` block for OpenMC ``SolverUnit`` units.
+# ---------------------------------------------------------------------------
+# Geometry configuration models (per-strategy ``geometry_config`` blocks)
+# ---------------------------------------------------------------------------
 
-    Parsed automatically from the opaque ``solver_config`` JSON dict — no manual
-    ``from_dict()`` translation needed.  This is the single source of truth used
-    by both validation and runtime code.
+
+class PointSourceGeometryConfig(BaseModel):
+    """Geometry block for the point-source sphere strategies."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_point: Optional[SourcePoint] = Field(
+        default=None, description="Point source location (and optional energy)."
+    )
+    sphere_radius: float = Field(
+        default=500.0, description="Radius (cm) of the bounding vacuum sphere."
+    )
+    sphere_material: Optional[str] = Field(
+        default=None, description="Material name (must match a flowsheet materials key)."
+    )
+
+
+class ReactorCoreGeometryConfig(BaseModel):
+    """Approximate cylindrical reactor-core geometry (no CAD required).
+
+    Nested cylinders: a salt ``core`` surrounded by optional ``reflector``,
+    ``vessel``, ``gap``, and outer ``structure`` shells. Uses the declared
+    flowsheet materials so all of them participate in the simulation.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    batches: int = Field(default=20, description="Number of simulation batches.")
-    inactive: int = Field(default=5, description="Number of inactive batches.")
-    particles: int = Field(default=1000, description="Particles per generation.")
-    run_mode: RunMode = Field(
-        default=RunMode.eigenvalue, description="Run mode (eigenvalue, fixed source, …)."
-    )
-    source_point: Optional[SourcePoint] = Field(default=None, description="Point source definition (used by fixed_source_point sim_type).")
-    point_source_sphere_radius: float = Field(default=500.0, description="Radius (cm) of the bounding CSG sphere for point-source geometry.")
-    point_source_material: Optional[str] = Field(default=None, description="Material name (must match a flowsheet materials key) filling the sphere.")
-    mesh_tallies: List[MeshTallyConfig] = Field(
-        default_factory=list,
-        description="Mesh tally definitions.",
-    )
-    temperature_default: Optional[float] = Field(
-        default=None,
-        description="Default material temperature in Kelvin.",
-    )
-    cross_sections: Optional[str] = Field(
-        default=None,
-        description="Path to cross-section XML or H5 file (overrides ``OPENMC_CROSS_SECTIONS``).",
+    type: str = Field(default="reactor_core", description="Geometry kind discriminator.")
+    core_radius: float = Field(description="Core (salt) radius in cm.")
+    core_height: float = Field(description="Core (salt) height in cm.")
+    reflector_thickness: float = Field(default=0.0, description="Reflector shell thickness in cm.")
+    vessel_thickness: float = Field(default=0.0, description="Vessel shell thickness in cm.")
+    gap_thickness: float = Field(default=0.0, description="Gap shell thickness in cm.")
+    structure_thickness: float = Field(default=0.0, description="Outer structure shell thickness in cm.")
+    core_material: str = Field(description="Material name for the core.")
+    reflector_material: Optional[str] = Field(default=None, description="Material name for the reflector shell.")
+    vessel_material: Optional[str] = Field(default=None, description="Material name for the vessel shell.")
+    gap_material: Optional[str] = Field(default=None, description="Material name for the gap shell.")
+    structure_material: Optional[str] = Field(default=None, description="Material name for the outer structure shell.")
+    source_point: Optional[SourcePoint] = Field(
+        default=None, description="Point source location (and optional energy)."
     )
 
     @model_validator(mode="after")
-    def _validate_tally_ids(self) -> "SolverConfig":
-        ids = [t.tally_id for t in self.mesh_tallies]
-        duplicates = sorted({tid for tid in ids if ids.count(tid) > 1})
-        if duplicates:
-            raise ValueError(
-                f"mesh_tallies tally_id values must be unique across tallies; "
-                f"duplicates: {duplicates}"
-            )
+    def _check_materials_ctx(self, info) -> "ReactorCoreGeometryConfig":
+        materials = (info.context or {}).get("materials")
+        if not materials:
+            return self
+        refs = {
+            "core_material": self.core_material,
+            "reflector_material": self.reflector_material,
+            "vessel_material": self.vessel_material,
+            "gap_material": self.gap_material,
+            "structure_material": self.structure_material,
+        }
+        for label, name in refs.items():
+            if name is not None and name not in materials:
+                raise ValueError(
+                    f"{label}='{name}' is not a declared flowsheet material. "
+                    f"Available: {sorted(materials)}"
+                )
         return self
+
+
+# Resolve the forward reference from OpenMCSetting.mesh_tallies -> MeshTallyConfig
+# (declared earlier in this module).
+OpenMCSetting.model_rebuild()

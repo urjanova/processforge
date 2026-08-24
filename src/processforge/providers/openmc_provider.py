@@ -2,7 +2,7 @@
 
 Architecture (three-layer strategy pattern)
 -------------------------------------------
-1. **Pydantic models** (``SourcePoint``, ``MeshTallyConfig``, ``SolverConfig``) in
+1. **Pydantic models** (``SourcePoint``, ``MeshTallyConfig``, ``OpenMCSetting``) in
    :mod:`processforge.schemas.openmc.openmc_model` parse the opaque
    ``solver_config`` JSON dict into typed, validated objects.
 
@@ -20,7 +20,7 @@ Architecture (three-layer strategy pattern)
 Adding a new sim_type::
 
     from processforge.providers.openmc_provider import (
-        OpenMCSimStrategy, SolverConfig, OpenMCBuildHelpers,
+        OpenMCSimStrategy, OpenMCSetting, OpenMCBuildHelpers,
         register_openmc_sim_type,
     )
 
@@ -48,8 +48,10 @@ from .base import AbstractProvider
 from .registry import register_provider
 from processforge.schemas.openmc.openmc_model import (
     MeshTallyConfig,
+    OpenMCSetting,
+    PointSourceGeometryConfig,
+    ReactorCoreGeometryConfig,
     RunMode,
-    SolverConfig,
     SourcePoint,
 )
 from processforge.types import (
@@ -77,8 +79,9 @@ if TYPE_CHECKING:
     )
 
 
-# Backward-compat alias
-OpenMCSolverConfig = SolverConfig
+# Backward-compat alias (kept briefly during migration; ``OpenMCSetting`` is the
+# canonical runtime settings model).
+OpenMCSolverConfig = OpenMCSetting
 
 
 # Serializes OpenMC runs. Every run mutates process-global state (the
@@ -165,7 +168,69 @@ class OpenMCBuildHelpers:
         return source
 
     @staticmethod
-    def build_settings(openmc, solver_cfg: SolverConfig, source: object) -> object:
+    def build_reactor_core(openmc, geo_cfg, materials_map: dict) -> object:
+        """Build a nested-cylinder reactor-core geometry from a ``ReactorCoreGeometryConfig``.
+
+        Concentric cylindrical shells (core → reflector → vessel → gap → structure)
+        sharing the core height, each filled with its declared material.  The
+        outermost cylindrical surface and the top/bottom planes are vacuum; inner
+        surfaces are transmission so particles cross between regions.
+        """
+        z0 = -geo_cfg.core_height / 2.0
+        z1 = geo_cfg.core_height / 2.0
+        zbot = openmc.ZPlane(z0=z0)
+        ztop = openmc.ZPlane(z0=z1)
+
+        mats = [
+            geo_cfg.core_material,
+            geo_cfg.reflector_material,
+            geo_cfg.vessel_material,
+            geo_cfg.gap_material,
+            geo_cfg.structure_material,
+        ]
+        thicks = [
+            0.0,
+            geo_cfg.reflector_thickness,
+            geo_cfg.vessel_thickness,
+            geo_cfg.gap_thickness,
+            geo_cfg.structure_thickness,
+        ]
+
+        # Cumulative outer radii for the shells that actually have a material.
+        radii: list = []
+        mat_list: list = []
+        for mat, th in zip(mats, thicks):
+            if mat is None:
+                continue
+            r_outer = geo_cfg.core_radius if not radii else radii[-1] + th
+            radii.append(r_outer)
+            mat_list.append(mat)
+
+        if not radii:
+            raise ValueError("reactor_core geometry defines no material shells")
+
+        cells = []
+        prev_cyl = None
+        for mat, r_outer in zip(mat_list, radii):
+            zcyl = openmc.ZCylinder(r=r_outer, boundary_type="transmission")
+            if prev_cyl is None:
+                region = -zcyl & -ztop & +zbot
+            else:
+                region = +prev_cyl & -zcyl & -ztop & +zbot
+            cells.append(openmc.Cell(fill=materials_map[mat], region=region))
+            prev_cyl = zcyl
+
+        # Vacuum boundary on the outermost surfaces.
+        zbot.boundary_type = "vacuum"
+        ztop.boundary_type = "vacuum"
+        prev_cyl.boundary_type = "vacuum"
+        outer_region = +prev_cyl | +ztop | -zbot
+        cells.append(openmc.Cell(region=outer_region))
+
+        return openmc.Geometry(cells)
+
+    @staticmethod
+    def build_settings(openmc, solver_cfg: OpenMCSetting, source: object) -> object:
         """Construct an ``openmc.Settings`` object from solver config."""
         settings = openmc.Settings()
         settings.batches = solver_cfg.batches
@@ -196,23 +261,34 @@ class OpenMCSimStrategy(ABC):
     The ``build`` method receives all necessary objects and returns a 4-tuple
     ``(materials, geometry, settings, tallies)`` ready for XML export.
 
+    Subclasses declare ``config_model`` — the Pydantic model validating the
+    per-strategy ``geometry_config`` block of the flowsheet.  The provider
+    validates that block (with the flowsheet materials in context) before
+    calling ``build``.
+
     Register subclasses with :func:`register_openmc_sim_type`.
 
     Example::
 
         class MyFixedSourceCSG(OpenMCSimStrategy):
-            def build(self, openmc, solver_cfg, materials_map, helpers):
+            config_model = MyGeometryConfig
+            def build(self, openmc, solver_cfg, geometry_cfg, materials_map, helpers):
                 ...
                 return omc_materials, geometry, settings, tallies
 
         register_openmc_sim_type("fixed_source_csg", MyFixedSourceCSG)
     """
 
+    #: Pydantic model validating the unit's ``geometry_config`` block.  ``None``
+    #: means the strategy takes no geometry config.
+    config_model: type | None = None
+
     @abstractmethod
     def build(
         self,
         openmc,
-        solver_cfg: SolverConfig,
+        solver_cfg: OpenMCSetting,
+        geometry_cfg,
         materials_map: dict,
         helpers: OpenMCBuildHelpers,
     ) -> tuple:
@@ -220,7 +296,8 @@ class OpenMCSimStrategy(ABC):
 
         Args:
             openmc:        The ``openmc`` module.
-            solver_cfg:    Typed solver config from the flowsheet JSON.
+            solver_cfg:    Typed shared settings from ``solver_config``.
+            geometry_cfg:  Validated per-strategy geometry config (or ``None``).
             materials_map: ``{mat_name: openmc.Material}`` built by the provider.
             helpers:       Shared :class:`OpenMCBuildHelpers` instance.
 
@@ -251,6 +328,42 @@ def get_registered_sim_types() -> dict[str, type]:
     return dict(_SIM_TYPE_REGISTRY)
 
 
+def _resolved_tally_cfgs(solver_cfg: OpenMCSetting, geometry_cfg) -> list:
+    """Return the mesh-tally configs to actually build.
+
+    Uses ``solver_cfg.mesh_tallies`` when provided, otherwise synthesises a
+    single default tally spanning the geometry bounding box so flowsheets don't
+    have to specify one.
+    """
+    if solver_cfg.mesh_tallies:
+        return list(solver_cfg.mesh_tallies)
+    if isinstance(geometry_cfg, ReactorCoreGeometryConfig):
+        outer_r = (
+            geometry_cfg.core_radius
+            + geometry_cfg.reflector_thickness
+            + geometry_cfg.vessel_thickness
+            + geometry_cfg.gap_thickness
+            + geometry_cfg.structure_thickness
+        )
+        half_z = geometry_cfg.core_height / 2.0
+        ll = [-outer_r, -outer_r, -half_z]
+        ur = [outer_r, outer_r, half_z]
+    else:
+        r = getattr(geometry_cfg, "sphere_radius", 500.0) if geometry_cfg else 500.0
+        ll = [-r, -r, -r]
+        ur = [r, r, r]
+    return [
+        MeshTallyConfig(
+            tally_id=1,
+            name="flux_default",
+            lower_left=ll,
+            upper_right=ur,
+            dimension=[50, 50, 50],
+            scores=["flux", "fission"],
+        )
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Built-in strategies
 # ---------------------------------------------------------------------------
@@ -261,36 +374,36 @@ class _PointSourceSphereStrategy(OpenMCSimStrategy):
 
     Models the plant as a single point source inside a homogeneous sphere of a
     given radius and material. Subclasses differ only in ``sim_type``
-    (error/source-seed strings) and ``run_mode``. No DAGMC file required.
+    and ``run_mode``. No DAGMC file required.
     """
 
+    config_model = PointSourceGeometryConfig
     sim_type: str = "point_source_csg"
     run_mode: str = "eigenvalue"
 
     def build(
         self,
         openmc,
-        solver_cfg: SolverConfig,
+        solver_cfg: OpenMCSetting,
+        geometry_cfg: PointSourceGeometryConfig,
         materials_map: dict,
         helpers: OpenMCBuildHelpers,
     ) -> tuple:
-        if solver_cfg.source_point is None:
+        if geometry_cfg is None or geometry_cfg.source_point is None:
             raise ValueError(
-                f"sim_type='{self.sim_type}' requires 'source_point' in solver_config"
+                f"sim_type='{self.sim_type}' requires 'source_point' in geometry_config"
             )
 
-        fill_name = solver_cfg.point_source_material
+        fill_name = geometry_cfg.sphere_material
         if fill_name is not None and fill_name not in materials_map:
             raise ValueError(
-                f"point_source_material='{fill_name}' not found in materials map. "
+                f"sphere_material='{fill_name}' not found in materials map. "
                 f"Available: {sorted(materials_map)}"
             )
 
         omc_materials = openmc.Materials(list(materials_map.values()))
 
-        sphere = openmc.Sphere(
-            r=solver_cfg.point_source_sphere_radius, boundary_type="vacuum"
-        )
+        sphere = openmc.Sphere(r=geometry_cfg.sphere_radius, boundary_type="vacuum")
         fill_mat = materials_map[fill_name] if fill_name else None
         geometry = openmc.Geometry(
             [
@@ -299,14 +412,15 @@ class _PointSourceSphereStrategy(OpenMCSimStrategy):
             ]
         )
 
-        source = helpers.build_point_source(openmc, solver_cfg.source_point)
+        source = helpers.build_point_source(openmc, geometry_cfg.source_point)
         run_cfg = solver_cfg.model_copy(update={"run_mode": self.run_mode})
         settings = helpers.build_settings(openmc, run_cfg, source)
 
         tally_objs = [
-            helpers.build_mesh_tally(openmc, t) for t in solver_cfg.mesh_tallies
+            helpers.build_mesh_tally(openmc, t)
+            for t in _resolved_tally_cfgs(solver_cfg, geometry_cfg)
         ]
-        tallies = openmc.Tallies(tally_objs) if tally_objs else openmc.Tallies()
+        tallies = openmc.Tallies(tally_objs)
 
         return omc_materials, geometry, settings, tallies
 
@@ -338,9 +452,64 @@ class _EigenvalueCSGStrategy(_PointSourceSphereStrategy):
     run_mode = "eigenvalue"
 
 
+class _ReactorCoreStrategy(OpenMCSimStrategy):
+    """Approximate reactor-core simulation from a ``reactor_core`` geometry block.
+
+    Builds nested cylindrical shells (core + reflector + vessel + gap +
+    structure) from the declared flowsheet materials, so all of them
+    participate — giving a neutronics result much closer to a real (DAGMC)
+    reactor than the single homogeneous sphere, without any CAD asset.
+    """
+
+    config_model = ReactorCoreGeometryConfig
+    sim_type: str = "reactor_core"
+    run_mode: str = "eigenvalue"
+
+    def build(
+        self,
+        openmc,
+        solver_cfg: OpenMCSetting,
+        geometry_cfg: ReactorCoreGeometryConfig,
+        materials_map: dict,
+        helpers: OpenMCBuildHelpers,
+    ) -> tuple:
+        if geometry_cfg is None:
+            raise ValueError(
+                f"sim_type='{self.sim_type}' requires a 'geometry_config' block"
+            )
+        if geometry_cfg.source_point is None:
+            raise ValueError(
+                f"sim_type='{self.sim_type}' requires 'source_point' in geometry_config"
+            )
+
+        omc_materials = openmc.Materials(list(materials_map.values()))
+        geometry = helpers.build_reactor_core(openmc, geometry_cfg, materials_map)
+
+        source = helpers.build_point_source(openmc, geometry_cfg.source_point)
+        run_cfg = solver_cfg.model_copy(update={"run_mode": self.run_mode})
+        settings = helpers.build_settings(openmc, run_cfg, source)
+
+        tally_objs = [
+            helpers.build_mesh_tally(openmc, t)
+            for t in _resolved_tally_cfgs(solver_cfg, geometry_cfg)
+        ]
+        tallies = openmc.Tallies(tally_objs)
+
+        return omc_materials, geometry, settings, tallies
+
+
+class _FixedSourceReactorCoreStrategy(_ReactorCoreStrategy):
+    """Fixed-source variant of the approximate reactor-core geometry."""
+
+    sim_type = "fixed_source_reactor_core"
+    run_mode = "fixed source"
+
+
 # Register built-ins at module load
 register_openmc_sim_type("fixed_source_point", _FixedSourcePointStrategy)
 register_openmc_sim_type("eigenvalue_csg", _EigenvalueCSGStrategy)
+register_openmc_sim_type("eigenvalue_reactor", _ReactorCoreStrategy)
+register_openmc_sim_type("fixed_source_reactor_core", _FixedSourceReactorCoreStrategy)
 
 
 # ---------------------------------------------------------------------------
@@ -546,7 +715,7 @@ class OpenMCProvider(AbstractProvider):
 
         Execution flow
         --------------
-        1. Parse ``solver_config`` → ``SolverConfig``
+        1. Parse ``solver_config`` → ``OpenMCSetting``
         2. Look up strategy from ``_SIM_TYPE_REGISTRY``
         3. Build ``openmc.Material`` objects for all materials in the registry
         4. Call ``strategy.build()`` → ``(materials, geometry, settings, tallies)``
@@ -575,7 +744,18 @@ class OpenMCProvider(AbstractProvider):
                 f"Built-in types: {sorted(_SIM_TYPE_REGISTRY)}"
             )
 
-        solver_cfg = SolverConfig.model_validate(unit_config.solver_config or {})
+        solver_cfg = OpenMCSetting.model_validate(unit_config.solver_config or {})
+
+        # Validate the per-strategy geometry_config (if the strategy declares one).
+        # Flowsheet materials are supplied via context so the config_model can
+        # check that every referenced material actually exists.
+        geometry_cfg = None
+        cfg_model = getattr(strategy_cls, "config_model", None)
+        if cfg_model is not None:
+            geometry_cfg = cfg_model.model_validate(
+                unit_config.geometry_config or {},
+                context={"materials": set(self._materials.keys())},
+            )
 
         # Build openmc.Material objects for all registry materials.
         helpers = OpenMCBuildHelpers()
@@ -596,8 +776,9 @@ class OpenMCProvider(AbstractProvider):
         )
 
         omc_materials, geometry, settings, tallies = strategy_cls().build(
-            openmc, solver_cfg, materials_map, helpers
+            openmc, solver_cfg, geometry_cfg, materials_map, helpers
         )
+        resolved_tally_cfgs = _resolved_tally_cfgs(solver_cfg, geometry_cfg)
 
         run_dir = self._resolve_run_dir()
 
@@ -642,7 +823,7 @@ class OpenMCProvider(AbstractProvider):
                         os.environ["OPENMC_CROSS_SECTIONS"] = original_xs
 
         fields, artifacts, diagnostics = self._extract_results(
-            openmc, solver_cfg, statepoint_path, run_dir
+            openmc, solver_cfg, resolved_tally_cfgs, statepoint_path, run_dir
         )
 
         if statepoint_path is None:
@@ -699,26 +880,49 @@ class OpenMCProvider(AbstractProvider):
             "solver_config 'cross_sections' path."
         )
 
+    # Score → SI-ish unit string, so outputs are comparable with other engines
+    # (CoolProp J/mol, FESTIM W/m², …) via the shared ``Quantity``/pint layer.
+    _SCORE_UNITS = {
+        "flux": "n/cm^2/s",
+        "fission": "1/cm^3/s",
+        "heating": "W",
+        "kappa_fission": "W",
+        "absorption": "1/cm^3/s",
+        "scatter": "1/cm^3/s",
+        "elastic": "1/cm^3/s",
+        "capture": "1/cm^3/s",
+        "total": "1/cm^3/s",
+        "current": "1/cm^2/s",
+        "delayed_nu_fission": "1/cm^3/s",
+    }
+    # Energy per fission used to convert a fission rate into a comparable power.
+    _MEV_PER_FISSION = 200.0
+    _J_PER_MEV = 1.602176634e-13  # 1 MeV = 1e6 eV * 1.602e-19 J/eV
+
     def _extract_results(
         self,
         openmc,
-        solver_cfg: SolverConfig,
+        solver_cfg: OpenMCSetting,
+        tally_cfgs: list,
         statepoint_path,
         run_dir: pathlib.Path,
     ) -> tuple:
-        """Parse the statepoint file and return ``(fields, artifacts, diagnostics)``.
+        """Parse the statepoint and return ``(fields, artifacts, diagnostics)``.
 
-        Standardized fields
-        -------------------
+        Standardized, unit-bearing fields
+        ----------------------------------
         * ``k_eff`` (dimensionless) with ``std_dev`` — eigenvalue mode only
-        * Per mesh tally and score:
-          ``tally_{id}_{score}_mean_total`` — sum of all bin means
-          ``tally_{id}_{score}_std_dev``    — RMS of per-bin std devs
+        * Per mesh tally + score:
+          ``tally_{id}_{score}_mean``       — volume-averaged bin mean
+          ``tally_{id}_{score}_integrated`` — Σ(bin mean × cell volume)
+          both tagged with the score's unit (e.g. ``flux`` → ``n/cm^2/s``).
+        * ``power`` (W) — derived from the total fission rate
+          (``fission`` score) using 200 MeV/fission, so OpenMC outputs are
+          directly comparable with CoolProp/FESTIM thermal quantities.
 
-        The full statepoint HDF5 is registered as an
-        :class:`OutputArtifact` (uploaded to object storage by the boundary
-        ``ArtifactStore``).  Extraction issues are collected in
-        ``diagnostics["tally_warnings"]``.
+        The raw per-voxel tally dataframe is also written to a CSV
+        :class:`OutputArtifact`, and the statepoint HDF5 is registered as an
+        artifact. Extraction issues are collected in ``diagnostics["tally_warnings"]``.
         """
         from processforge.types import OutputArtifact, OutputField, Quantity
 
@@ -739,6 +943,7 @@ class OpenMCProvider(AbstractProvider):
             local_path=sp_path,
             source="local",
         ))
+        diagnostics["statepoint_path"] = sp_path
 
         sp = openmc.StatePoint(statepoint_path)
         try:
@@ -747,7 +952,7 @@ class OpenMCProvider(AbstractProvider):
                 fields.append(OutputField(
                     name="k_eff",
                     quantity=Quantity(
-                        value=[float(sp.keff.n)], unit="", std_dev=float(sp.keff.s)
+                        value=float(sp.keff.n), unit="", std_dev=float(sp.keff.s)
                     ),
                     kind="scalar",
                     source="keff",
@@ -759,7 +964,7 @@ class OpenMCProvider(AbstractProvider):
             elif solver_cfg.run_mode == RunMode.eigenvalue:
                 warnings.append("eigenvalue run produced no k_eff in statepoint")
 
-            for tally_cfg in solver_cfg.mesh_tallies:
+            for tally_cfg in tally_cfgs:
                 try:
                     tally = sp.get_tally(id=tally_cfg.tally_id)
                 except Exception as exc:  # noqa: BLE001
@@ -768,35 +973,91 @@ class OpenMCProvider(AbstractProvider):
                     )
                     continue
 
+                # Cell volume (area for 2D meshes) for volume-weighted aggregation.
+                try:
+                    ll = [float(x) for x in tally.mesh.lower_left]
+                    ur = [float(x) for x in tally.mesh.upper_right]
+                    dim = [float(x) for x in tally.mesh.dimension]
+                    cell_vol = 1.0
+                    for a, b, d in zip(ll, ur, dim):
+                        cell_vol *= (b - a) / d if d else 1.0
+                except Exception:  # noqa: BLE001
+                    cell_vol = 1.0
+
                 for score in tally_cfg.scores:
                     try:
                         df = tally.get_pandas_dataframe(scores=[score])
-                        means = df["mean"].values
-                        std_devs = df["std. dev."].values
+                        means = [float(x) for x in df["mean"].values]
+                        std_devs = [float(x) for x in df["std. dev."].values]
+                        unit = self._SCORE_UNITS.get(score, "")
                         key_prefix = f"tally_{tally_cfg.tally_id}_{score}"
+
+                        mean_val = sum(means) / len(means) if means else 0.0
+                        integrated = sum(m * cell_vol for m in means)
+                        integrated_std = math.sqrt(
+                            sum((s * cell_vol) ** 2 for s in std_devs)
+                        ) if std_devs else 0.0
+
                         fields.append(OutputField(
-                            name=f"{key_prefix}_mean_total",
-                            quantity=Quantity(value=[float(means.sum())], unit=""),
+                            name=f"{key_prefix}_mean",
+                            quantity=Quantity(value=mean_val, unit=unit),
                             kind="scalar",
                             source=f"tally_{tally_cfg.tally_id}/{score}",
                         ))
                         fields.append(OutputField(
-                            name=f"{key_prefix}_std_dev",
+                            name=f"{key_prefix}_integrated",
                             quantity=Quantity(
-                                value=(
-                                    float(math.sqrt((std_devs**2).mean()))
-                                    if len(std_devs) > 0 else 0.0
-                                ),
-                                unit="",
+                                value=integrated, unit=unit, std_dev=integrated_std
                             ),
                             kind="scalar",
                             source=f"tally_{tally_cfg.tally_id}/{score}",
                         ))
+
+                        # Total fission rate → comparable power (W).
+                        if score == "fission" and integrated > 0:
+                            power_W = (
+                                integrated
+                                * self._MEV_PER_FISSION
+                                * self._J_PER_MEV
+                            )
+                            power_std = (
+                                power_W * (integrated_std / integrated)
+                                if integrated_std else 0.0
+                            )
+                            fields.append(OutputField(
+                                name="power",
+                                quantity=Quantity(
+                                    value=power_W, unit="W", std_dev=power_std
+                                ),
+                                kind="scalar",
+                                source="fission_rate",
+                            ))
+                            diagnostics.setdefault("notes", []).append(
+                                "power derived from total fission rate assuming "
+                                f"{self._MEV_PER_FISSION} MeV/fission."
+                            )
                     except Exception as exc:  # noqa: BLE001
                         warnings.append(
                             f"could not extract score '{score}' from tally "
                             f"{tally_cfg.tally_id}: {exc}"
                         )
+
+                # Raw per-voxel field as a CSV artifact for downstream post-processing.
+                try:
+                    csv_name = f"tally_{tally_cfg.tally_id}_{tally_cfg.name or tally_cfg.tally_id}.csv"
+                    csv_path = pathlib.Path(run_dir) / csv_name
+                    df_all = tally.get_pandas_dataframe()
+                    df_all.to_csv(csv_path)
+                    artifacts.append(OutputArtifact(
+                        name=csv_name,
+                        kind="csv",
+                        local_path=str(csv_path.resolve()),
+                        source="local",
+                    ))
+                except Exception as exc:  # noqa: BLE001
+                    warnings.append(
+                        f"could not export tally {tally_cfg.tally_id} CSV: {exc}"
+                    )
         finally:
             del sp
 

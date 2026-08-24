@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.16] - 2026-08-24
+
+### Changed
+- **OpenMC provider**: consolidated the hand-rolled `SolverConfig` into the rich `OpenMCSetting` model and split solver settings from per-strategy geometry (`geometry_config`), shrinking flowsheet `solver_config`. Added an approximate `reactor_core` geometry (core + reflector + vessel + gap + structure) using all declared materials, replacing the single homogeneous sphere. Mesh tallies are now optional (auto-default bounding-box tally). Result extraction now emits unit-bearing `power` (W) / `flux` (n/cm²/s) / `fission` (1/cm³/s) outputs plus a raw mesh-field CSV artifact, enabling comparison with CoolProp/FESTIM. Removed duplicated `inactive < batches` / `point_source_material` validation checks (now schema-enforced).
+
 ## [0.3.15] - 2026-08-17
 
 ### Fixed

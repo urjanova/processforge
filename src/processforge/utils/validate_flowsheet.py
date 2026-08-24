@@ -502,8 +502,11 @@ def _check_openmc_unit_config(config: dict) -> None:
     1. ``sim_type`` is present.
     2. ``sim_type`` is registered in the provider's ``_SIM_TYPE_REGISTRY``
        (supports types added via :func:`~processforge.providers.openmc_provider.register_openmc_sim_type`).
-    3. ``inactive`` must be less than ``batches`` (when both are provided).
-    4. Uses ``openmc_model.Material.model_validate()`` for deep Pydantic validation
+    3. ``solver_config`` validates against the shared ``OpenMCSetting`` schema
+       (this also enforces ``inactive < batches`` and mesh-tally id uniqueness).
+    4. ``geometry_config`` validates against the strategy's ``config_model``
+       (which checks referenced materials exist in the flowsheet).
+    5. Uses ``openmc_model.Material.model_validate()`` for deep Pydantic validation
        of each material referenced by an OpenMC unit.
     """
     providers = config.get("providers", {})
@@ -542,23 +545,46 @@ def _check_openmc_unit_config(config: dict) -> None:
             )
             continue
 
+        strategy_cls = registry[sim_type]
         sc = unit_cfg.get("solver_config") or {}
 
-        batches = sc.get("batches", 0)
-        inactive = sc.get("inactive", 0)
-        if batches > 0 and inactive >= batches:
-            errors.append(
-                f"❌ Unit '{unit_name}': solver_config 'inactive' ({inactive}) "
-                f"must be less than 'batches' ({batches})."
-            )
+        # Validate solver_config against the shared OpenMCSetting schema (this
+        # also enforces inactive < batches and mesh-tally id uniqueness).
+        try:
+            from processforge.schemas.openmc.openmc_model import OpenMCSetting
+            from pydantic import ValidationError as PydanticValidationError
 
-        point_source_mat = sc.get("point_source_material")
-        if point_source_mat is not None and point_source_mat not in materials:
+            OpenMCSetting.model_validate(sc)
+        except PydanticValidationError as exc:
+            for err in exc.errors():
+                loc = ".".join(str(p) for p in err["loc"])
+                where = f"solver_config.{loc}" if loc else "solver_config"
+                errors.append(f"❌ Unit '{unit_name}': {where} — {err['msg']}")
+            continue
+        except Exception as exc:  # noqa: BLE001
             errors.append(
-                f"❌ Unit '{unit_name}': solver_config 'point_source_material'="
-                f"'{point_source_mat}' not found in materials. "
-                f"Available: {sorted(materials)}"
+                f"❌ Unit '{unit_name}': solver_config failed OpenMC schema "
+                f"validation: {exc}"
             )
+            continue
+
+        # Validate the per-strategy geometry_config against its config_model.
+        cfg_model = getattr(strategy_cls, "config_model", None)
+        geo = unit_cfg.get("geometry_config") or {}
+        if cfg_model is not None:
+            try:
+                cfg_model.model_validate(geo, context={"materials": materials})
+            except PydanticValidationError as exc:
+                for err in exc.errors():
+                    loc = ".".join(str(p) for p in err["loc"])
+                    where = f"geometry_config.{loc}" if loc else "geometry_config"
+                    errors.append(f"❌ Unit '{unit_name}': {where} — {err['msg']}")
+                continue
+            except Exception as exc:  # noqa: BLE001
+                errors.append(
+                    f"❌ Unit '{unit_name}': geometry_config failed validation: {exc}"
+                )
+                continue
 
         # Deep Pydantic validation using the now-self-contained openmc_model.Material
         mat_id = unit_cfg.get("material")
