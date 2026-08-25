@@ -803,11 +803,17 @@ class TestFestimRunSimulation:
 
         assert result.status == "completed"
         assert result.sim_type == "hydrogen_transport_tds"
-        assert "H flux surface 1" in result.scalars
-        assert result.scalars["H flux surface 1"] == pytest.approx(12.34)
-        assert "Total trapped_H1 volume 1" in result.scalars
-        assert result.metadata["run_dir"] == str((tmp_path / "festim_run").resolve())
-        assert "H flux surface 1" in result.metadata["series"]
+        # Scalars are surfaced as OutputFields of kind "scalar".
+        scalars = {f.name: f.quantity.value[0] for f in result.fields if f.kind == "scalar"}
+        assert "H flux surface 1" in scalars
+        assert scalars["H flux surface 1"] == pytest.approx(12.34)
+        assert "Total trapped_H1 volume 1" in scalars
+        # run_dir is exposed as a top-level attribute and via diagnostics.
+        assert result.run_dir == str((tmp_path / "festim_run").resolve())
+        assert result.diagnostics["run_dir"] == str((tmp_path / "festim_run").resolve())
+        # Time-series are surfaced as timeseries OutputFields keyed by base name.
+        series_names = {f.name for f in result.fields if f.kind == "timeseries"}
+        assert "H flux surface 1_mean_total" in series_names
 
     def test_exports_written_into_run_dir(self, tmp_path, fake_festim):
         provider = _init_provider(
