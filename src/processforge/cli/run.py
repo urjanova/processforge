@@ -102,6 +102,7 @@ def run(
             raise SystemExit(1)
 
         run_info = build_run_info(config, x0=x0, var_names=var_names)
+        snap_x, snap_vn, snap_backend, snap_ok = x0, var_names, "dynamic", True
     else:
         # Pass None so EOFlowsheet resolves backend from config (with scipy default).
         fs = EOFlowsheet(config, backend=None)
@@ -117,6 +118,9 @@ def run(
                 logger.warning("Steady-state simulation did NOT converge. Results may be unreliable.")
 
         run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
+        snap_x, snap_vn = fs.x_converged, fs.var_names
+        snap_backend = getattr(fs, "backend", "scipy")
+        snap_ok = bool(getattr(fs, "converged", False))
 
     # Propagate run context to any containerized providers so their S3 uploads
     # are keyed by the same run_id/flowsheet_hash as this archive run.
@@ -133,6 +137,21 @@ def run(
         if not hasattr(v, "fields")  # exclude EngineOutput objects
     }
     archive.save_run(manifest, stream_results=stream_results)
+
+    # Persist a StateManager snapshot so `pf plan` (and `pf apply`) can diff
+    # against this run as a baseline. Without it, `pf plan` always reports
+    # "No prior state found" and never surfaces flowsheet edits.
+    if (is_dynamic or snap_ok) and snap_x is not None:
+        try:
+            from .common import build_run_metadata, save_snapshot
+
+            meta = build_run_metadata(config, 1e-6, 50, snap_backend)
+            save_snapshot(
+                archive, config, snap_x, snap_vn,
+                metadata=meta, parent_snapshot_id=None, label="run state",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save state snapshot: {type(e).__name__}: {e}")
 
     # Always persist a Zarr copy of the standardized outputs (fields + artifacts)
     # inside the archive. Works for every provider (OpenMC, CoolProp, FESTIM,

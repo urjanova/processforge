@@ -302,26 +302,46 @@ class StateManager:
                 if ov != nv:
                     changes.append(f"{key}: {ov!r} → {nv!r}")
 
-            # Parameter changes (scalar unit params, not nested "parameters" dict)
-            all_keys = set(old_cfg) | set(new_cfg)
-            skip = {"type", "in", "out", "out_vap", "out_liq", "provider", "parameters"}
-            for k in all_keys - skip:
-                ov, nv = old_cfg.get(k), new_cfg.get(k)
-                if ov != nv:
-                    changes.append(f"{k}: {ov} → {nv}")
-
-            # Nested "parameters" dict
-            old_params = old_cfg.get("parameters", {})
-            new_params = new_cfg.get("parameters", {})
-            for pk in set(old_params) | set(new_params):
-                ov, nv = old_params.get(pk), new_params.get(pk)
-                if ov != nv:
-                    changes.append(f"parameters.{pk}: {ov} → {nv}")
+            # Parameter changes — recurse into nested dicts so leaf values
+            # (e.g. solver_config.batches) are reported individually rather
+            # than dumping the whole dict.
+            changes.extend(
+                StateManager._diff_params(old_cfg, new_cfg)
+            )
 
             if changes:
                 modified[name] = {"type": new_cfg.get("type", "?"), "changes": changes}
 
         return {"added": added, "removed": removed, "modified": modified}
+
+    # ------------------------------------------------------------------
+    # Structural-diff helpers
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _diff_params(
+        old_cfg: dict, new_cfg: dict, prefix: str = "", skip: set | None = None
+    ) -> list[str]:
+        """Recursively collect changed scalar/leaf params between two dicts.
+
+        Nested dicts are descended (``solver_config.batches: 25 → 999``) so the
+        structural diff reports leaf-level changes instead of whole-dict blobs.
+        """
+        if skip is None:
+            skip = {"type", "in", "out", "out_vap", "out_liq", "provider"}
+        all_keys = set(old_cfg) | set(new_cfg)
+        if not prefix:
+            all_keys -= skip
+        changes: list[str] = []
+        for k in all_keys:
+            ov, nv = old_cfg.get(k), new_cfg.get(k)
+            label = f"{prefix}{k}"
+            if isinstance(ov, dict) and isinstance(nv, dict):
+                changes.extend(
+                    StateManager._diff_params(ov, nv, prefix=f"{label}.", skip=set())
+                )
+            elif ov != nv:
+                changes.append(f"{label}: {ov} → {nv}")
+        return changes
 
     # ------------------------------------------------------------------
     # State → stream dict conversion (for dynamic t=0 initialisation)
