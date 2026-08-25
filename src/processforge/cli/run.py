@@ -158,13 +158,15 @@ def run(
     # Cantera) and for both local and remote docker runs — remote artifacts
     # reference their S3 remote_uris.
     try:
-        from ..result import save_results_zarr
+        from ..result import relink_latest_results, save_results_zarr
 
+        run_results_dir = os.path.join(archive.path, "results", run_id)
         save_results_zarr(
             results,
-            os.path.join(archive.path, "results.zarr"),
+            os.path.join(run_results_dir, "results.zarr"),
             run_info,
         )
+        relink_latest_results(archive.path, run_id)
     except Exception as e:
         logger.warning(f"Failed to write results.zarr: {type(e).__name__}: {e}")
 

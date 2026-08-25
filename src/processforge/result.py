@@ -272,6 +272,34 @@ def save_results_zarr(results, fname="results.zarr", run_info: RunInfo | dict | 
     return store_path
 
 
+def relink_latest_results(archive_path: str, run_id: str) -> None:
+    """Point ``<archive>/results.zarr`` at the latest per-run zarr.
+
+    Each run now writes its zarr to ``<archive>/results/<run_id>/results.zarr``
+    (see `save_results_zarr`). To keep backward compatibility with tooling that
+    reads a single ``results.zarr`` at the archive root, we make that path a
+    symlink to the newest run. Falls back to a copy on platforms/filesystems
+    without symlink support (or when the existing target is a real directory).
+    """
+    latest = os.path.join(archive_path, "results", run_id, "results.zarr")
+    if not os.path.exists(latest):
+        return
+    link_path = os.path.join(archive_path, "results.zarr")
+
+    # Remove any existing target (real dir or stale/broken symlink) without
+    # following the link.
+    if os.path.islink(link_path):
+        os.unlink(link_path)
+    elif os.path.exists(link_path):
+        shutil.rmtree(link_path)
+
+    try:
+        os.symlink(latest, link_path)
+    except (OSError, NotImplementedError):
+        # Non-POSIX / restricted filesystem: keep a physical copy instead.
+        shutil.copytree(latest, link_path)
+
+
 def save_results_zarr_s3(results, s3_uri: str, run_info: RunInfo | dict | None = None):
     """Write simulation results directly to an S3-backed Zarr store.
 

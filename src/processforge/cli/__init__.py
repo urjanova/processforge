@@ -11,6 +11,7 @@ def register_commands(app: typer.Typer) -> None:
     from .validate import validate
     from .run import run
     from .apply import apply
+    from .runs import runs
     from .plan import plan
     from .diagram import diagram
     from .export_fmu import export_fmu
@@ -29,6 +30,10 @@ def register_commands(app: typer.Typer) -> None:
         "apply",
         help="Apply flowsheet using state-based warm start and homotopy fallback",
     )(apply)
+    app.command(
+        "runs",
+        help="List runs for a flowsheet, or show one run's full manifest (pf runs <flowsheet> [<run_id>])",
+    )(runs)
     app.command(
         "plan",
         help="Validate a flowsheet, run DOF analysis, structural diff, container health check, and generate a Mermaid diagram",

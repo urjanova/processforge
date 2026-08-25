@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.20] - 2026-08-25
+
+### Added
+- **`pf runs` command**: list runs stored in a flowsheet's `.pfarchive` (`pf runs <flowsheet>`), showing run id, timestamp, mode, a `*` marker on the latest run, a one-line summary of primary unit fields (e.g. `keff`), and a `ZARR` column indicating whether each run's `results.zarr` is still present on disk (`✓`) or has been deleted (`✗`). Passing a `run_id` (`pf runs <flowsheet> <run_id>`) prints that run's full manifest JSON plus per-artifact on-disk presence.
+
+### Changed
+- **Per-run Zarr outputs**: `pf run` and `pf apply` now write each run's standardized results to `<archive>/results/<run_id>/results.zarr` instead of clobbering a single `<archive>/results.zarr`. The archive-root `results.zarr` is kept as a symlink (or copy on non-POSIX filesystems) to the latest run for backward compatibility. This lets two runs be compared/visualized side by side.
+- Bumped version to `0.3.20`.
+
 ## [0.3.19] - 2026-08-25
 
 ### Fixed
