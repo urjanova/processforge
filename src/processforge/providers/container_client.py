@@ -91,6 +91,7 @@ class ContainerProviderClient(AbstractProvider):
             "out": unit_config.out,
             "sim_type": unit_config.sim_type,
             "solver_config": unit_config.solver_config,
+            "geometry_config": unit_config.geometry_config,
             **unit_config.extra,
         }
 
