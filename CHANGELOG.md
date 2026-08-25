@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.19] - 2026-08-25
 
+### Fixed
+- **State history**: `StateManager` now correctly tracks the history of state snapshots, ensuring that rollbacks and state reconstructions work as intended. The `latest` pointer is updated after each successful `pf apply`, and structural diffs are accurately detected between snapshots.
+## [0.3.19] - 2026-08-25
+
 ### Changed
 - **Container output_dir ownership**: the CLI (`ContainerProviderClient`) no longer computes or sends `output_dir`; the container server resolves its own scratch path once, under `PROCESSFORGE_OUTPUT_DIR` (default `/tmp/processforge` in the Docker images). This removes a client/server `PROCESSFORGE_OUTPUT_DIR` mismatch and the double-nested `outputs/outputs/...` run folder. The container only holds provider scratch (e.g. OpenMC `h5m`/statepoint); `results.zarr` remains CLI-side.
 - **Artifact upload coverage**: `ArtifactStore.persist_outputs` now sweeps each output's `run_dir` and uploads *every* model output file to S3 (not just explicitly-declared artifacts), appending the swept files to `EngineOutput.artifacts` with `remote_uris` filled. `EngineOutput` gains a `run_dir` field for this.
