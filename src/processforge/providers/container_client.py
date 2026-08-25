@@ -177,6 +177,15 @@ class ContainerProviderClient(AbstractProvider):
             else {"type": unit_config.provider or self._ptype, "url": self._url}
         )
 
+        # Fall back to context set via set_run_context() (the CLI propagates the
+        # shared run_id/flowsheet_hash there). SolverUnit calls run_simulation()
+        # without these arguments, so without the fallback the container receives
+        # null and artifacts get uploaded under the wrong key.
+        if run_id is None:
+            run_id = self._run_id or None
+        if flowsheet_hash is None:
+            flowsheet_hash = self._flowsheet_hash or None
+
         body = {
             "unit_config": self._serialize_unit_config(unit_config),
             "materials": self._serialize_materials(self._materials),
