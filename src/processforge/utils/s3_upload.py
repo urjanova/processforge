@@ -1,16 +1,12 @@
-"""S3 upload helper for provider containers.
+"""S3 storage-options helper.
 
-Uploads a provider's run-output directory (``run_dir``) to S3 so ephemeral
-container-local artifacts (``statepoint.h5``, mesh tallies, ``*.h5m``) survive
-after the container stops. The container opts in by setting ``S3_BUCKET`` in its
-environment; credential env vars reuse the convention from
-:func:`processforge.result.save_results_zarr_s3`.
+Builds s3fs storage options (credentials, endpoint, region) from the
+container environment for use by :class:`processforge.persistence.artifact_store.ArtifactStore`.
 """
 
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
 
 
 def s3_storage_options() -> dict:
@@ -37,33 +33,3 @@ def s3_storage_options() -> dict:
     if client_kwargs:
         opts["client_kwargs"] = client_kwargs
     return opts
-
-
-def upload_directory_to_s3(run_dir: str) -> str | None:
-    """Upload *run_dir* recursively to S3.
-
-    Reads the destination from the container environment:
-
-    * ``S3_BUCKET``  — required; enables the upload. When unset, returns ``None``
-      and the caller keeps its local artifacts.
-    * ``S3_PREFIX``  — optional key prefix (e.g. ``openmc-runs``).
-
-    The object key is ``<S3_PREFIX>/<run_dir_basename>-<utc_stamp>/`` so
-    repeated runs do not clobber each other.
-
-    Returns the uploaded ``s3://`` URI, or ``None`` when disabled.
-    """
-    bucket = os.environ.get("S3_BUCKET")
-    if not bucket:
-        return None
-
-    prefix = os.environ.get("S3_PREFIX", "").strip("/")
-    tag = f"{os.path.basename(run_dir.rstrip('/'))}-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
-    s3_dir = f"{prefix + '/' if prefix else ''}{tag}"
-
-    import s3fs
-
-    s3fs.S3FileSystem(**s3_storage_options()).put(
-        run_dir, f"s3://{bucket}/{s3_dir}", recursive=True
-    )
-    return f"s3://{bucket}/{s3_dir}"

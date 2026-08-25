@@ -1,7 +1,6 @@
 """Content-addressed artifact storage for simulation outputs.
 
-Replaces the old ``upload_directory_to_s3`` whole-directory dump.  Providers
-declare their output files as :class:`~processforge.types.OutputArtifact`
+Providers declare their output files as :class:`~processforge.types.OutputArtifact`
 records (with ``local_path``); the :class:`ArtifactStore` computes a content
 hash, uploads each to object storage under a deterministic, reproducible key,
 and fills in ``remote_uris``.  The CLI and the container server both use this
