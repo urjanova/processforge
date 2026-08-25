@@ -52,12 +52,18 @@ uv tool install "processforge[modelica]"
 
 4. **Look at the output**
 
-   `pf apply` writes results under `outputs/`:
-   - `*_results.zarr` — simulation results store (per-variable arrays, composition flattened)
-   - `*_results.zarr.schema.json` — schema file describing streams, variables, dtypes, units, shapes, and run provenance
-   - `*.pfstate/` — versioned snapshot store with a `latest` pointer
+    `pf apply` (and `pf run`) write a single unified archive under `outputs/`:
 
-   For flowsheets with Tank units (dynamic), use `pf run` instead of `pf apply` to solve with the SM solver.
+    - `outputs/<base>.pfarchive/` — the unified store for a flowsheet's solved state and outputs:
+      - `snapshots/` — Zarr store of converged state vectors (one group per successful `pf apply`), each with `x`/`x_delta` arrays and config/var-name/metadata attributes, plus a `latest` pointer (powers warm-start, drift detection, and homotopy).
+      - `runs/<run_id>.json` — the run manifest: every stream and unit engine output (values, units, dtypes, shapes) and run provenance (backend, version, flowsheet hash).
+      - `outputs/streams/<name>.json` — per-stream timeseries from the solve.
+      - `artifacts.json` — content-addressed registry of all output artifacts (local + remote URIs).
+      - `index.json` — `field_name → occurrences` index for fast cross-run lookups.
+      - `latest_run` — plain-text pointer to the most recent run.
+    - `outputs/<base>_divergence.json` — written only when both direct and homotopy solves fail on `pf apply`, capturing drifted params, solver stats, and top residual violators.
+
+    For dynamic flowsheets with Tank units, use `pf run` (not `pf apply`, which is steady-state EO only) to solve with the dynamic engine.
 
 ## Python API
 

@@ -33,11 +33,16 @@ pf export-fmu flowsheets/hydraulic-chain.json [--output-dir outputs/] [--backend
 
 ### Outputs
 
-`pf apply` or `pf run` creates:
-- `*_results.zarr` — simulation results store.
-- `*_validation.xlsx` — validation report.
-- `*.pfstate/` — versioned snapshot store with `latest` pointer.
-- `*_divergence.json` — written when both direct and homotopy solves fail.
+`pf apply` or `pf run` writes a single unified archive under `outputs/`:
+
+- `outputs/<base>.pfarchive/` — the unified store for a flowsheet's solved state and outputs:
+  - `snapshots/` — Zarr store of converged state vectors (one group per successful `pf apply`), each with `x`/`x_delta` arrays and config/var-name/metadata attributes, plus a `latest` pointer.
+  - `runs/<run_id>.json` — the run manifest: every stream and unit engine output (values, units, dtypes, shapes) and run provenance (backend, version, flowsheet hash).
+  - `outputs/streams/<name>.json` — per-stream timeseries from the solve.
+  - `artifacts.json` — content-addressed registry of all output artifacts (local + remote URIs).
+  - `index.json` — `field_name → occurrences` index for fast cross-run lookups.
+  - `latest_run` — plain-text pointer to the most recent run.
+- `outputs/<base>_divergence.json` — written when both direct and homotopy solves fail (on `pf apply`).
 
 ## Python API
 
