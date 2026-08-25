@@ -837,8 +837,13 @@ class TestFestimRunSimulation:
 
         result = provider.run_simulation(unit_cfg, {})
         assert result.status == "failed"
-        assert "SNES diverged" in result.metadata["error"]
-        assert result.metadata["run_dir"] == str((tmp_path / "festim_run").resolve())
+        assert "SNES diverged" in result.diagnostics["error"]
+        assert result.diagnostics["run_dir"] == str((tmp_path / "festim_run").resolve())
+        # Failure is classified and attributed to the provider, not the flowsheet.
+        assert result.error is not None
+        assert result.error.source == "provider"
+        assert result.diagnostics["error_source"] == "provider"
+        assert result.error.detail
 
     def test_run_before_init_raises(self, fake_festim):
         from processforge.providers.festim_provider import FestimProvider

@@ -435,6 +435,25 @@ def test_run_exception_returns_failed_result(tmp_path, fake_openmc):
     assert os.environ.get("OPENMC_CROSS_SECTIONS") == prior
 
 
+def test_run_exception_is_classified(tmp_path, fake_openmc):
+    """A nuclear-data run failure must be classified with source='provider'."""
+    from processforge.providers.errors import NUCLEAR_DATA
+
+    provider = _init_provider(tmp_path, _default_materials())
+    _CTRL.raise_msg = (
+        "Nuclear data library does not contain cross sections for Ni58 at or near "
+        "400.000000 K. Available temperatures are 300 K."
+    )
+    result = provider.run_simulation(_unit_config(), {})
+
+    assert result.status == "failed"
+    assert result.error is not None
+    assert result.error.category == NUCLEAR_DATA
+    assert result.error.source == "provider"
+    assert result.diagnostics["error_category"] == NUCLEAR_DATA
+    assert "temperature" in result.error.hint.lower()
+
+
 def test_run_without_statepoint_returns_failed(tmp_path, fake_openmc):
     provider = _init_provider(tmp_path, _default_materials())
     result = provider.run_simulation(_unit_config(), {})

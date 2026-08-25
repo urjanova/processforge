@@ -60,6 +60,7 @@ from processforge.types import (
     OutputField,
     OutputProvenance,
 )
+from processforge.providers.errors import classify_run_error, make_failed_output
 from processforge.units import Quantity
 
 
@@ -806,15 +807,8 @@ class OpenMCProvider(AbstractProvider):
                 logger.exception(
                     f"OpenMCProvider: '{sim_type}' failed in '{run_dir}': {exc}"
                 )
-                return EngineOutput(
-                    status="failed",
-                    engine="openmc",
-                    sim_type=sim_type,
-                    diagnostics={
-                        "run_dir": str(run_dir.resolve()),
-                        "error": str(exc),
-                    },
-                )
+                err = classify_run_error("openmc", exc)
+                return make_failed_output("openmc", sim_type, run_dir, err)
             finally:
                 if xs_path:
                     if original_xs is None:

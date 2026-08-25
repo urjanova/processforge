@@ -473,6 +473,10 @@ class EngineOutput(BaseModel):
     artifacts: list[OutputArtifact] = Field(default_factory=list)
     diagnostics: dict = Field(default_factory=dict)
     provenance: OutputProvenance = Field(default_factory=OutputProvenance)
+    # Structured classification of a run-time failure (populated only when
+    # status == "failed"). source is always "provider" so a runtime engine error
+    # is distinguishable from a flowsheet/setup validation error.
+    error: Optional["ProviderRunError"] = None
 
     # -- convenience accessors -------------------------------------------
     def get_field(self, name: str) -> Optional[OutputField]:
@@ -623,3 +627,14 @@ class MergedInletTimeseries(BaseModel):
 
     def __iter__(self):
         return iter(MergedInletTimeseries.model_fields)
+
+
+# Imported at the end (not at module top) to avoid an import cycle: the
+# providers package __init__ pulls in provider subclasses that themselves
+# import this module. ``ProviderRunError`` defines no dependency on types.py,
+# so importing it here — after every model above is defined — is safe.
+from processforge.providers.errors import ProviderRunError  # noqa: E402
+
+# Resolve the forward reference used in ``EngineOutput.error`` now that
+# ``ProviderRunError`` is available in this module's namespace.
+EngineOutput.model_rebuild()

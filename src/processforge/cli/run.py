@@ -87,6 +87,8 @@ def run(
         logger.info("=== Dynamic Results ===")
         results = fs.run()
 
+        _check_for_failed_units(fs)
+
         if hasattr(fs, "converged"):
             if fs.converged:
                 logger.info("Dynamic simulation converged.")
@@ -105,6 +107,8 @@ def run(
         fs = EOFlowsheet(config, backend=None)
         logger.info("=== Steady-State EO Results ===")
         results = fs.run()
+
+        _check_for_failed_units(fs)
 
         if hasattr(fs, "converged"):
             if fs.converged:
@@ -153,3 +157,32 @@ def run(
             logger.info(f"Plots saved: {base_name}_results.png, {base_name}_timeseries.png")
         except Exception as e:
             logger.warning(f"Failed to generate plots: {type(e).__name__}: {e}")
+
+
+def _check_for_failed_units(fs):
+    """Fail loudly if any SolverUnit run returned ``status="failed"``.
+
+    Containerized providers return HTTP 200 with a structured ``EngineOutput``
+    (status="failed") rather than raising, so the failure would otherwise be
+    swallowed and recorded as a successful run. Surface it clearly and exit
+    non-zero.
+    """
+    from ..types import EngineOutput
+
+    failed = {
+        name: out
+        for name, out in getattr(fs, "engine_outputs", {}).items()
+        if isinstance(out, EngineOutput) and out.status == "failed"
+    }
+    if not failed:
+        return
+
+    for name, out in failed.items():
+        err = out.error
+        category = getattr(err, "category", "unknown") if err else "unknown"
+        message = getattr(err, "message", "") if err else ""
+        logger.error(f"Unit '{name}' simulation FAILED [{category}]: {message}")
+        hint = getattr(err, "hint", "") if err else ""
+        if hint:
+            logger.error(f"  hint: {hint}")
+    raise SystemExit(1)

@@ -2,6 +2,10 @@
 
 Three common setups:
 
+> **Run failing inside the container?** See [Provider run errors](provider-errors.md)
+> for how Processforge classifies and reports failures that originate in the
+> engine (nuclear data, MPI abort, geometry, …) and how to read the remediation hints.
+
 ---
 
 ## Scenarios at a Glance

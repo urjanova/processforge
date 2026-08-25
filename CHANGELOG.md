@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.17] - 2026-08-25
+
+### Added
+- **Provider run-error classification** (`processforge.providers.errors`): run-time failures raised inside a provider/engine (OpenMC, FESTIM, …) are now caught and classified into a typed `ProviderRunError` (`source="provider"`) with a category (e.g. `nuclear_data`, `cross_sections`, `mpi_abort`, `geometry`, `tally`, `convergence`) plus a concrete remediation hint. The `EngineOutput` returned on failure now carries this via an `error` field (and `diagnostics.error_category`).
+- **Docs**: `docs/provider-errors.md` documenting the provider run-error taxonomy and remediation hints.
+
+### Changed
+- OpenMC and FESTIM providers return the structured `ProviderRunError` instead of a bare `diagnostics["error"]` string when a run fails in the container.
+- `pf run` now detects any `SolverUnit` whose run returned `status="failed"` and exits non-zero with the categorized error and hint, instead of silently saving a successful manifest.
+
 ## [0.3.16] - 2026-08-24
 
 ### Changed

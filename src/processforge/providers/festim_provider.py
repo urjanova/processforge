@@ -67,6 +67,7 @@ from processforge.types import (
     OutputField,
     OutputProvenance,
 )
+from processforge.providers.errors import classify_run_error, make_failed_output
 from processforge.units import Quantity
 
 if TYPE_CHECKING:
@@ -771,15 +772,8 @@ class FestimProvider(AbstractProvider):
             logger.exception(
                 f"FestimProvider: '{sim_type}' failed in '{run_dir}': {exc}"
             )
-            return EngineOutput(
-                status="failed",
-                engine="festim",
-                sim_type=sim_type,
-                diagnostics={
-                    "run_dir": str(run_dir.resolve()),
-                    "error": str(exc),
-                },
-            )
+            err = classify_run_error("festim", exc)
+            return make_failed_output("festim", sim_type, run_dir, err)
         finally:
             os.chdir(prev_cwd)
 

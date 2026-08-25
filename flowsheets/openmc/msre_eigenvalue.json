@@ -26,7 +26,7 @@
       "id": 2,
       "density": 9.0,
       "density_units": "g/cm3",
-      "temperature": 400.0,
+      "temperature": 300.0,
       "elements": [
         { "element": "Ni", "percent": 0.72, "percent_type": "wo" },
         { "element": "Mo", "percent": 0.16, "percent_type": "wo" },
