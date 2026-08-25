@@ -27,6 +27,20 @@ def _persist_run(archive, fs, results, run_info, config, base_name, snapshot_id)
     manifest.snapshot_id = snapshot_id
     stream_results = {k: v for k, v in results.items() if not hasattr(v, "fields")}
     archive.save_run(manifest, stream_results=stream_results)
+
+    # Always persist a Zarr copy of the standardized outputs (fields + artifacts)
+    # inside the archive, mirroring `pf run`.
+    try:
+        from ..result import save_results_zarr
+
+        save_results_zarr(
+            results,
+            os.path.join(archive.path, "results.zarr"),
+            run_info,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to write results.zarr: {type(e).__name__}: {e}")
+
     logger.info(f"Run saved    : {run_id}")
     return run_id
 

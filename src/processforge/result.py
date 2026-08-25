@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 from datetime import datetime, timezone
@@ -27,6 +28,8 @@ def _ensure_array(value):
 
 def _is_dynamic(results):
     for stream in results.values():
+        if not hasattr(stream, "get"):
+            continue
         time_series = stream.get("time")
         if isinstance(time_series, (list, tuple, np.ndarray)):
             return True
@@ -49,6 +52,34 @@ def _store_solver_unit(group, data):
         if isinstance(v, (np.ndarray, np.generic)):
             v = v.item()
         group.attrs[k] = v
+
+
+def _store_engine_output(group, obj):
+    """Persist an ``EngineOutput``/``StreamOutput`` to a Zarr group.
+
+    Stores ``status``/``engine``/``sim_type`` as group attrs, each field as a
+    unit-bearing array, and a nested ``artifacts`` subgroup whose attrs hold the
+    serialized :class:`OutputArtifact` (local path for local runs, S3
+    ``remote_uris`` for remote docker providers).
+    """
+    group.attrs["status"] = getattr(obj, "status", "")
+    group.attrs["engine"] = getattr(obj, "engine", "")
+    group.attrs["sim_type"] = getattr(obj, "sim_type", "")
+
+    for f in getattr(obj, "fields", []):
+        val = _ensure_array(f.quantity.value)
+        arr = group.create_array(f.name, data=val)
+        arr.attrs["unit"] = f.quantity.unit or ""
+        if getattr(f.quantity, "std_dev", None) is not None:
+            arr.attrs["std_dev"] = f.quantity.std_dev
+        if getattr(f, "source", ""):
+            arr.attrs["source"] = f.source
+
+    arts = getattr(obj, "artifacts", [])
+    if arts:
+        ag = group.create_group("artifacts")
+        for art in arts:
+            ag.attrs[art.name] = json.dumps(art.model_dump())
 
 
 def _normalize_run_info(run_info: RunInfo | dict) -> dict:
@@ -212,8 +243,11 @@ def save_results_zarr(results, fname="results.zarr", run_info: RunInfo | dict | 
 
     streams = {}
     solver_units = {}
+    engine_outputs = {}
     for name, data in results.items():
-        if isinstance(data, dict) and "status" in data:
+        if hasattr(data, "fields"):
+            engine_outputs[name] = data
+        elif isinstance(data, dict) and "status" in data:
             solver_units[name] = data
         else:
             streams[name] = data
@@ -225,6 +259,10 @@ def save_results_zarr(results, fname="results.zarr", run_info: RunInfo | dict | 
     for name, data in solver_units.items():
         group = root.create_group(name)
         _store_solver_unit(group, data)
+
+    for name, data in engine_outputs.items():
+        group = root.create_group(name)
+        _store_engine_output(group, data)
 
     if run_info is not None:
         _store_run_info(root, run_info)
@@ -270,8 +308,11 @@ def save_results_zarr_s3(results, s3_uri: str, run_info: RunInfo | dict | None =
 
     streams = {}
     solver_units = {}
+    engine_outputs = {}
     for name, data in results.items():
-        if isinstance(data, dict) and "status" in data:
+        if hasattr(data, "fields"):
+            engine_outputs[name] = data
+        elif isinstance(data, dict) and "status" in data:
             solver_units[name] = data
         else:
             streams[name] = data
@@ -283,6 +324,10 @@ def save_results_zarr_s3(results, s3_uri: str, run_info: RunInfo | dict | None =
     for name, data in solver_units.items():
         group = root.create_group(name)
         _store_solver_unit(group, data)
+
+    for name, data in engine_outputs.items():
+        group = root.create_group(name)
+        _store_engine_output(group, data)
 
     if run_info is not None:
         _store_run_info(root, run_info)

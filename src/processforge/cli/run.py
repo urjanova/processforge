@@ -134,6 +134,21 @@ def run(
     }
     archive.save_run(manifest, stream_results=stream_results)
 
+    # Always persist a Zarr copy of the standardized outputs (fields + artifacts)
+    # inside the archive. Works for every provider (OpenMC, CoolProp, FESTIM,
+    # Cantera) and for both local and remote docker runs — remote artifacts
+    # reference their S3 remote_uris.
+    try:
+        from ..result import save_results_zarr
+
+        save_results_zarr(
+            results,
+            os.path.join(archive.path, "results.zarr"),
+            run_info,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to write results.zarr: {type(e).__name__}: {e}")
+
     logger.info(f"Backend      : {display_backend(config, getattr(fs, 'backend', 'dynamic'))}")
     logger.info(f"Run saved    : {os.path.join(archive_path, 'runs', run_id + '.json')}")
 
