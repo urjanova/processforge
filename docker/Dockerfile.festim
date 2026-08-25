@@ -12,6 +12,10 @@ RUN micromamba install -y -n base -c conda-forge 'python>=3.12' 'festim=2.0' fen
 WORKDIR /app
 RUN micromamba run -n base pip install "processforge[api]"
 
+COPY festim_entrypoint.sh .
+USER root
+RUN chmod +x /app/festim_entrypoint.sh
+
 ENV PROVIDER_TYPE=festim
 # Run artifacts are simulation-specific and ephemeral; write them to a
 # world-writable container-local dir rather than the /data volume.
@@ -20,4 +24,5 @@ ENV PORT=9002
 VOLUME /data
 
 EXPOSE 9002
+ENTRYPOINT ["/app/festim_entrypoint.sh"]
 CMD ["micromamba", "run", "-n", "base", "python", "-m", "processforge.api.serve"]

@@ -47,4 +47,26 @@ if [ -f "$XS_FILE" ]; then
     export OPENMC_CROSS_SECTIONS="$XS_FILE"
 fi
 
+# ---------------------------------------------------------------------------
+# Drop privileges for the long-running server/command
+# ---------------------------------------------------------------------------
+# The data-prep work above (mkdir /data, curl, tar) needs write access to the
+# mounted /data volume, which is owned by root on Railway. We therefore run the
+# entrypoint as root. The server itself only needs to *read* the cross sections
+# and writes its artifacts to PROCESSFORGE_OUTPUT_DIR (/tmp/processforge), so we
+# drop back to the unprivileged MAMBA_USER before exec'ing the command.
+if [ "$(id -u)" = "0" ] && [ -n "${MAMBA_USER:-}" ]; then
+    # Make the mounted volume writable by the runtime user. The server only
+    # needs to *read* cross sections, but chowning the root lets it also write
+    # outputs there if PROCESSFORGE_OUTPUT_DIR is pointed at /data.
+    if [ -d "$DATA_ROOT" ]; then
+        chown "$MAMBA_USER" "$DATA_ROOT" 2>/dev/null || true
+    fi
+    if command -v runuser >/dev/null 2>&1; then
+        exec runuser -u "$MAMBA_USER" -- "$@"
+    elif command -v su >/dev/null 2>&1; then
+        exec su -s /bin/bash "$MAMBA_USER" -c 'exec "$@"' bash "$@"
+    fi
+fi
+
 exec "$@"
