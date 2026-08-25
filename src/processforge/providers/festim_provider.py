@@ -788,6 +788,7 @@ class FestimProvider(AbstractProvider):
             artifacts=artifacts,
             diagnostics=diagnostics,
             provenance=OutputProvenance(),
+            run_dir=str(run_dir),
         )
 
     def _resolve_run_dir(self) -> pathlib.Path:

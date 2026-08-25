@@ -10,14 +10,13 @@ as a thin HTTP wrapper around that server.
 Request/response contract (matches ``processforge.api.serve``)
 ----------------------------------------------------------------
 * ``POST /run`` with a JSON body
-  ``{"unit_config", "materials", "inlet", "output_dir", "provider_config"}``.
+  ``{"unit_config", "materials", "inlet", "provider_config"}``.
 * JSON response ``{"status", "sim_type", <scalars…>, "metadata"}`` deserialised
   into a :class:`~processforge.types.SimulationResult`.
 """
 from __future__ import annotations
 
 import json
-import os
 import urllib.error
 import urllib.request
 from typing import TYPE_CHECKING, Optional
@@ -54,7 +53,6 @@ class ContainerProviderClient(AbstractProvider):
     def __init__(self, provider_type: str):
         self._ptype = provider_type
         self._url: Optional[str] = None
-        self._provider_output_dir: str = "outputs"
         self._provider_config: Optional["ProviderConfig"] = None
         self._materials: dict = {}
         self._initialized: bool = False
@@ -123,14 +121,6 @@ class ContainerProviderClient(AbstractProvider):
         """Store config, resolve URL, verify the Docker service is reachable."""
         self._url = self._resolve_url(provider_config)
 
-        out_dir = os.path.expandvars(
-            getattr(provider_config, "output_dir", "outputs") or "outputs"
-        )
-        if not os.path.isabs(out_dir):
-            root = os.environ.get("PROCESSFORGE_OUTPUT_DIR", "outputs")
-            out_dir = os.path.join(root, out_dir)
-        self._provider_output_dir = out_dir
-
         # Material registry — serialised into /run and used by validate_material().
         self._materials = dict(flowsheet_config.materials)
         self._provider_config = provider_config
@@ -191,7 +181,6 @@ class ContainerProviderClient(AbstractProvider):
             "unit_config": self._serialize_unit_config(unit_config),
             "materials": self._serialize_materials(self._materials),
             "inlet": inlet,
-            "output_dir": self._provider_output_dir,
             "provider_config": provider_config_dump,
             "run_id": run_id,
             "flowsheet_hash": flowsheet_hash,

@@ -832,6 +832,7 @@ class OpenMCProvider(AbstractProvider):
                 fields=fields,
                 artifacts=artifacts,
                 diagnostics=diagnostics,
+                run_dir=str(run_dir),
             )
 
         return EngineOutput(
@@ -842,6 +843,7 @@ class OpenMCProvider(AbstractProvider):
             artifacts=artifacts,
             diagnostics=diagnostics,
             provenance=OutputProvenance(),
+            run_dir=str(run_dir),
         )
 
     def _resolve_run_dir(self) -> pathlib.Path:

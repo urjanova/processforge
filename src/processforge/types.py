@@ -477,6 +477,10 @@ class EngineOutput(BaseModel):
     # status == "failed"). source is always "provider" so a runtime engine error
     # is distinguishable from a flowsheet/setup validation error.
     error: Optional["ProviderRunError"] = None
+    # Local directory the run was executed in (provider scratch). Surfaced so
+    # the container server can sweep it for artifacts to upload to object
+    # storage, and so forensics can trace where outputs were produced.
+    run_dir: str = ""
 
     # -- convenience accessors -------------------------------------------
     def get_field(self, name: str) -> Optional[OutputField]:

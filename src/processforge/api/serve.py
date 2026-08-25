@@ -99,7 +99,31 @@ def run(body: dict):
         provider.teardown()
 
 
+def _log_startup() -> None:
+    """Report where runs are kept and the S3 upload status at server start."""
+    root = os.environ.get("PROCESSFORGE_OUTPUT_DIR", "outputs")
+    logger.info(
+        f"Provider run outputs (scratch) are kept locally in: {root} "
+        f"(per-provider subdirs: outputs/openmc, outputs/festim)."
+    )
+    if os.environ.get("S3_BUCKET"):
+        bucket = os.environ["S3_BUCKET"]
+        logger.info(f"Remote artifact upload enabled → S3 bucket '{bucket}'.")
+        from processforge.utils.s3_upload import validate_s3
+
+        validate_s3()  # fail fast on misconfigured credentials
+    else:
+        logger.warning(
+            "S3_BUCKET not set — remote upload disabled; runs are ephemeral "
+            "on this container."
+        )
+
+
+_log_startup()
+
+
 if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=DEFAULT_PORT)
+

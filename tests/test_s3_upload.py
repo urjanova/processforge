@@ -38,3 +38,27 @@ def test_s3_storage_options_includes_credentials(clean_env):
     assert opts["key"] == "ak"
     assert opts["secret"] == "sk"
     assert opts["client_kwargs"]["endpoint_url"] == "https://s3.example.com"
+
+
+def test_validate_s3_no_bucket_is_noop(clean_env):
+    # With S3_BUCKET unset, validate_s3 must not raise (uploads disabled).
+    assert s3_upload.validate_s3() is None
+
+
+def test_validate_s3_unreachable_raises(clean_env, monkeypatch):
+    import sys
+    import types
+
+    clean_env.setenv("S3_BUCKET", "my-bucket")
+
+    class FakeFS:
+        def ls(self, bucket):  # noqa: ANN001, D401
+            raise ConnectionError("cannot reach bucket")
+
+    fake_s3fs = types.ModuleType("s3fs")
+    fake_s3fs.S3FileSystem = lambda **kwargs: FakeFS()  # noqa: ARG005
+    monkeypatch.setitem(sys.modules, "s3fs", fake_s3fs)
+
+    with pytest.raises(RuntimeError, match="unreachable"):
+        s3_upload.validate_s3()
+

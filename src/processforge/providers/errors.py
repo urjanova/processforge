@@ -236,6 +236,7 @@ def make_failed_output(
         sim_type=sim_type,
         unit=unit,
         error=err,
+        run_dir=str(getattr(run_dir, "resolve", lambda: run_dir)()),
         diagnostics={
             "run_dir": str(getattr(run_dir, "resolve", lambda: run_dir)()),
             "error": err.detail,

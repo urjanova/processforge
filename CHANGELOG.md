@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.19] - 2026-08-25
+
+### Changed
+- **Container output_dir ownership**: the CLI (`ContainerProviderClient`) no longer computes or sends `output_dir`; the container server resolves its own scratch path once, under `PROCESSFORGE_OUTPUT_DIR` (default `/tmp/processforge` in the Docker images). This removes a client/server `PROCESSFORGE_OUTPUT_DIR` mismatch and the double-nested `outputs/outputs/...` run folder. The container only holds provider scratch (e.g. OpenMC `h5m`/statepoint); `results.zarr` remains CLI-side.
+- **Artifact upload coverage**: `ArtifactStore.persist_outputs` now sweeps each output's `run_dir` and uploads *every* model output file to S3 (not just explicitly-declared artifacts), appending the swept files to `EngineOutput.artifacts` with `remote_uris` filled. `EngineOutput` gains a `run_dir` field for this.
+- **S3 startup check**: the provider server logs where runs are kept at startup and, when `S3_BUCKET` is set, validates credentials/connectivity via `validate_s3()` — failing fast on misconfiguration instead of silently producing outputs with no `remote_uris`. When `S3_BUCKET` is unset it logs a clear warning (uploads disabled, runs ephemeral).
+
+### Added
+- `processforge.utils.s3_upload.validate_s3()` — fail-fast S3 connectivity/credential check for the container server.
+
 ## [0.3.18] - 2026-08-25
 
 ### Added

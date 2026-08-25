@@ -119,13 +119,58 @@ class ArtifactStore:
     # Container-side convenience: persist all artifacts in engine outputs
     # ------------------------------------------------------------------
     def persist_outputs(self, outputs, *, run_id: str = "", flowsheet_hash: str = "", unit: str = ""):
-        """Upload every artifact referenced by *outputs*.
+        """Upload every artifact referenced by *outputs* to object storage.
 
-        Mutates the artifacts in place, filling ``remote_uris``.  ``outputs``
-        may be a single object or an iterable of them.
+        Uploads the explicitly-declared artifacts, then sweeps each output's
+        ``run_dir`` for any remaining files so *all* model outputs (not just the
+        ones a provider happened to declare) reach S3.  Newly swept files are
+        appended to ``out.artifacts`` with ``remote_uris`` filled.  Mutates the
+        artifacts in place.  ``outputs`` may be a single object or an iterable.
         """
+        if not self.bucket:
+            logger.debug(
+                "Remote artifact upload disabled (S3_BUCKET not set); provider "
+                "run outputs remain in the container's local scratch only."
+            )
+            return
+
         items = outputs if isinstance(outputs, (list, tuple)) else [outputs]
+        uploaded = 0
+        local_only = 0
         for out in items:
+            seen_paths: set[str] = set()
             for art in getattr(out, "artifacts", []):
-                if art.local_path and (self.bucket or os.environ.get("S3_BUCKET")):
-                    self.upload(art, run_id=run_id, flowsheet_hash=flowsheet_hash, unit=unit)
+                if not art.local_path:
+                    continue
+                seen_paths.add(os.path.abspath(art.local_path))
+                self.upload(art, run_id=run_id, flowsheet_hash=flowsheet_hash, unit=unit)
+                if art.remote_uris:
+                    uploaded += 1
+                else:
+                    local_only += 1
+
+            run_dir = getattr(out, "run_dir", "") or ""
+            if run_dir and os.path.isdir(run_dir):
+                for root, _dirs, files in os.walk(run_dir):
+                    for name in files:
+                        path = os.path.abspath(os.path.join(root, name))
+                        if path in seen_paths:
+                            continue
+                        seen_paths.add(path)
+                        art = OutputArtifact(
+                            name=name,
+                            kind=_artifact_kind(name),
+                            local_path=path,
+                            source="local",
+                        )
+                        self.upload(art, run_id=run_id, flowsheet_hash=flowsheet_hash, unit=unit)
+                        if art.remote_uris:
+                            out.artifacts.append(art)
+                            uploaded += 1
+                        else:
+                            local_only += 1
+
+        logger.info(
+            f"Artifact persistence: {uploaded} uploaded to S3, {local_only} local-only."
+        )
+

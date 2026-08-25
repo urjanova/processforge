@@ -33,3 +33,34 @@ def s3_storage_options() -> dict:
     if client_kwargs:
         opts["client_kwargs"] = client_kwargs
     return opts
+
+
+def validate_s3() -> None:
+    """Fail fast if S3 upload is requested but storage is unreachable.
+
+    Only acts when ``S3_BUCKET`` is set. Raises ``RuntimeError`` naming any
+    missing credentials/env vars when the bucket cannot be reached, so a
+    misconfigured container deployment surfaces the problem at startup rather
+    than silently producing outputs with no ``remote_uris``.
+    """
+    bucket = os.environ.get("S3_BUCKET")
+    if not bucket:
+        return
+    try:
+        import s3fs
+
+        fs = s3fs.S3FileSystem(**s3_storage_options())
+        fs.ls(bucket)
+    except Exception as exc:  # noqa: BLE001
+        missing = [
+            v
+            for v in ("S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_ENDPOINT_URL")
+            if not os.environ.get(v)
+        ]
+        hint = f" Missing env vars: {missing}." if missing else ""
+        raise RuntimeError(
+            f"S3 upload requested (S3_BUCKET='{bucket}') but storage is "
+            f"unreachable: {exc}.{hint} Set S3_BUCKET + credentials, or unset "
+            f"S3_BUCKET to disable remote upload."
+        ) from exc
+
