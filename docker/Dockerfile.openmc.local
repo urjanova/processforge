@@ -1,0 +1,44 @@
+# Local dev image: installs processforge from the local working tree
+# (build context must be the repo root) so un-published source changes —
+# e.g. the eigenvalue_reactor / reactor_core strategy — are picked up without
+# a PyPI release. NOT for production use.
+#
+#   docker build -f docker/Dockerfile.openmc.local -t processforge-openmc:local .
+#   docker run -p 9001:9001 -v "$PWD/outputs:/data" processforge-openmc:local
+
+FROM mambaorg/micromamba:1.5.8
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl && \
+    rm -rf /var/lib/apt/lists/*
+USER $MAMBA_USER
+
+# OpenMC is only available on conda-forge. Pin the version so image rebuilds
+# are reproducible and the provider targets a known API surface.
+RUN micromamba install -y -n base -c conda-forge openmc=0.15.3 && \
+    micromamba clean --all --yes
+
+WORKDIR /src
+COPY . /src
+USER root
+RUN chown -R "$MAMBA_USER" /src
+USER $MAMBA_USER
+RUN micromamba run -n base pip install -e ".[api]"
+
+COPY docker/fetch_openmc_data.sh /app/fetch_openmc_data.sh
+USER root
+RUN chmod +x /app/fetch_openmc_data.sh
+USER $MAMBA_USER
+
+ENV PROVIDER_TYPE=openmc
+ENV OPENMC_DATA_ROOT=/data
+# Run artifacts are simulation-specific and ephemeral; write them to a
+# world-writable container-local dir rather than the (read-only to the
+# container user) /data cross-section mount or root-owned /app.
+ENV PROCESSFORGE_OUTPUT_DIR=/tmp/processforge
+ENV PORT=9001
+VOLUME /data
+
+EXPOSE 9001
+ENTRYPOINT ["/app/fetch_openmc_data.sh"]
+CMD ["micromamba", "run", "-n", "base", "python", "-m", "processforge.api.serve"]

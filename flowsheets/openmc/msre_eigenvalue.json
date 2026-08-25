@@ -91,6 +91,7 @@
         "reflector_thickness": 50.0,
         "vessel_thickness": 5.0,
         "gap_thickness": 3.0,
+        "structure_thickness": 10.0,
         "core_material": "salt",
         "reflector_material": "graphite",
         "vessel_material": "inconel",
