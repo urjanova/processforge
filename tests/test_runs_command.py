@@ -96,8 +96,9 @@ def test_pf_runs_lists_runs_with_disk_status(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert rid_a in result.output
     assert rid_b in result.output
-    assert "✓" in result.output and "✗" in result.output
     assert "*" in result.output  # latest marker on run B
+    assert "LATEST" in result.output
+    assert "RUN ID" in result.output
 
 
 def test_pf_runs_shows_manifest_and_artifacts(tmp_path, monkeypatch):

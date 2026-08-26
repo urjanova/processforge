@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 
+import arrow
 import typer
 from loguru import logger
 
@@ -12,20 +13,16 @@ from .common import flowsheet_basename, output_root
 from ..persistence.archive import ProcessStateArchive
 
 
-def _summary_for(manifest) -> str:
-    """One-line summary of a run's primary unit fields (e.g. keff)."""
-    parts = []
-    for unit_name, out in manifest.units.items():
-        for f in out.fields:
-            val = f.quantity.value
-            unit = f.quantity.unit or ""
-            parts.append(f"{unit_name}.{f.name}={val}{(' ' + unit) if unit else ''}")
-    return "  ".join(parts) if parts else "-"
+def _humanize_timestamp(ts: str) -> str:
+    """Render a stored timestamp as a human-readable relative string.
 
-
-def _zarr_status(archive_path: str, run_id: str) -> str:
-    zarr_path = os.path.join(archive_path, "results", run_id, "results.zarr")
-    return "✓" if os.path.exists(zarr_path) else "✗"
+    Falls back to the raw string for values that aren't parseable ISO-8601
+    (e.g. ``20260101T000000Z`` used in some test fixtures).
+    """
+    try:
+        return arrow.get(ts).humanize()
+    except (arrow.parser.ParserError, ValueError, TypeError):
+        return ts
 
 
 def runs(
@@ -73,10 +70,7 @@ def runs(
         typer.echo(f"No runs found for '{flowsheet}'.")
         return
 
-    header = (
-        f"{'RUN ID':<28} {'TIMESTAMP':<22} {'MODE':<8} "
-        f"{'ZARR':<5} {'LATEST':<6} SUMMARY"
-    )
+    header = f"{'RUN ID':<28} {'TIMESTAMP':<22} LATEST"
     typer.echo(header)
     typer.echo("-" * len(header))
     for rid in run_ids:
@@ -85,12 +79,10 @@ def runs(
             continue
         marker = "*" if rid == latest_id else " "
         typer.echo(
-            f"{rid:<28} {manifest.timestamp:<22} {manifest.mode:<8} "
-            f"{_zarr_status(archive_path, rid):<5} {marker:<6} "
-            f"{_summary_for(manifest)}"
+            f"{rid:<28} {_humanize_timestamp(manifest.timestamp):<22} {marker}"
         )
     typer.echo("")
     typer.echo(
-        "Zarr: ✓ present on disk, ✗ deleted/missing. '*' marks the latest run. "
+        "'*' marks the latest run. "
         "'pf runs <flowsheet> <run_id>' prints the full manifest."
     )
