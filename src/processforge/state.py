@@ -226,46 +226,80 @@ class StateManager:
     # Drift & structural diff
     # ------------------------------------------------------------------
 
+    # Keys treated as structural (handled by detect_structural_diff / cold
+    # start) rather than as drifted solve parameters.
+    _STRUCTURAL_UNIT_KEYS = {"type", "in", "out", "out_vap", "out_liq", "provider"}
+
+    # Top-level sections that never affect the solve and must be ignored when
+    # computing drift (cosmetic metadata, and the runtime-injected source path
+    # which is only present on the live config).
+    _DRIFT_SKIP_TOP_LEVEL = {"metadata", "_config_path"}
+
     def detect_drift(self, current_config: dict, state: SnapshotState | dict) -> list[str]:
         """Return parameter paths that differ between ``current_config`` and saved state.
 
+        Recursively diffs the entire config so any solve-affecting change is
+        detected — streams, units (incl. nested ``solver_config`` /
+        ``geometry_config`` / ``parameters``), materials, material mixes,
+        providers and simulation settings. Structural unit keys (``type``,
+        ``in``, ``out``, ``provider``, …) and the cosmetic ``metadata`` /
+        ``_config_path`` sections are excluded so topology changes remain the
+        job of :meth:`detect_structural_diff` / cold start.
+
         Paths look like ``"streams.feed.T"``, ``"units.pump_1.delta_p"``,
-        or ``"units.pump_1.parameters.X"``.
+        ``"units.openmc_solver.solver_config.batches"`` or
+        ``"materials.salt.density"``.
         """
         old_config = state.config if isinstance(state, SnapshotState) else state["config"]
         drifted: list[str] = []
 
-        for s_name, s_data in current_config.get("streams", {}).items():
-            old_s = old_config.get("streams", {}).get(s_name, {})
-            for param in ("T", "P", "flowrate"):
-                if s_data.get(param) != old_s.get(param):
-                    drifted.append(f"streams.{s_name}.{param}")
+        for section in set(old_config) | set(current_config):
+            if section in self._DRIFT_SKIP_TOP_LEVEL:
+                continue
+            old_section = old_config.get(section)
+            new_section = current_config.get(section)
 
-            cur_z = s_data.get("z", {})
-            old_z = old_s.get("z", {})
-            for comp in cur_z:
-                if cur_z.get(comp) != old_z.get(comp):
-                    drifted.append(f"streams.{s_name}.z.{comp}")
-
-        _SKIP_KEYS = {"type", "in", "out", "out_vap", "out_liq", "provider", "parameters"}
-
-        for u_name, u_cfg in current_config.get("units", {}).items():
-            old_u = old_config.get("units", {}).get(u_name, {})
-
-            # Top-level scalar keys (mirrors detect_structural_diff comparison)
-            all_keys = set(u_cfg) | set(old_u)
-            for k in all_keys - _SKIP_KEYS:
-                if u_cfg.get(k) != old_u.get(k):
-                    drifted.append(f"units.{u_name}.{k}")
-
-            # Nested "parameters" dict
-            cur_params = u_cfg.get("parameters", {})
-            old_params = old_u.get("parameters", {})
-            for pk in set(cur_params) | set(old_params):
-                if cur_params.get(pk) != old_params.get(pk):
-                    drifted.append(f"units.{u_name}.parameters.{pk}")
+            if section == "units":
+                # Diff each unit subtree, skipping structural keys.
+                old_units = old_section or {}
+                new_units = new_section or {}
+                for u_name in set(old_units) | set(new_units):
+                    drifted.extend(
+                        self._recursive_diff(
+                            old_units.get(u_name, {}),
+                            new_units.get(u_name, {}),
+                            prefix=f"units.{u_name}.",
+                            skip=self._STRUCTURAL_UNIT_KEYS,
+                        )
+                    )
+            else:
+                drifted.extend(
+                    self._recursive_diff(old_section, new_section, prefix=f"{section}.", skip=set())
+                )
 
         return drifted
+
+    @staticmethod
+    def _recursive_diff(old: object, new: object, prefix: str, skip: set[str]) -> list[str]:
+        """Recursively collect changed leaf paths between two (sub)configs."""
+        changes: list[str] = []
+
+        if isinstance(old, dict) and isinstance(new, dict):
+            for k in (set(old) | set(new)) - skip:
+                changes.extend(
+                    StateManager._recursive_diff(old.get(k), new.get(k), f"{prefix}{k}.", skip)
+                )
+            return changes
+
+        if isinstance(old, list) and isinstance(new, list):
+            if old != new:
+                changes.append(prefix.rstrip("."))
+            return changes
+
+        # Leaf / type-mismatch comparison.
+        if old != new:
+            changes.append(prefix.rstrip("."))
+        return changes
 
     def detect_structural_diff(self, current_config: dict, state: SnapshotState | dict) -> dict:
         """Compare unit topology between ``current_config`` and saved state.

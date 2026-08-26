@@ -122,3 +122,26 @@ def print_structural_diff(diff: dict) -> None:
         logger.info(f"  - {name:<20} [{unit_type}]  (removed)")
     if not any(diff.get(k) for k in ("added", "modified", "removed")):
         logger.info("  (no structural changes)")
+
+
+def _resolve_path(cfg: dict, path: str) -> object:
+    """Resolve a dotted config path (e.g. ``simulation.tf``) to its value."""
+    cur: object = cfg
+    for part in path.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return "<missing>"
+    return cur
+
+
+def print_param_drift(drifted: list[str], old_config: dict, new_config: dict) -> None:
+    """Log parameter drift paths with their old → new values."""
+    logger.info("=== Parameter Drift vs. Saved State ===")
+    if not drifted:
+        logger.info("  (no parameter changes)")
+        return
+    for path in drifted:
+        old_val = _resolve_path(old_config, path)
+        new_val = _resolve_path(new_config, path)
+        logger.info(f"  ~ {path}: {old_val!r} → {new_val!r}")

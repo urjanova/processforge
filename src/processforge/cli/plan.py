@@ -20,6 +20,7 @@ from .common import (
 )
 from .display import (
     print_dof_report,
+    print_param_drift,
     print_provider_health,
     print_structural_diff,
     print_unit_mismatches,
@@ -103,6 +104,10 @@ def plan(
         validate_snapshot_config(state, base_name)
         diff = sm.detect_structural_diff(config, state)
         print_structural_diff(diff)
+        # Step 6c: Parameter drift (non-structural value changes)
+        old_config = state.config if hasattr(state, "config") else state.get("config", {})
+        drifted = sm.detect_drift(config, state)
+        print_param_drift(drifted, old_config, config)
     else:
         logger.info("=== Structural Diff vs. Saved State ===")
         logger.info("  No prior state found — this will be a cold start.")

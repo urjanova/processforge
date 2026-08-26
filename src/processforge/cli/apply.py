@@ -63,7 +63,7 @@ from .common import (
     write_divergence_report,
 )
 
-from .display import print_structural_diff
+from .display import print_param_drift, print_structural_diff
 
 
 def apply(
@@ -131,13 +131,9 @@ def apply(
         if not drifted:
             logger.info("No drift detected. System is already at the desired state.")
             return
-        stream_drifts = [d for d in drifted if d.startswith("streams.")]
-        unit_drifts = [d for d in drifted if d.startswith("units.")]
         logger.warning("Drift detected:")
-        if stream_drifts:
-            logger.warning(f"  Stream drift : {stream_drifts}")
-        if unit_drifts:
-            logger.warning(f"  Unit drift   : {unit_drifts}")
+        old_config = state.config if hasattr(state, "config") else state.get("config", {})
+        print_param_drift(drifted, old_config, config)
 
     # Build flowsheet; attach saved state for warm-start unless topology changed
     fs = EOFlowsheet(config, backend=backend)

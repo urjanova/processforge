@@ -123,3 +123,98 @@ def test_detect_drift_dict_state():
     new = {"streams": {}, "units": {"pump_1": {"type": "Pump", "delta_p": 200000.0}}}
     drifted = sm.detect_drift(new, old)
     assert drifted == ["units.pump_1.delta_p"]
+
+
+# --- detect_drift: other solve-affecting sections ---
+
+
+def test_detect_drift_simulation_tf():
+    """Changes to the simulation section (e.g. tf) must be detected."""
+    sm = StateManager("/tmp/_test_state.pfstate")
+    old = {"streams": {}, "units": {}, "simulation": {"mode": "steady", "t0": 0.0, "tf": 25.0, "dt": 1.0}}
+    new = {"streams": {}, "units": {}, "simulation": {"mode": "steady", "t0": 0.0, "tf": 30.0, "dt": 1.0}}
+    drifted = sm.detect_drift(new, _make_state(old))
+    assert drifted == ["simulation.tf"]
+
+
+def test_detect_drift_materials():
+    """Changes to materials (density, nested extra dicts) must be detected."""
+    sm = StateManager("/tmp/_test_state.pfstate")
+    old = {
+        "streams": {},
+        "units": {},
+        "materials": {
+            "salt": {"id": 3, "density": 2.2, "temperature": 300.0},
+            "tungsten": {"id": 1, "extra": {"D_0": 4.1e-7, "E_D": 0.39}},
+        },
+    }
+    new = {
+        "streams": {},
+        "units": {},
+        "materials": {
+            "salt": {"id": 3, "density": 2.5, "temperature": 300.0},
+            "tungsten": {"id": 1, "extra": {"D_0": 5.0e-7, "E_D": 0.39}},
+        },
+    }
+    drifted = sm.detect_drift(new, _make_state(old))
+    assert set(drifted) == {"materials.salt.density", "materials.tungsten.extra.D_0"}
+
+
+def test_detect_drift_nested_unit_config():
+    """Deeply nested unit solver_config must be detected (OpenMC/FESTIM style)."""
+    sm = StateManager("/tmp/_test_state.pfstate")
+    old = {
+        "streams": {},
+        "units": {
+            "openmc_solver": {
+                "type": "SolverUnit",
+                "provider": "openmc",
+                "solver_config": {"batches": 20, "particles": 20000},
+                "geometry_config": {"core_radius": 72.5},
+            },
+            "tds_solver": {
+                "type": "SolverUnit",
+                "provider": "festim",
+                "solver_config": {"final_time": 500, "mesh": [{"start": 0.0}]},
+            },
+        },
+    }
+    new = {
+        "streams": {},
+        "units": {
+            "openmc_solver": {
+                "type": "SolverUnit",
+                "provider": "openmc",
+                "solver_config": {"batches": 40, "particles": 20000},
+                "geometry_config": {"core_radius": 80.0},
+            },
+            "tds_solver": {
+                "type": "SolverUnit",
+                "provider": "festim",
+                "solver_config": {"final_time": 600, "mesh": [{"start": 0.0}]},
+            },
+        },
+    }
+    drifted = sm.detect_drift(new, _make_state(old))
+    assert set(drifted) == {
+        "units.openmc_solver.solver_config.batches",
+        "units.openmc_solver.geometry_config.core_radius",
+        "units.tds_solver.solver_config.final_time",
+    }
+
+
+def test_detect_drift_skips_metadata():
+    """Cosmetic metadata changes must NOT trigger drift."""
+    sm = StateManager("/tmp/_test_state.pfstate")
+    old = {
+        "streams": {},
+        "units": {"pump_1": {"type": "Pump", "delta_p": 100000.0}},
+        "metadata": {"name": "Old", "version": "1.0"},
+    }
+    new = {
+        "streams": {},
+        "units": {"pump_1": {"type": "Pump", "delta_p": 100000.0}},
+        "metadata": {"name": "New Name", "version": "2.0"},
+    }
+    drifted = sm.detect_drift(new, _make_state(old))
+    assert drifted == []

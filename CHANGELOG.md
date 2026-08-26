@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.23] - 2026-08-26
+
+### Fixed
+- **`pf apply` drift detection**: `detect_drift` now recursively compares the entire flowsheet config (`simulation`, `materials`, `material_mixes`, `providers`, and nested `units.*.solver_config`/`geometry_config`), not just a whitelist of stream/unit scalar keys. Editing e.g. `simulation.tf`, OpenMC `solver_config`/`materials.*`, or FESTIM `solver_config` now correctly triggers a re-solve instead of falsely reporting "No drift detected". Cosmetic `metadata` and the runtime `_config_path` are excluded; structural unit keys (`type`/`in`/`out`/`provider`) remain cold-start concerns.
+- **`pf plan` now shows parameter drift**: in addition to the structural (topology) diff, `plan` reports non-structural value changes vs. the saved state with old → new values (e.g. `~ simulation.tf: 25.0 → 40.0`), and `apply` logs drift the same way.
+
 ## [0.3.22] - 2026-08-26
 
 ### Added
