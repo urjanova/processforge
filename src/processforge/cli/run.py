@@ -19,6 +19,7 @@ from .common import (
     output_root,
     require_existing_file,
     validate_runtime_flowsheet,
+    _resolve_provider_url,
 )
 
 
@@ -38,6 +39,39 @@ def _run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + os.urandom(3).hex()
 
 
+def _log_active_providers(config: dict) -> None:
+    """Log a one-line summary of the provider(s) a run will dispatch to.
+
+    Highlights containerized providers (which do their real work inside a Docker
+    container and can take a while) so the user sees what is running instead of
+    a silent wait. Pip-installable providers are mentioned for completeness.
+    """
+    from ..providers.registry import is_containerized
+
+    providers = config.get("providers", {})
+    if not providers:
+        return
+
+    containers = []
+    pips = []
+    for name, cfg in providers.items():
+        ptype = cfg.get("type", "")
+        if is_containerized(ptype):
+            url = _resolve_provider_url(cfg, ptype)
+            containers.append(f"{name} [{ptype}] @ {url}")
+        else:
+            pips.append(f"{name} [{ptype}]")
+
+    if containers:
+        logger.info("=== Active providers (containerized) ===")
+        for entry in containers:
+            logger.info(f"  → {entry}")
+    if pips:
+        logger.info("=== Active providers (local) ===")
+        for entry in pips:
+            logger.info(f"  → {entry}")
+
+
 def run(
     flowsheet: str = typer.Argument(help="Path to the flowsheet JSON file"),
     export_images: bool = typer.Option(
@@ -52,6 +86,10 @@ def run(
 
     # Check provider availability (assumes any containers are already running)
     check_providers(config, flowsheet)
+
+    # Surface which containerized provider(s) this run will dispatch to, so the
+    # command line isn't silent while the container does the heavy compute.
+    _log_active_providers(config)
 
     base_name = flowsheet_basename(flowsheet)
     outputs_dir = output_root()

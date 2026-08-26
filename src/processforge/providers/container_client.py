@@ -199,6 +199,10 @@ class ContainerProviderClient(AbstractProvider):
             f"ContainerProviderClient: POST {self._url}/run "
             f"sim_type='{unit_config.sim_type}' run_id='{run_id}'"
         )
+        logger.info(
+            f"Waiting for '{self._ptype}' container at {self._url} to finish "
+            f"simulation — this may take a while…"
+        )
 
         payload = json.dumps(body).encode()
         req = urllib.request.Request(

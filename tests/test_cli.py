@@ -487,6 +487,59 @@ class TestCmdPlan:
         assert any("[ERR] openmc" in m and "unreachable" in m for m in log_output)
 
 
+class TestCheckProviders:
+    """Health-check + retry/poll behavior used by ``pf run``/``pf apply``."""
+
+    def _config(self, **providers):
+        return {"providers": providers}
+
+    def test_container_health_ok_logs_ok(self, log_output):
+        import processforge.cli.common as common_mod
+        from processforge.cli.common import check_providers
+
+        health = {"status": "ready", "provider_type": "openmc"}
+        with patch.object(
+            common_mod, "_ping_provider_health", return_value=(True, health)
+        ), patch.object(common_mod, "_resolve_provider_url", return_value="http://localhost:9001"):
+            check_providers(self._config(openmc={"type": "openmc"}), "fs.json")
+
+        assert any("=== Provider / Container Health ===" in m for m in log_output)
+        assert any("[OK] openmc" in m and "status=ready" in m for m in log_output)
+        assert not any("Waiting for" in m for m in log_output)
+
+    def test_container_health_retries_then_fails(self, log_output):
+        import processforge.cli.common as common_mod
+        from processforge.cli.common import check_providers
+
+        with patch.object(
+            common_mod, "_ping_provider_health", return_value=(False, "Connection refused")
+        ), patch.object(common_mod, "_resolve_provider_url", return_value="http://localhost:9001"), \
+                patch.object(common_mod, "HEALTH_MAX_ATTEMPTS", 3), \
+                patch.object(common_mod, "HEALTH_RETRY_DELAY", 0), \
+                patch("time.sleep", lambda *_: None), \
+                pytest.raises(SystemExit) as exc_info:
+            check_providers(self._config(openmc={"type": "openmc"}), "fs.json")
+
+        assert exc_info.value.code == 1
+        # Two "Waiting for …" poll messages (attempts 1 and 2 of 3) before failure.
+        wait_msgs = [m for m in log_output if "Waiting for" in m and "openmc" in m]
+        assert len(wait_msgs) == 2
+        assert any("[ERR] openmc" in m and "unreachable after 3" in m for m in log_output)
+
+    def test_pip_provider_logs_ok(self, log_output):
+        import processforge.providers.registry as registry_mod
+        from processforge.cli.common import check_providers
+
+        with patch.object(
+            registry_mod, "_PROVIDER_CATALOG",
+            {"coolprop": {"module": "processforge.providers.coolprop_provider",
+                          "optional_dep": None}},
+        ):
+            check_providers(self._config(coolprop={"type": "coolprop"}), "fs.json")
+
+        assert any("[OK] coolprop" in m and "(pip — importable)" in m for m in log_output)
+
+
 class TestCmdApply:
     def _containerized_config(self, flowsheet_path):
         return {

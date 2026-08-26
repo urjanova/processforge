@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.22] - 2026-08-26
+
+### Added
+- `pf run`/`pf apply` now show a visible Docker provider health check (with a retry/poll while a container is still booting) and a pre-run banner listing the active containerized providers, plus a "waiting for container to finish simulation" message during the long container compute — so the command line isn't silent while waiting on containers.
+
 ## [0.3.21] - 2026-08-25
 
 ### Changed

@@ -145,6 +145,13 @@ def load_state_manager(outputs_dir: str, base_name: str) -> tuple[ProcessStateAr
 # Provider checking
 # ---------------------------------------------------------------------------
 
+# Retry/poll settings for containerized provider health checks. A container
+# spun up by ``pf init`` may take a few seconds to become ready; poll rather
+# than failing immediately so ``pf run`` waits for readiness with visible text.
+HEALTH_MAX_ATTEMPTS = 6
+HEALTH_RETRY_DELAY = 5  # seconds between attempts
+
+
 def is_local_provider_url(url: str | None) -> bool:
     """Return True if *url* points at a locally-managed provider.
 
@@ -184,6 +191,85 @@ def _ping_provider_health(url: str, timeout: int = 5) -> tuple[bool, "dict | str
         return False, str(exc)
 
 
+def _check_container_provider(
+    name: str,
+    ptype: str,
+    url: str,
+    flowsheet_path: str,
+    *,
+    fail_fast: bool,
+    errors: list[str],
+) -> None:
+    """Probe a containerized provider's ``/health`` endpoint with a retry/poll.
+
+    Polls up to ``HEALTH_MAX_ATTEMPTS`` times (``HEALTH_RETRY_DELAY`` apart) so a
+    container that is still booting after ``pf init`` gets a chance to become
+    ready before we give up. Logs a visible ``[OK]``/``[ERR]`` line (matching the
+    ``pf plan`` convention) so ``pf run`` never silently waits.
+    """
+    import time
+
+    ok, info = False, "not probed"
+    for attempt in range(1, HEALTH_MAX_ATTEMPTS + 1):
+        ok, info = _ping_provider_health(url, timeout=5)
+        if ok:
+            break
+        if attempt < HEALTH_MAX_ATTEMPTS:
+            logger.info(
+                f"  Waiting for '{name}' container to become healthy at {url}… "
+                f"(attempt {attempt}/{HEALTH_MAX_ATTEMPTS})"
+            )
+            time.sleep(HEALTH_RETRY_DELAY)
+
+    if ok:
+        payload = info if isinstance(info, dict) else {}
+        status = payload.get("status", "?")
+        provider_type = payload.get("provider_type", "?")
+        logger.info(
+            f"  [OK] {name} [{ptype}] {url} — status={status} provider_type={provider_type}"
+        )
+        return
+
+    msg = (
+        f"  [ERR] {name} [{ptype}] {url} — unreachable after "
+        f"{HEALTH_MAX_ATTEMPTS} attempt(s): {info}. "
+        f"Run: pf init {flowsheet_path}"
+    )
+    logger.error(msg)
+    if fail_fast:
+        raise SystemExit(1)
+    errors.append(f"Provider '{name}' unreachable at {url}: {info}")
+
+
+def _check_pip_provider(
+    name: str,
+    ptype: str,
+    flowsheet_path: str,
+    *,
+    fail_fast: bool,
+    errors: list[str],
+) -> None:
+    """Verify a pip-installable provider's module is importable."""
+    from ..providers.registry import _PROVIDER_CATALOG
+
+    catalog = _PROVIDER_CATALOG.get(ptype, {})
+    module = catalog.get("module", "")
+    try:
+        importlib.util.find_spec(module)
+        logger.info(f"  [OK] {name} [{ptype}] (pip — importable)")
+    except (ModuleNotFoundError, ValueError):
+        dep = catalog.get("optional_dep")
+        hint = f"pip install 'processforge[{dep}]'" if dep else "built-in"
+        msg = (
+            f"  [WARN] {name} [{ptype}] — not installed. "
+            f"Run: pf init {flowsheet_path}  (install with: {hint})"
+        )
+        logger.warning(msg)
+        if fail_fast:
+            raise SystemExit(1)
+        errors.append(f"Provider '{name}' not installed ({hint})")
+
+
 def check_providers(
     config: dict,
     flowsheet_path: str,
@@ -193,56 +279,41 @@ def check_providers(
 ) -> None:
     """Verify all declared providers are reachable or importable.
 
+    For containerized providers this pings the container's ``/health`` endpoint
+    (with a short retry/poll so a still-booting container can become ready) and
+    logs a visible ``[OK]``/``[ERR]`` line — so ``pf run`` shows a clear health
+    check instead of silently waiting. Pip-installable providers are checked for
+    importability and reported the same way.
+
     Parameters
     ----------
     fail_fast:
         If ``True`` (default), raise ``SystemExit`` on the first failure.
         If ``False``, accumulate errors and raise once at the end.
     verbose:
-        If ``True``, log per-provider success messages.
+        Accepted for compatibility; the health check is always logged.
     """
-    from ..providers.registry import is_containerized, _PROVIDER_CATALOG
+    from ..providers.registry import is_containerized
 
     providers = config.get("providers", {})
     errors: list[str] = []
+
+    if providers:
+        logger.info("=== Provider / Container Health ===")
 
     for name, cfg in providers.items():
         ptype = cfg.get("type", "")
         if is_containerized(ptype):
             url = _resolve_provider_url(cfg, ptype)
-            try:
-                urllib.request.urlopen(f"{url}/health", timeout=5)
-                if verbose:
-                    logger.info(f"Provider '{name}' — reachable at {url}")
-            except (urllib.error.URLError, OSError, TimeoutError) as exc:
-                msg = (
-                    f"Provider '{name}' unreachable at {url}. "
-                    f"Run: pf init {flowsheet_path}"
-                )
-                if fail_fast:
-                    logger.error(msg)
-                    raise SystemExit(1)
-                logger.error(msg)
-                errors.append(msg)
+            _check_container_provider(
+                name, ptype, url, flowsheet_path,
+                fail_fast=fail_fast, errors=errors,
+            )
         else:
-            catalog = _PROVIDER_CATALOG.get(ptype, {})
-            module = catalog.get("module", "")
-            try:
-                importlib.util.find_spec(module)
-                if verbose:
-                    logger.info(f"Provider '{name}' — importable (pip)")
-            except (ModuleNotFoundError, ValueError):
-                dep = catalog.get("optional_dep")
-                hint = f"pip install 'processforge[{dep}]'" if dep else "built-in"
-                msg = (
-                    f"Provider '{name}' not installed. "
-                    f"Run: pf init {flowsheet_path}  (install with: {hint})"
-                )
-                if fail_fast:
-                    logger.error(msg)
-                    raise SystemExit(1)
-                logger.error(msg)
-                errors.append(msg)
+            _check_pip_provider(
+                name, ptype, flowsheet_path,
+                fail_fast=fail_fast, errors=errors,
+            )
 
     if errors:
         raise SystemExit(1)
