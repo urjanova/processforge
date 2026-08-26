@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import importlib.util
+
 from loguru import logger
 
 
@@ -53,7 +55,7 @@ def print_unit_mismatches(mismatches: list[Any]) -> None:
             logger.warning(f"Unit annotation — stream '{m.stream_name}'.{m.property_name}: {m.message}")
 
 
-def print_provider_health(config: dict) -> list[str]:
+def print_provider_health(config: dict, strict: bool = False) -> list[str]:
     """Log per-provider reachability for flowsheets using Docker containers.
 
     For each provider declared in *config*:
@@ -63,10 +65,9 @@ def print_provider_health(config: dict) -> list[str]:
     * pip-installable providers are reported as importable or not.
 
     Returns a list of failure messages — one per unreachable containerized
-    provider (empty means every provider is healthy/available).
+    provider (empty means every provider is healthy/available). When *strict*
+    is True, a missing pip-installable provider is also appended to failures.
     """
-    import importlib
-
     from ..providers.registry import is_containerized, _PROVIDER_CATALOG
 
     providers = config.get("providers", {})
@@ -104,6 +105,10 @@ def print_provider_health(config: dict) -> list[str]:
                 dep = catalog.get("optional_dep")
                 hint = f"pip install 'processforge[{dep}]'" if dep else "built-in"
                 logger.warning(f"  [WARN] {name} [{ptype}] — not installed ({hint})")
+                if strict:
+                    failures.append(
+                        f"Provider '{name}' not installed ({hint})"
+                    )
 
     return failures
 

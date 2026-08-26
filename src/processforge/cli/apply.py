@@ -6,46 +6,10 @@ import os
 import time
 from typing import Literal
 
-import hashlib
-import json
-import os
 import typer
-from datetime import datetime, timezone
 from loguru import logger
 
-
-def _persist_run(archive, fs, results, run_info, config, base_name, snapshot_id):
-    """Build a standardized RunManifest and persist it to the archive."""
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + os.urandom(3).hex()
-    flowsheet_hash = hashlib.sha256(
-        json.dumps(config, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()[:16]
-    manifest = fs.collect_outputs(
-        run_id, config.get("simulation", {}).get("mode", "steady"),
-        base_name, provenance=run_info.model_dump(),
-    )
-    manifest.snapshot_id = snapshot_id
-    stream_results = {k: v for k, v in results.items() if not hasattr(v, "fields")}
-    archive.save_run(manifest, stream_results=stream_results)
-
-    # Always persist a Zarr copy of the standardized outputs (fields + artifacts)
-    # inside the archive, mirroring `pf run`.
-    try:
-        from ..result import relink_latest_results, save_results_zarr
-
-        run_results_dir = os.path.join(archive.path, "results", run_id)
-        save_results_zarr(
-            results,
-            os.path.join(run_results_dir, "results.zarr"),
-            run_info,
-        )
-        relink_latest_results(archive.path, run_id)
-    except Exception as e:
-        logger.warning(f"Failed to write results.zarr: {type(e).__name__}: {e}")
-
-    logger.info(f"Run saved    : {run_id}")
-    return run_id
-
+from .persist import make_run_id, persist_run
 from ..eo import EOFlowsheet
 from ..provenance import build_run_info
 from .common import (
@@ -158,14 +122,15 @@ def apply(
             label="converged state",
         )
         run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
-        saved_run_id = _persist_run(sm, fs, results, run_info, config, base_name, snapshot_id)
+        run_id = make_run_id()
+        persist_run(sm, fs, run_id, results, run_info, config, base_name, snapshot_id)
         logger.info("=== Apply Summary ===")
         logger.info("  Status       : CONVERGED")
         logger.info(f"  Final ||F||  : {fs.solver_stats.get('final_norm', '?'):.3e}")
         logger.info(f"  Iterations   : {fs.solver_stats.get('iterations', '?')}")
         logger.info(f"  Backend      : {display_backend(config, fs.backend)}")
         logger.info(f"  Snapshot ID  : {snapshot_id}")
-        logger.info(f"  Run ID       : {saved_run_id}")
+        logger.info(f"  Run ID       : {run_id}")
         logger.info(f"  Elapsed (s)  : {elapsed:.2f}")
         return
 
@@ -180,25 +145,31 @@ def apply(
         tmp_fs = _EO(config, backend=backend)
         manager = tmp_fs._build()
         try:
-            x_hom, hom_converged, hom_stats = solve_with_homotopy(
-                tmp_fs, manager, solver, state, drifted
-            )
+            homotopy_result = solve_with_homotopy(tmp_fs, manager, solver, state, drifted)
+            if homotopy_result.converged:
+                # Assemble the real (converged) outputs from the homotopy
+                # solution while the providers are still alive. The `results`
+                # from the earlier failed direct solve must NOT be persisted.
+                tmp_fs.assemble_from_solution(
+                    manager, homotopy_result.x_solution, True, homotopy_result.stats
+                )
         finally:
             teardown_providers(tmp_fs._provider_map)
 
-        if hom_converged:
+        if homotopy_result.converged:
             logger.info(
-                f"Homotopy converged: ||F||={hom_stats.get('final_norm', '?'):.3e}, "
-                f"iterations={hom_stats.get('iterations', '?')}"
+                f"Homotopy converged: ||F||={homotopy_result.stats.get('final_norm', '?'):.3e}, "
+                f"iterations={homotopy_result.stats.get('iterations', '?')}"
             )
-            save_snapshot(
-                sm, config, x_hom, fs.var_names,
+            snapshot_id = save_snapshot(
+                sm, config, homotopy_result.x_solution, fs.var_names,
                 metadata=current_metadata,
                 parent_snapshot_id=state.snapshot_id if state is not None and not topology_changed else None,
                 label="homotopy solution",
             )
             run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
-            _persist_run(sm, fs, results, run_info, config, base_name, snapshot_id)
+            run_id = make_run_id()
+            persist_run(sm, tmp_fs, run_id, tmp_fs.results, run_info, config, base_name, snapshot_id)
             logger.info("Homotopy apply succeeded. New snapshot saved.")
             return
 
@@ -210,8 +181,8 @@ def apply(
         breakdown = log_residual_breakdown(fs)
         divergence = build_divergence_report(
             drifted_params=drifted,
-            solver_stats=hom_stats,
-            x_last=x_hom,
+            solver_stats=homotopy_result.stats,
+            x_last=homotopy_result.x_solution,
             var_names=fs.var_names,
             breakdown=breakdown,
         )

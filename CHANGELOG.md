@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.26] - 2026-08-26
+
+### Fixed
+- **`pf apply` homotopy success path**: persisted the *stale failed direct-solve* `results` instead of the converged homotopy solution, and referenced an undefined `snapshot_id` (it was discarded from `save_snapshot`). Now assembles real outputs from `x_hom` and links the saved snapshot.
+- **`pf apply` runtime `NameError`**: `snapshot_id` from the homotopy branch was never captured, crashing on the `persist_run` call. Now captured and passed through.
+
+### Changed
+- Run-persistence logic (manifest + Zarr) extracted into `cli/persist.py` (`persist_run`, `make_run_id`, `flowsheet_hash`) and shared by `pf run` / `pf apply`, removing a duplicated, divergent copy.
+- `EOFlowsheet.assemble_from_solution(manager, x_sol, converged, stats)` added so a pre-solved `x` (e.g. from homotopy) produces the same standardized `results` as `run()`; `run()` now delegates to it (single source of truth).
+
+## [0.3.25] - 2026-08-26
+
+### Changed
+- `pf plan` now uses `typer.Exit(code=1)` instead of `SystemExit(1)` and drops a redundant `except SystemExit: raise` around flowsheet validation.
+- `pf plan` reads the saved-state config via `state.config` directly instead of a fragile `hasattr`/`dict.get` fallback.
+- `pf plan` renumbers its processing steps (load → unit-consistency → strip → validate → DOF → diff → warm-start → health → diagram) for clarity.
+- `display.print_provider_health` now uses an explicit `import importlib.util` (was relying on a transitive import) and accepts a `strict` flag so missing pip providers can be treated as hard failures.
+
+### Added
+- `pf plan` gains `--no-dof` (skip DOF analysis), `--no-health` (skip the provider/container health probe for fast/CI plans), and `--strict` (treat a missing pip provider as a failure, not just a warning) flags.
+- `pf plan` now skips rewriting the Mermaid diagram when its content is unchanged, avoiding needless mtime churn.
+
+### Fixed
+- `pf plan` now catches `OSError` when reading the flowsheet file (clearer message instead of an unhandled traceback) and no longer treats unknown extensions as JSON without a hint.
+
 ## [0.3.24] - 2026-08-26
 
 ### Changed

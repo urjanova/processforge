@@ -93,23 +93,57 @@ class EOFlowsheet:
                     )
                 except Exception:  # noqa: BLE001
                     self.residual_breakdown = []
-            results = manager.extract_results(x_sol)
-
-            # Run standalone SolverUnit instances (no inlet/outlet streams —
-            # they delegate entirely to their provider's run_simulation()).
-            from processforge.units.solver_unit import SolverUnit
-            for unit_name, unit in self._unit_objects.items():
-                if isinstance(unit, SolverUnit):
-                    logger.info(f"EOFlowsheet: running standalone SolverUnit '{unit_name}'")
-                    unit_result = unit._run_impl({})
-                    results[unit_name] = unit_result
-                    self.engine_outputs[unit_name] = unit_result
+            results = self.assemble_from_solution(manager, x_sol, converged, stats)
 
             logger.info("EOFlowsheet: simulation complete.")
-            self.results = results
             return results
         finally:
             teardown_providers(self._provider_map)
+
+    def assemble_from_solution(
+        self,
+        manager: "GlobalJacobianManager",
+        x_sol: "np.ndarray",
+        converged: bool,
+        stats: dict,
+    ) -> dict:
+        """Populate run outputs from an already-computed solution vector.
+
+        Used both by :meth:`run` (after the Newton solve) and by callers such as
+        the homotopy fallback in ``pf apply``, where a solved ``x`` is produced
+        externally and must be turned into the same standardized ``results`` that
+        :meth:`run` would have returned. This keeps the post-solve assembly in
+        exactly one place.
+
+        Args:
+            manager: The live Jacobian manager used to build ``x_sol``.
+            x_sol: The converged (or best-effort) solution vector.
+            converged: Whether the solve was judged converged.
+            stats: Solver statistics dict (e.g. ``final_norm``, ``iterations``).
+
+        Returns:
+            The stream/unit result dict (also stored on ``self.results``).
+        """
+        self.x_converged = x_sol
+        self.converged = converged
+        self.solver_stats = stats
+
+        results = manager.extract_results(x_sol)
+
+        # Run standalone SolverUnit instances (no inlet/outlet streams —
+        # they delegate entirely to their provider's run_simulation()).
+        from processforge.units.solver_unit import SolverUnit
+
+        self.engine_outputs = {}
+        for unit_name, unit in self._unit_objects.items():
+            if isinstance(unit, SolverUnit):
+                logger.info(f"EOFlowsheet: running standalone SolverUnit '{unit_name}'")
+                unit_result = unit._run_impl({})
+                results[unit_name] = unit_result
+                self.engine_outputs[unit_name] = unit_result
+
+        self.results = results
+        return results
 
     # ------------------------------------------------------------------
     # Standardized output collection

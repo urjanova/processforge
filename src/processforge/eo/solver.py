@@ -6,12 +6,14 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 from loguru import logger
+from pydantic import BaseModel, ConfigDict
 
 from .backends import ScipyBackend, PyomoBackend, CasADiBackend
 from .backends.base import AbstractEOBackend
 from ..types import SnapshotState
 
 if TYPE_CHECKING:
+    from .flowsheet import EOFlowsheet
     from .jacobian import GlobalJacobianManager
 
 
@@ -29,9 +31,18 @@ _BACKENDS: dict[str, type[AbstractEOBackend]] = {
 }
 
 
+class HomotopyResult(BaseModel):
+    """Typed outcome of :func:`solve_with_homotopy`."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    x_solution: np.ndarray
+    converged: bool
+    stats: dict
+
+
 class EOSolver:
-    """
-    Selects and runs the EO backend specified by ``backend`` name.
+    """Selects and runs the EO backend specified by ``backend`` name.
 
     Args:
         backend: One of ``"scipy"``, ``"pyomo"``, ``"casadi"``.
@@ -117,22 +128,40 @@ def compute_residual_breakdown(
 
 
 def solve_with_homotopy(
-    fs, manager, solver, state, drifted
-) -> "tuple[np.ndarray, bool, dict]":
-    """Try standard solve; if fails, fall back to step-wise homotopy."""
-    old_config = state.config if isinstance(state, SnapshotState) else state["config"]
-    current_config = fs.config
+    flowsheet: "EOFlowsheet",
+    manager: "GlobalJacobianManager",
+    solver: "EOSolver",
+    state: "SnapshotState | dict",
+    drifted: list[str],
+) -> "HomotopyResult":
+    """Try a standard solve; if it fails, fall back to step-wise homotopy.
 
-    def update_config_value(cfg, path, value):
-        from copy import deepcopy
-        parts = path.split('.')
+    Args:
+        flowsheet: The current-config :class:`EOFlowsheet` (used for its config
+            and backend).
+        manager: The live Jacobian manager for the current config.
+        solver: The :class:`EOSolver` instance driving each continuation step.
+        state: The prior converged snapshot (object or dict) used as the warm
+            start.
+        drifted: Dotted config paths that changed between the snapshot and the
+            current flowsheet.
+
+    Returns:
+        A :class:`HomotopyResult` holding the best solution vector found, whether
+        it converged, and the associated solver statistics.
+    """
+    old_config = state.config if isinstance(state, SnapshotState) else state["config"]
+    current_config = flowsheet.config
+
+    def update_config_value(cfg: dict, path: str, value: float) -> None:
+        parts = path.split(".")
         d = cfg
         for p in parts[:-1]:
             d = d[p]
         d[parts[-1]] = float(value)
-        
-    def get_config_value(cfg, path):
-        parts = path.split('.')
+
+    def get_config_value(cfg: dict, path: str):
+        parts = path.split(".")
         d = cfg
         for p in parts[:-1]:
             if p not in d:
@@ -144,10 +173,14 @@ def solve_with_homotopy(
     _DEFAULT_SIGNALS = {
         "openmc": ConvergenceSignal(signal_key="k_eff", target=1.0, tolerance=0.01),
     }
-    provider = current_config.get("units", {}).get(
-        list(current_config.get("units", {}).keys())[0], {}
-    ).get("provider", "openmc") if current_config.get("units") else None
-    
+    provider = (
+        current_config.get("units", {})
+        .get(list(current_config.get("units", {}).keys())[0], {})
+        .get("provider", "openmc")
+        if current_config.get("units")
+        else None
+    )
+
     active_signal = None
     if convergence_signal:
         provider_filter = convergence_signal.get("provider")
@@ -155,103 +188,109 @@ def solve_with_homotopy(
             active_signal = ConvergenceSignal(**convergence_signal)
     elif provider in _DEFAULT_SIGNALS:
         active_signal = _DEFAULT_SIGNALS[provider]
-    
+
     if active_signal:
         logger.info(
             f"Homotopy convergence signal: {active_signal.signal_key} "
             f"target={active_signal.target}"
         )
 
-    import numpy as np
-
     if not isinstance(state, SnapshotState):
-        x0 = np.array(state["x"])
+        warm_start = np.array(state["x"])
     else:
-        x0 = np.array(state.x)
+        warm_start = np.array(state.x)
 
-    x_sol, converged, stats = solver.solve(manager, x0)
+    x_solution, converged, stats = solver.solve(manager, warm_start)
     if converged:
         logger.info("Standard solver converged with previous state's warm guess.")
-        return x_sol, converged, stats
-        
-    logger.warning("Standard solve failed. Invoking Homotopy 'step-wise apply' solver...")
-    
-    drifts = []
-    for d in drifted:
-        old_val = get_config_value(old_config, d)
-        new_val = get_config_value(current_config, d)
-        if isinstance(old_val, (int, float)) and isinstance(new_val, (int, float)):
-            drifts.append((d, old_val, new_val))
-            
-    if not drifts:
-        logger.error("No continuous numerical parameters to interpolate. Homotopy fails.")
-        return x_sol, False, stats
+        return HomotopyResult(x_solution=x_solution, converged=converged, stats=stats)
 
-    x_current = x0.copy()
+    logger.warning("Standard solve failed. Invoking Homotopy 'step-wise apply' solver...")
+
+    interpolated_drifts: list[tuple[str, float, float]] = []
+    for drift in drifted:
+        old_val = get_config_value(old_config, drift)
+        new_val = get_config_value(current_config, drift)
+        if isinstance(old_val, (int, float)) and isinstance(new_val, (int, float)):
+            interpolated_drifts.append((drift, float(old_val), float(new_val)))
+
+    if not interpolated_drifts:
+        logger.error("No continuous numerical parameters to interpolate. Homotopy fails.")
+        return HomotopyResult(x_solution=x_solution, converged=False, stats=stats)
+
+    x_current = warm_start.copy()
     best_x = x_current.copy()
-    best_residual = float('inf')
+    best_residual = float("inf")
     best_step = 0
-    
+
     from copy import deepcopy
+
     interpolated_config = deepcopy(old_config)
     steps = 10
-    
+
     from .flowsheet import EOFlowsheet
     from processforge.providers.manager import teardown_providers
-    
+
     for step in range(1, steps + 1):
         alpha = step / steps
         logger.info(f"--- Homotopy Step {step}/{steps} (alpha={alpha:.1f}) ---")
-        
-        for d, old_val, new_val in drifts:
-            val = old_val + alpha * (new_val - old_val)
-            update_config_value(interpolated_config, d, val)
-        
-        step_fs = EOFlowsheet(interpolated_config, backend=fs.backend)
+
+        for path, old_val, new_val in interpolated_drifts:
+            value = old_val + alpha * (new_val - old_val)
+            update_config_value(interpolated_config, path, value)
+
+        step_flowsheet = EOFlowsheet(interpolated_config, backend=flowsheet.backend)
         try:
-            step_manager = step_fs._build()
+            step_manager = step_flowsheet._build()
             step_x0 = x_current.copy()
-            step_fs.x0 = step_x0
-            step_fs.var_names = step_fs._build_var_names(step_manager)
-            
-            step_solver = EOSolver(backend=fs.backend, tol=solver.tol, max_iter=solver.max_iter)
-            x_current, step_converged, s_stats = step_solver.solve(step_manager, step_x0)
-            
-            current_residual = s_stats.get('final_norm', float('inf'))
-            
+            step_flowsheet.x0 = step_x0
+            step_flowsheet.var_names = step_flowsheet._build_var_names(step_manager)
+
+            step_solver = EOSolver(
+                backend=flowsheet.backend, tol=solver.tol, max_iter=solver.max_iter
+            )
+            x_current, step_converged, step_stats = step_solver.solve(step_manager, step_x0)
+
+            current_residual = step_stats.get("final_norm", float("inf"))
+
             if active_signal and active_signal.target is not None:
                 signal_key = active_signal.signal_key
                 signal_target = active_signal.target
                 signal_tol = active_signal.tolerance
-                all_scalars = {}
-                for unit_name, unit_scalars in step_manager.scalars.items():
+                all_scalars: dict[str, float] = {}
+                for unit_scalars in step_manager.scalars.values():
                     all_scalars.update(unit_scalars)
                 signal_val = all_scalars.get(signal_key)
                 if signal_val is not None:
                     rel_error = abs(signal_val - signal_target) / signal_target
-                    logger.info(f"  {signal_key}={signal_val:.4f}, target={signal_target}, rel_error={rel_error:.4f}")
+                    logger.info(
+                        f"  {signal_key}={signal_val:.4f}, target={signal_target}, "
+                        f"rel_error={rel_error:.4f}"
+                    )
                     if rel_error < signal_tol:
                         logger.info(f"  Converged via convergence signal at step {step}")
                         best_x = x_current.copy()
                         best_residual = current_residual
                         best_step = step
                         break
-            
+
             if not step_converged:
-                logger.error(f"Homotopy failed to converge at step {step} (alpha={alpha:.1f})")
+                logger.error(
+                    f"Homotopy failed to converge at step {step} (alpha={alpha:.1f})"
+                )
                 if best_step > 0:
                     logger.info(f"Reverting to best checkpoint at step {best_step}")
                     x_current = best_x.copy()
-                return x_current, False, s_stats
-            
+                return HomotopyResult(x_solution=x_current, converged=False, stats=step_stats)
+
             if current_residual < best_residual:
                 best_residual = current_residual
                 best_x = x_current.copy()
                 best_step = step
-                
+
         finally:
-            teardown_providers(step_fs._provider_map)
-            
+            teardown_providers(step_flowsheet._provider_map)
+
     logger.info("Homotopy step-wise solve successfully reached target config.")
-    x_sol, conv, stats = solver.solve(manager, x_current)
-    return x_sol, conv, stats
+    x_solution, converged, stats = solver.solve(manager, x_current)
+    return HomotopyResult(x_solution=x_solution, converged=converged, stats=stats)

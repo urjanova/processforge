@@ -1,7 +1,6 @@
 """``pf run`` — run a process simulation from a flowsheet JSON file."""
 from __future__ import annotations
 
-import hashlib
 import os
 from datetime import datetime, timezone
 
@@ -21,22 +20,7 @@ from .common import (
     validate_runtime_flowsheet,
     _resolve_provider_url,
 )
-
-
-def _flowsheet_hash(config: dict) -> str:
-    return hashlib.sha256(
-        json_dumps(config).encode("utf-8")
-    ).hexdigest()[:16]
-
-
-def json_dumps(obj) -> str:
-    import json
-
-    return json.dumps(obj, sort_keys=True, default=str)
-
-
-def _run_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + os.urandom(3).hex()
+from .persist import flowsheet_hash, make_run_id, persist_run
 
 
 def _log_active_providers(config: dict) -> None:
@@ -99,8 +83,8 @@ def run(
     is_dynamic = mode == "dynamic"
 
     # Standardized run id, shared with container-side artifact uploads.
-    run_id = _run_id()
-    flowsheet_hash = _flowsheet_hash(config)
+    run_id = make_run_id()
+    flowsheet_hash_value = flowsheet_hash(config)
 
     if is_dynamic:
         # Load .pfarchive snapshot as t=0 if available.
@@ -164,17 +148,12 @@ def run(
     # are keyed by the same run_id/flowsheet_hash as this archive run.
     for provider in getattr(fs, "_provider_map", {}).values():
         if hasattr(provider, "set_run_context"):
-            provider.set_run_context(run_id, flowsheet_hash)
+            provider.set_run_context(run_id, flowsheet_hash_value)
 
     # Build + persist the standardized run manifest.
     archive_path = os.path.join(outputs_dir, f"{base_name}.pfarchive")
     archive = ProcessStateArchive(archive_path)
-    manifest = fs.collect_outputs(run_id, mode, base_name, provenance=run_info.model_dump())
-    stream_results = {
-        k: v for k, v in results.items()
-        if not hasattr(v, "fields")  # exclude EngineOutput objects
-    }
-    archive.save_run(manifest, stream_results=stream_results)
+    persist_run(archive, fs, run_id, results, run_info, config, base_name)
 
     # Persist a StateManager snapshot so `pf plan` (and `pf apply`) can diff
     # against this run as a baseline. Without it, `pf plan` always reports
@@ -191,27 +170,11 @@ def run(
         except Exception as e:
             logger.warning(f"Failed to save state snapshot: {type(e).__name__}: {e}")
 
-    # Always persist a Zarr copy of the standardized outputs (fields + artifacts)
-    # inside the archive. Works for every provider (OpenMC, CoolProp, FESTIM,
-    # Cantera) and for both local and remote docker runs — remote artifacts
-    # reference their S3 remote_uris.
-    try:
-        from ..result import relink_latest_results, save_results_zarr
-
-        run_results_dir = os.path.join(archive.path, "results", run_id)
-        save_results_zarr(
-            results,
-            os.path.join(run_results_dir, "results.zarr"),
-            run_info,
-        )
-        relink_latest_results(archive.path, run_id)
-    except Exception as e:
-        logger.warning(f"Failed to write results.zarr: {type(e).__name__}: {e}")
-
     logger.info(f"Backend      : {display_backend(config, getattr(fs, 'backend', 'dynamic'))}")
     logger.info(f"Run saved    : {os.path.join(archive_path, 'runs', run_id + '.json')}")
 
     # Summarize standardized outputs.
+    manifest = archive.load_run(run_id)
     for unit_name, out in manifest.units.items():
         for f in out.fields:
             logger.info(f"  [{unit_name}] {f.name} = {f.quantity.value} {f.quantity.unit}")
