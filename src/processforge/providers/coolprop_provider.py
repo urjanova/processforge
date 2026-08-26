@@ -56,11 +56,20 @@ class CoolPropProvider(AbstractProvider):
                 logger.warning(f"Component '{comp}' not found in CoolProp. Cp contribution is 0.")
 
         Ks = {}
+        from CoolProp.CoolProp import AbstractState
+
         for comp in z.keys():
             try:
-                fugL = self.CP.PropsSI("fugL", "T", T, "P", P, comp)
-                fugV = self.CP.PropsSI("fugV", "T", T, "P", P, comp)
-                Ks[comp] = fugL / fugV if fugV != 0 else 1.0
+                st = AbstractState("PR", comp)
+                st.specify_phase(self.CP.iphase_liquid)
+                st.update(self.CP.PT_INPUTS, P, T)
+                phi_L = st.fugacity_coefficient(0)
+                st.unspecify_phase()
+                st.specify_phase(self.CP.iphase_gas)
+                st.update(self.CP.PT_INPUTS, P, T)
+                phi_V = st.fugacity_coefficient(0)
+                st.unspecify_phase()
+                Ks[comp] = phi_L / phi_V if phi_V != 0 else 1.0
             except Exception:
                 logger.warning(f"Could not calculate K-value for '{comp}'. Using fallback K=1.0.")
                 Ks[comp] = 1.0
