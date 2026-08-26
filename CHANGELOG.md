@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.24] - 2026-08-26
+
+### Changed
+- `pf init` now reuses the shared provider-classification helpers (`is_local_provider_url`, `is_containerized`) and URL resolution from `cli/common.py` instead of re-implementing them, so local/remote/pip detection can't drift between commands.
+- Legacy `.processforge/` migration now always targets the hashed per-flowsheet env dir (matching how `pf init`/`read_lock` locate environments), so a migrated environment is never orphaned under a basename dir.
+- `pf init` validates the flowsheet schema before extracting providers, failing fast with a clear message on misconfiguration.
+
+### Added
+- `pf init` gains `--no-pull` (generate compose without pulling images) and `--force`/`-f` (re-initialise an existing environment without the "already initialized" warning) flags for non-interactive/CI use.
+
+### Fixed
+- `pf init` Docker image pull no longer leaks/blocks the child process on timeout (uses `subprocess.run(..., timeout=600)`, which reaps the process, and logs captured output after completion).
+- Added an explicit `import importlib.util` in `cli/init.py` and `cli/common.py` so provider importability checks don't rely on a transitive import.
+
 ## [0.3.23] - 2026-08-26
 
 ### Fixed

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import importlib
+import importlib.util
 import json
 import os
 import shutil
@@ -11,8 +11,18 @@ import subprocess
 import typer
 from loguru import logger
 
-from .common import extract_providers, is_local_provider_url
-from ..lock import flowsheet_env_dir, read_lock
+from .common import (
+    extract_providers,
+    is_local_provider_url,
+)
+from ..lock import flowsheet_env_dir, read_lock, write_lock
+from ..providers.registry import (
+    get_provider_docker_image,
+    get_provider_default_port,
+    is_containerized,
+    _PROVIDER_CATALOG,
+)
+from ..utils.validate_flowsheet import validate_flowsheet
 
 
 def _migrate_legacy_env(pf_dir: str) -> None:
@@ -21,7 +31,9 @@ def _migrate_legacy_env(pf_dir: str) -> None:
     Older processforge stored a single environment at ``.processforge/lock.json``
     and ``.processforge/docker-compose.yml``. This relocates those into the hashed
     env dir derived from the flowsheet recorded in the legacy lock, so an existing
-    repo keeps its provider environment after upgrading.
+    repo keeps its provider environment after upgrading. The target always uses the
+    same hashed env dir that ``pf init``/``read_lock`` locate, so the migrated env
+    is never orphaned.
     """
     legacy_lock = os.path.join(pf_dir, "lock.json")
     legacy_compose = os.path.join(pf_dir, "docker-compose.yml")
@@ -35,15 +47,19 @@ def _migrate_legacy_env(pf_dir: str) -> None:
         except Exception:
             recorded = None
 
-    if recorded and os.path.exists(recorded):
-        env_dir = flowsheet_env_dir(pf_dir, recorded)
+    # Always target the hashed env dir keyed by the recorded flowsheet path so it
+    # matches what `pf init <flowsheet>` / `read_lock` expect on subsequent runs.
+    env_dir = flowsheet_env_dir(pf_dir, recorded or "legacy")
+    if recorded:
+        logger.info(
+            f"Migrating legacy .processforge/lock.json + docker-compose.yml into "
+            f"'{os.path.relpath(env_dir, pf_dir)}/'."
+        )
     else:
-        base = os.path.splitext(os.path.basename(recorded or "legacy"))[0] or "legacy"
-        env_dir = os.path.join(pf_dir, base)
         logger.warning(
             "Migrating legacy .processforge/lock.json + docker-compose.yml into "
-            f"'{os.path.relpath(env_dir, pf_dir)}/' (recorded flowsheet not found on "
-            "disk — re-run `pf init <flowsheet.json>` to restore the correct env dir)."
+            f"'{os.path.relpath(env_dir, pf_dir)}/' (no recorded flowsheet found — "
+            "re-run `pf init <flowsheet.json>` to restore the correct env dir)."
         )
 
     if os.path.exists(env_dir):
@@ -73,15 +89,19 @@ def init(
         "--path",
         help="Root directory to initialise in (default: current directory)",
     ),
+    no_pull: bool = typer.Option(
+        False,
+        "--no-pull",
+        help="Generate docker-compose.yml but skip pulling provider images",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Re-initialise even if the environment already exists",
+    ),
 ) -> None:
     """Initialise the .processforge/ project directory."""
-    from ..providers.registry import (
-        is_containerized,
-        get_provider_docker_image,
-        get_provider_default_port,
-        _PROVIDER_CATALOG,
-    )
-    from ..lock import write_lock
     from ..compose import generate_compose
 
     root = path or "."
@@ -95,17 +115,6 @@ def init(
     # .processforge/docker-compose.yml at the root) into a per-flowsheet env
     # dir so existing repos aren't silently broken by the new structure.
     _migrate_legacy_env(pf_dir)
-
-    # Remove stale .pfstate snapshot directories from outputs/
-    stale_count = 0
-    for entry in os.listdir(outputs_dir):
-        if entry.endswith(".pfstate"):
-            stale = os.path.join(outputs_dir, entry)
-            if os.path.isdir(stale):
-                shutil.rmtree(stale)
-                stale_count += 1
-    if stale_count:
-        logger.info(f"Removed {stale_count} stale snapshot(s) from {outputs_dir}/.")
 
     # Write config.json (always)
     config_path = os.path.join(pf_dir, "config.json")
@@ -121,6 +130,26 @@ def init(
     else:
         logger.info(f"{config_path} already exists — skipped.")
 
+    # Honour a configured outputs_dir for the rest of init.
+    outputs_dir_name = "outputs"
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            outputs_dir_name = json.load(f).get("outputs_dir", "outputs")
+    except Exception:
+        pass
+    outputs_dir = os.path.join(root, outputs_dir_name)
+
+    # Remove stale .pfstate snapshot directories from outputs/
+    stale_count = 0
+    for entry in os.listdir(outputs_dir):
+        if entry.endswith(".pfstate"):
+            stale = os.path.join(outputs_dir, entry)
+            if os.path.isdir(stale):
+                shutil.rmtree(stale)
+                stale_count += 1
+    if stale_count:
+        logger.info(f"Removed {stale_count} stale snapshot(s) from {outputs_dir}/.")
+
     # No flowsheet → scaffold only
     if not flowsheet:
         logger.info(".processforge/ initialised successfully.")
@@ -131,15 +160,21 @@ def init(
     flowsheet_path = flowsheet
     if not os.path.exists(flowsheet_path):
         logger.error(f"Flowsheet '{flowsheet_path}' not found.")
-        raise SystemExit(1)
+        raise typer.Exit(code=1)
+
+    try:
+        validate_flowsheet(flowsheet_path)
+    except Exception as e:
+        logger.error(f"Failed to validate flowsheet '{flowsheet_path}': {e}")
+        raise typer.Exit(code=1)
 
     providers = extract_providers(flowsheet_path)
     logger.info(f"Reading providers from {flowsheet_path}...")
 
-    # Categorize providers
-    pip_providers: dict[str, dict] = {}
+    # Categorize providers, reusing the shared local/remote/pip classification.
     local_docker_providers: dict[str, dict] = {}
     remote_docker_providers: dict[str, dict] = {}
+    pip_providers: dict[str, dict] = {}
     for name, cfg in providers.items():
         ptype = cfg.get("type", "")
         if is_containerized(ptype):
@@ -151,7 +186,8 @@ def init(
                 local_docker_providers[name] = {
                     "type": ptype,
                     "url": url,
-                    "docker_image": cfg.get("docker_image") or get_provider_docker_image(ptype),
+                    "docker_image": cfg.get("docker_image")
+                    or get_provider_docker_image(ptype),
                     "port": port,
                 }
                 logger.info(f"  {name}: type={ptype}, url={url} (Docker, local)")
@@ -159,7 +195,8 @@ def init(
                 remote_docker_providers[name] = {
                     "type": ptype,
                     "url": url,
-                    "docker_image": cfg.get("docker_image") or get_provider_docker_image(ptype),
+                    "docker_image": cfg.get("docker_image")
+                    or get_provider_docker_image(ptype),
                 }
                 logger.info(
                     f"  {name}: type={ptype}, url={url} (Docker, remote — skipping compose)"
@@ -185,45 +222,48 @@ def init(
     # Providers with an explicit remote URL are assumed to be running elsewhere
     # (e.g. a cloud deployment of the ghcr.io image) and are not touched here.
     if local_docker_providers:
-        compose_path = os.path.join(
-            flowsheet_env_dir(pf_dir, flowsheet_path), "docker-compose.yml"
-        )
-        if os.path.exists(compose_path):
+        env_dir = flowsheet_env_dir(pf_dir, flowsheet_path)
+        compose_path = os.path.join(env_dir, "docker-compose.yml")
+        if os.path.exists(compose_path) and not force:
             logger.warning(
                 f"Environment already initialized — reinitializing from {flowsheet_path}"
             )
 
-        generate_compose(pf_dir, local_docker_providers, outputs_dir, flowsheet=flowsheet_path)
+        generate_compose(
+            pf_dir, local_docker_providers, outputs_dir, flowsheet=flowsheet_path
+        )
         logger.info(f"Generated {compose_path}")
 
-        # Attempt docker compose pull — stream progress live
-        try:
-            logger.info("Pulling Docker images (this may take a while)...")
-            process = subprocess.Popen(
-                ["docker", "compose", "-f", compose_path, "pull"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-            assert process.stdout is not None
-            for line in process.stdout:
-                line = line.rstrip()
-                if line:
-                    logger.info(line)
-            returncode = process.wait(timeout=600)
-            if returncode == 0:
-                logger.info("Pulled Docker images.")
-            else:
-                logger.warning(
-                    f"docker compose pull failed with exit code {returncode}."
+        if no_pull:
+            logger.info("Skipping Docker image pull (--no-pull).")
+        else:
+            # Attempt docker compose pull. Capture output and stream it via the
+            # logger; on timeout the child is reaped (subprocess.run kills it)
+            # so no orphaned/blocked process is left behind.
+            try:
+                logger.info("Pulling Docker images (this may take a while)...")
+                result = subprocess.run(
+                    ["docker", "compose", "-f", compose_path, "pull"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=600,
                 )
-        except FileNotFoundError:
-            logger.warning(
-                "Docker not found. Install Docker to use containerized providers."
-            )
-        except subprocess.TimeoutExpired:
-            logger.warning("docker compose pull timed out after 600s.")
+                for line in result.stdout.splitlines():
+                    if line.strip():
+                        logger.info(line)
+                if result.returncode == 0:
+                    logger.info("Pulled Docker images.")
+                else:
+                    logger.warning(
+                        f"docker compose pull failed with exit code {result.returncode}."
+                    )
+            except FileNotFoundError:
+                logger.warning(
+                    "Docker not found. Install Docker to use containerized providers."
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning("docker compose pull timed out after 600s.")
 
         logger.info(
             "To start the containerized provider(s), run:\n"
@@ -242,15 +282,19 @@ def init(
     else:
         logger.info("No containerized providers — skipping Docker setup.")
 
-    # Write lock file
+    # Write lock file, reusing the shared URL resolution for the recorded url.
     lock_providers: dict[str, dict] = {}
     for name, cfg in providers.items():
         ptype = cfg.get("type", "")
         if is_containerized(ptype):
+            url = cfg.get("url")
+            if not url:
+                port = get_provider_default_port(ptype) or 9000
+                url = f"http://localhost:{port}"
             lock_providers[name] = {
-                "docker_image": cfg.get("docker_image") or get_provider_docker_image(ptype),
-                "url": cfg.get("url")
-                or f"http://localhost:{get_provider_default_port(ptype) or 9000}",
+                "docker_image": cfg.get("docker_image")
+                or get_provider_docker_image(ptype),
+                "url": url,
             }
         else:
             lock_providers[name] = {
@@ -261,5 +305,7 @@ def init(
     from .. import __version__ as pf_version
 
     write_lock(pf_dir, flowsheet_path, lock_providers, pf_version)
-    logger.info(f"Wrote {os.path.join(flowsheet_env_dir(pf_dir, flowsheet_path), 'lock.json')}")
+    logger.info(
+        f"Wrote {os.path.join(flowsheet_env_dir(pf_dir, flowsheet_path), 'lock.json')}"
+    )
     logger.info(".processforge/ initialised successfully.")

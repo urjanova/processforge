@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
-import importlib
+import importlib.util
 import json
 import os
 import urllib.error
