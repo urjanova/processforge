@@ -14,8 +14,10 @@ canonical, unit-aware record persisted by :class:`ProcessStateArchive`:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 
+import arrow
 from loguru import logger
 
 from .types import (
@@ -75,6 +77,20 @@ def collect_stream_outputs(provider, stream_results: dict) -> dict[str, StreamOu
     return out
 
 
+def _timestamp_from_run_id(run_id: str) -> str:
+    """Derive an ISO-8601 timestamp from a run_id's compact UTC prefix.
+
+    Run ids are ``<YYYYMMDDTHHMMSSZ>_<suffix>`` (see ``pf run`` / ``pf apply``),
+    so the start time is recoverable from the id itself. Falls back to the
+    current UTC time for ids that don't follow that convention.
+    """
+    prefix = run_id.split("_", 1)[0]
+    try:
+        return arrow.get(prefix).isoformat()
+    except (arrow.parser.ParserError, ValueError):
+        return datetime.now(timezone.utc).isoformat()
+
+
 def build_run_manifest(
     *,
     run_id: str,
@@ -91,6 +107,7 @@ def build_run_manifest(
         run_id=run_id,
         mode=mode,
         flowsheet=flowsheet_name,
+        timestamp=_timestamp_from_run_id(run_id),
         units=dict(engine_outputs),
         streams=streams,
         provenance=provenance or {},

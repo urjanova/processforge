@@ -2,12 +2,17 @@
 import json
 import os
 
+import arrow
 import zarr
 from typer.testing import CliRunner
 
 import typer
 
 from processforge.cli.runs import runs
+from processforge.output_collector import (
+    _timestamp_from_run_id,
+    build_run_manifest,
+)
 from processforge.result import relink_latest_results, save_results_zarr
 from processforge.types import (
     EngineOutput,
@@ -121,3 +126,20 @@ def test_pf_runs_shows_manifest_and_artifacts(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "k_eff" in result.output
     assert "Artifacts on disk:" in result.output
+
+
+def test_build_run_manifest_populates_timestamp():
+    rid = "20260825T143651Z_7fdf1a"
+    manifest = build_run_manifest(
+        run_id=rid, mode="steady", flowsheet_name="x",
+        provenance={}, engine_outputs={}, stream_results={},
+    )
+    assert manifest.timestamp == _timestamp_from_run_id(rid)
+    assert manifest.timestamp.startswith("2026-08-25T14:36:51")
+    assert arrow.get(manifest.timestamp)  # parses as valid ISO-8601
+
+
+def test_timestamp_from_run_id_falls_back_to_now():
+    ts = _timestamp_from_run_id("not_a_real_run_id")
+    assert arrow.get(ts)  # valid ISO-8601
+    assert ts.endswith(("+00:00", "Z"))
