@@ -304,20 +304,23 @@ class TestCmdInit:
         assert any("1 stale snapshot" in m for m in log_output)
 
     def test_missing_flowsheet_exits(self, tmp_path):
+        import typer
         from processforge.cli.init import init
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(typer.Exit) as exc_info:
             init(flowsheet="nonexistent.json", path=str(tmp_path))
-        assert exc_info.value.code == 1
+        assert exc_info.value.exit_code == 1
 
     def test_empty_providers_flowsheet(self, tmp_path, log_output):
         from processforge.cli.init import init
 
         fs = tmp_path / "empty.json"
-        fs.write_text(json.dumps({"providers": {}, "streams": {}, "units": {}}))
-        init(flowsheet=str(fs), path=str(tmp_path))
-        assert any("No providers declared" in m for m in log_output)
-        assert any("initialised successfully" in m for m in log_output)
+        fs.write_text(json.dumps({"providers": {}, "streams": {}, "units": {}, "simulation": {"mode": "steady"}}))
+        with pytest.raises(SystemExit) as exc_info:
+            init(flowsheet=str(fs), path=str(tmp_path))
+        assert exc_info.value.code == 1
+        assert any("non-empty" in m for m in log_output)
+        assert any("providers" in m for m in log_output)
 
 
 # ---------------------------------------------------------------------------
@@ -468,22 +471,23 @@ class TestCmdPlan:
         with patch.object(
             common_mod, "_ping_provider_health", return_value=(True, health)
         ), patch.object(common_mod, "_resolve_provider_url", return_value="http://localhost:9001"):
-            plan(flowsheet=str(container_flowsheet), no_diagram=True)
+            plan(flowsheet=str(container_flowsheet), no_diagram=True, no_health=False, no_dof=False)
 
         assert any("Provider / Container Health" in m for m in log_output)
         assert any("[OK] openmc" in m and "provider_type=openmc" in m for m in log_output)
 
     def test_container_provider_health_failure_exits(self, container_flowsheet, log_output):
+        import typer
         import processforge.cli.common as common_mod
         from processforge.cli.plan import plan
 
         with patch.object(
             common_mod, "_ping_provider_health", return_value=(False, "Connection refused")
         ), patch.object(common_mod, "_resolve_provider_url", return_value="http://localhost:9001"), \
-                pytest.raises(SystemExit) as exc_info:
-            plan(flowsheet=str(container_flowsheet), no_diagram=True)
+                pytest.raises(typer.Exit) as exc_info:
+            plan(flowsheet=str(container_flowsheet), no_diagram=True, no_health=False, no_dof=False)
 
-        assert exc_info.value.code == 1
+        assert exc_info.value.exit_code == 1
         assert any("[ERR] openmc" in m and "unreachable" in m for m in log_output)
 
 
