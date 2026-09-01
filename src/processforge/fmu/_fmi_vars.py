@@ -3,10 +3,43 @@ from __future__ import annotations
 
 import re
 
+from .interface import SolverUnitPort
+
 
 def _sanitize_name(s: str) -> str:
     """Replace characters invalid in Python identifiers with underscores."""
     return re.sub(r"[^a-zA-Z0-9_]", "_", s)
+
+
+def solverunit_port_to_spec(port: SolverUnitPort) -> dict:
+    """Convert a :class:`SolverUnitPort` to the internal spec dict format."""
+    return {
+        "attr_name": port.attr_name,
+        "initial_value": float(port.initial_value),
+        "causality": port.causality,
+        "variability": port.variability,
+        "description": port.description,
+        "unit": port.unit,
+        "logical_name": f"{port.unit_name}.{port.path}",
+    }
+
+
+def ensure_unique_attr_names(specs: list[dict]) -> list[dict]:
+    """Deduplicate ``attr_name`` values by appending a counter.
+
+    Preserves order and returns a new list of specs.
+    """
+    seen: dict[str, int] = {}
+    out: list[dict] = []
+    for spec in specs:
+        name = spec["attr_name"]
+        count = seen.get(name, 0)
+        if count:
+            new_name = f"{name}_{count}"
+            spec = {**spec, "attr_name": new_name}
+        seen[name] = count + 1
+        out.append(spec)
+    return out
 
 
 def get_fmi_variable_specs(
@@ -115,8 +148,8 @@ def get_fmi_variable_specs(
                 "description": f"Parameter '{key}' of unit '{unit_name}'",
             })
 
-    # --- Tank state outputs (dynamic mode only) ---
-    if mode == "dynamic":
+    # --- Tank state outputs (dynamic / solverunit_dynamic modes only) ---
+    if mode in ("dynamic", "solverunit_dynamic"):
         for unit_name, unit_cfg in config["units"].items():
             if unit_cfg.get("type") != "Tank":
                 continue

@@ -7,9 +7,17 @@ import shutil
 import subprocess
 import tempfile
 
+import json
+
 from ..utils.validate_flowsheet import validate_flowsheet
 from ..utils.topology import TOPOLOGY_KEYS, get_outlets
-from ._fmi_vars import _sanitize_name
+from ._fmi_vars import (
+    _sanitize_name,
+    ensure_unique_attr_names,
+    get_fmi_variable_specs,
+    solverunit_port_to_spec,
+)
+from .interface import build_solverunit_interface, build_fmu_interface_manifest
 from .slave_template import render_slave_source
 
 
@@ -17,6 +25,7 @@ def build_fmu(
     config_path: str,
     output_dir: str = "outputs",
     backend: str = "scipy",
+    write_manifest: bool = True,
 ) -> str:
     """Build an FMI 2.0 co-simulation FMU from a Processforge flowsheet JSON.
 
@@ -25,6 +34,8 @@ def build_fmu(
         output_dir:  Directory where the ``.fmu`` file will be written.
         backend:     EO solver backend for steady-state mode
                      (``"scipy"``, ``"pyomo"``, or ``"casadi"``).
+        write_manifest: If ``True`` (default), write ``fmu_interface.json`` next
+                        to the ``.fmu`` file.
 
     Returns:
         Absolute path to the generated ``.fmu`` file.
@@ -42,6 +53,26 @@ def build_fmu(
     interface = _analyze_config(config)
     slave_class_name = _get_slave_class_name(config, config_path)
 
+    solverunit_ports: dict = {}
+    if interface.get("has_solverunit"):
+        solverunit_ports = build_solverunit_interface(config)
+        interface["solverunit_ports"] = solverunit_ports
+
+    stream_specs = get_fmi_variable_specs(
+        interface["feed_streams"],
+        interface["output_streams"],
+        interface["components"],
+        interface["unit_params"],
+        config,
+        interface["mode"],
+    )
+    solverunit_specs = [
+        solverunit_port_to_spec(port)
+        for ports in solverunit_ports.values()
+        for port in ports
+    ]
+    specs = ensure_unique_attr_names(stream_specs + solverunit_specs)
+
     os.makedirs(output_dir, exist_ok=True)
 
     with tempfile.TemporaryDirectory() as staging_dir:
@@ -58,6 +89,8 @@ def build_fmu(
             output_streams=interface["output_streams"],
             components=interface["components"],
             unit_params=interface["unit_params"],
+            solverunit_ports=solverunit_ports,
+            specs=specs,
             config=config,
         )
 
@@ -86,6 +119,19 @@ def build_fmu(
     fmu_path = os.path.abspath(
         os.path.join(output_dir, f"{slave_class_name}.fmu")
     )
+
+    if write_manifest:
+        parameter_specs = [spec for spec in specs if spec["causality"] == "parameter"]
+        non_param_specs = [spec for spec in specs if spec["causality"] != "parameter"]
+        manifest = build_fmu_interface_manifest(
+            config, non_param_specs, interface.get("solverunit_ports", {}), parameter_specs
+        )
+        manifest_path = os.path.join(
+            output_dir, f"{slave_class_name}_fmu_interface.json"
+        )
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
+
     return fmu_path
 
 
@@ -140,12 +186,21 @@ def _analyze_config(config: dict) -> dict:
         if params:
             unit_params[unit_name] = params
 
-    # Simulation mode — force "dynamic" if any Tank is present
+    # Simulation mode
     mode = config.get("simulation", {}).get("mode", "steady")
     has_tank = any(
         cfg.get("type") == "Tank" for cfg in config["units"].values()
     )
-    if has_tank:
+    has_solverunit = any(
+        cfg.get("type") == "SolverUnit" for cfg in config["units"].values()
+    )
+    if has_solverunit and has_tank:
+        # Both dynamic Tank(s) and SolverUnit(s) require a mixed slave.
+        mode = "solverunit_dynamic"
+    elif has_solverunit:
+        # SolverUnit flowsheets are driven by the Flowsheet-based slave.
+        mode = "solverunit"
+    elif has_tank:
         mode = "dynamic"
 
     return {
@@ -154,6 +209,8 @@ def _analyze_config(config: dict) -> dict:
         "components": components,
         "unit_params": unit_params,
         "mode": mode,
+        "has_solverunit": has_solverunit,
+        "has_tank": has_tank,
     }
 
 def _get_slave_class_name(config: dict, config_path: str) -> str:

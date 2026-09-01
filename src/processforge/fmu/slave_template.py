@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 
-from ._fmi_vars import _sanitize_name, get_fmi_variable_specs
+from ._fmi_vars import _sanitize_name
 
 
 def render_slave_source(
@@ -14,6 +14,8 @@ def render_slave_source(
     output_streams: list[str],
     components: list[str],
     unit_params: dict[str, dict],
+    solverunit_ports: dict[str, list],
+    specs: list[dict],
     config: dict,
 ) -> str:
     """Return complete Python source for the per-flowsheet FMU slave.
@@ -21,10 +23,6 @@ def render_slave_source(
     The generated file is stand-alone: ``_sanitize_name`` is embedded so the
     slave does not depend on processforge internals for name resolution.
     """
-    specs = get_fmi_variable_specs(
-        feed_streams, output_streams, components, unit_params, config, mode
-    )
-
     lines: list[str] = []
 
     # ------------------------------------------------------------------ header
@@ -87,10 +85,19 @@ def render_slave_source(
     components_repr = repr(components)
     feed_streams_repr = repr(feed_streams)
     output_streams_repr = repr(output_streams)
-    # unit_params keys used for writing params back into config
     unit_param_keys_repr = repr({k: list(v.keys()) for k, v in unit_params.items()})
     tank_units = [n for n, c in config["units"].items() if c.get("type") == "Tank"]
     tank_units_repr = repr(tank_units)
+
+    # Build solverunit input/output lookup tables for the do_step body.
+    solverunit_inputs: dict[str, tuple[str, str]] = {}
+    solverunit_outputs: dict[str, tuple[str, str]] = {}
+    for unit_name, ports in solverunit_ports.items():
+        for port in ports:
+            if port.causality == "input":
+                solverunit_inputs[port.attr_name] = (unit_name, port.path)
+            else:
+                solverunit_outputs[port.attr_name] = (unit_name, port.path)
 
     lines += [
         "        self._components = " + components_repr,
@@ -98,19 +105,29 @@ def render_slave_source(
         "        self._output_stream_names = " + output_streams_repr,
         "        self._unit_param_keys = " + unit_param_keys_repr,
         "        self._tank_units = " + tank_units_repr,
+        f"        self._solverunit_inputs = {solverunit_inputs!r}",
+        f"        self._solverunit_outputs = {solverunit_outputs!r}",
         "",
     ]
 
     if mode == "dynamic":
         lines += _render_dynamic_init(tank_units, components)
+    elif mode == "solverunit":
+        lines += _render_solverunit_init()
+    elif mode == "solverunit_dynamic":
+        lines += _render_solverunit_dynamic_init(tank_units, components)
 
     # ---------------------------------------------------------- do_step
     lines.append("    def do_step(self, current_time: float, step_size: float) -> bool:")
 
     if mode == "steady":
         lines += _render_steady_do_step(backend)
-    else:
+    elif mode == "dynamic":
         lines += _render_dynamic_do_step()
+    elif mode == "solverunit":
+        lines += _render_solverunit_do_step()
+    elif mode == "solverunit_dynamic":
+        lines += _render_solverunit_dynamic_do_step()
 
     lines.append("")
 
@@ -163,6 +180,140 @@ def _render_steady_do_step(backend: str) -> list[str]:
         "                setattr(self, f'out_{_ss}_z_{_sc}',",
         "                        float(_stream.get('z', {}).get(_c, 0.0)))",
         "        return True",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# SolverUnit steady do_step body
+# ---------------------------------------------------------------------------
+
+def _render_solverunit_init() -> list[str]:
+    return [
+        "        # --- Cache for quasi-static SolverUnit results ---",
+        "        self._last_inputs = {}",
+        "        self._cached_engine_outputs = {}",
+        "        self._cached_stream_results = {}",
+        "",
+    ]
+
+
+def _render_solverunit_do_step() -> list[str]:
+    return [
+        "        from processforge.coupling import deep_merge",
+        "        from processforge.flowsheet import Flowsheet as _Flowsheet",
+        "",
+        "        # Capture all FMI inputs that affect the solve",
+        "        _current_inputs = {}",
+        "        for _attr in self._solverunit_inputs:",
+        "            _current_inputs[_attr] = float(getattr(self, _attr))",
+        "        for _sn in self._feed_stream_names:",
+        "            _ss = _sanitize_name(_sn)",
+        "            _current_inputs[f'feed_{_ss}_T'] = float(getattr(self, f'feed_{_ss}_T'))",
+        "            _current_inputs[f'feed_{_ss}_P'] = float(getattr(self, f'feed_{_ss}_P'))",
+        "            _current_inputs[f'feed_{_ss}_flowrate'] = float(getattr(self, f'feed_{_ss}_flowrate'))",
+        "        for _un, _pkeys in self._unit_param_keys.items():",
+        "            _su = _sanitize_name(_un)",
+        "            for _pk in _pkeys:",
+        "                _attr = f'param_{_su}_{_sanitize_name(_pk)}'",
+        "                if hasattr(self, _attr):",
+        "                    _current_inputs[_attr] = float(getattr(self, _attr))",
+        "",
+        "        # Quasi-static shortcut: reuse cached results if inputs are unchanged",
+        "        _tolerance = 1e-9",
+        "        _unchanged = len(_current_inputs) == len(self._last_inputs)",
+        "        if _unchanged:",
+        "            for _k, _v in _current_inputs.items():",
+        "                if abs(_v - self._last_inputs.get(_k, float('nan'))) > _tolerance:",
+        "                    _unchanged = False",
+        "                    break",
+        "        if _unchanged:",
+        "            self._write_cached_outputs()",
+        "            return True",
+        "",
+        "        # Build a mutable copy of the config and apply FMI inputs",
+        "        config = deepcopy(self._config)",
+        "",
+        "        # Feed stream boundary conditions",
+        "        for _sn in self._feed_stream_names:",
+        "            _ss = _sanitize_name(_sn)",
+        "            config['streams'][_sn]['T'] = _current_inputs[f'feed_{_ss}_T']",
+        "            config['streams'][_sn]['P'] = _current_inputs[f'feed_{_ss}_P']",
+        "            config['streams'][_sn]['flowrate'] = _current_inputs[f'feed_{_ss}_flowrate']",
+        "            for _c in self._components:",
+        "                _sc = _sanitize_name(_c)",
+        "                _attr = f'feed_{_ss}_z_{_sc}'",
+        "                if hasattr(self, _attr):",
+        "                    config['streams'][_sn]['z'][_c] = float(getattr(self, _attr))",
+        "",
+        "        # Unit parameters",
+        "        for _un, _pkeys in self._unit_param_keys.items():",
+        "            _su = _sanitize_name(_un)",
+        "            for _pk in _pkeys:",
+        "                _attr = f'param_{_su}_{_sanitize_name(_pk)}'",
+        "                if hasattr(self, _attr):",
+        "                    config['units'][_un][_pk] = _current_inputs[_attr]",
+        "",
+        "        # SolverUnit inputs (dotted paths deep-merged into unit configs)",
+        "        for _attr, (_un, _path) in self._solverunit_inputs.items():",
+        "            _value = float(getattr(self, _attr))",
+        "            _override = {}",
+        "            _cur = _override",
+        "            _parts = _path.split('.')",
+        "            for _part in _parts[:-1]:",
+        "                _cur[_part] = {}",
+        "                _cur = _cur[_part]",
+        "            _cur[_parts[-1]] = _value",
+        "            config['units'][_un] = deep_merge(config['units'][_un], _override)",
+        "",
+        "        # Run the flowsheet",
+        "        _fs = _Flowsheet(config)",
+        "        try:",
+        "            _results = _fs.run()",
+        "        except Exception as _exc:",
+        "            return False",
+        "",
+        "        # Check for SolverUnit failures",
+        "        for _un, _out in getattr(_fs, 'engine_outputs', {}).items():",
+        "            if getattr(_out, 'status', 'completed') == 'failed':",
+        "                return False",
+        "",
+        "        # Cache results for the next quasi-static check",
+        "        self._last_inputs = _current_inputs",
+        "        self._cached_stream_results = {",
+        "            _sn: _results.get(_sn, {}) for _sn in self._output_stream_names",
+        "        }",
+        "        self._cached_engine_outputs = {}",
+        "        for _un in self._solverunit_outputs.values():",
+        "            _unit_name = _un[0]",
+        "            _engine_out = getattr(_fs, 'engine_outputs', {}).get(_unit_name)",
+        "            if _engine_out is not None:",
+        "                self._cached_engine_outputs[_unit_name] = _engine_out",
+        "",
+        "        self._write_cached_outputs()",
+        "        return True",
+        "",
+        "    def _write_cached_outputs(self) -> None:",
+        "        # Stream outputs",
+        "        for _sn in self._output_stream_names:",
+        "            _ss = _sanitize_name(_sn)",
+        "            _stream = self._cached_stream_results.get(_sn, {})",
+        "            setattr(self, f'out_{_ss}_T', float(_stream.get('T', 0.0)))",
+        "            setattr(self, f'out_{_ss}_P', float(_stream.get('P', 0.0)))",
+        "            setattr(self, f'out_{_ss}_flowrate', float(_stream.get('flowrate', 0.0)))",
+        "            for _c in self._components:",
+        "                _sc = _sanitize_name(_c)",
+        "                setattr(self, f'out_{_ss}_z_{_sc}',",
+        "                        float(_stream.get('z', {}).get(_c, 0.0)))",
+        "",
+        "        # SolverUnit outputs",
+        "        for _attr, (_un, _field) in self._solverunit_outputs.items():",
+        "            _engine_out = self._cached_engine_outputs.get(_un)",
+        "            _value = 0.0",
+        "            if _engine_out is not None:",
+        "                _field_obj = _engine_out.get_field(_field)",
+        "                if _field_obj is not None:",
+        "                    _value = float(_field_obj.quantity.value)",
+        "            setattr(self, _attr, _value)",
     ]
 
 
@@ -238,6 +389,175 @@ def _render_dynamic_do_step() -> list[str]:
         "                _sc = _sanitize_name(_c)",
         "                setattr(self, f'out_{_ss}_z_{_sc}',",
         "                        float(_stream.get('z', {}).get(_c, 0.0)))",
+        "",
+        "        # Write Tank state outputs",
+        "        for _un, _state in self._tank_states.items():",
+        "            _su = _sanitize_name(_un)",
+        "            setattr(self, f'state_{_su}_T', float(_state['T']))",
+        "            for _c in self._components:",
+        "                _sc = _sanitize_name(_c)",
+        "                setattr(self, f'state_{_su}_n_{_sc}',",
+        "                        float(_state['n'].get(_c, 0.0)))",
+        "",
+        "        return True",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# SolverUnit + dynamic Tank co-simulation init and do_step body
+# ---------------------------------------------------------------------------
+
+def _render_solverunit_dynamic_init(tank_units: list[str], components: list[str]) -> list[str]:
+    lines = [
+        "        # --- Build Flowsheet once for dynamic stepping ---",
+        "        from processforge.flowsheet import Flowsheet as _Flowsheet",
+        "        from processforge.types import FlowsheetConfig",
+        "        self._flowsheet = _Flowsheet(self._config)",
+        "        self._flowsheet.build_units()",
+        "        self._processing_order = self._flowsheet._get_processing_order()",
+        "",
+        "        # Parsed config for lazy provider-map construction",
+        "        self._flowsheet_cfg = FlowsheetConfig.from_dict(self._config)",
+        "        self._provider_map = None",
+        "",
+        "        # Initialise Tank state from config",
+        "        self._tank_states = {}",
+        "        for _un in self._tank_units:",
+        "            _unit = self._flowsheet.units[_un]",
+        "            _ucfg = self._config['units'][_un]",
+        "            _init_n = _ucfg.get('initial_n', {})",
+        "            self._tank_states[_un] = {",
+        "                'n': {_c: float(_init_n.get(_c, 0.0)) for _c in self._components},",
+        "                'T': float(_ucfg.get('initial_T', 298.15)),",
+        "            }",
+        "",
+        "        # --- Cache for SolverUnit results ---",
+        "        self._last_inputs = {}",
+        "        self._cached_engine_outputs = {}",
+        "        self._cached_stream_results = {}",
+        "",
+    ]
+    return lines
+
+
+def _render_solverunit_dynamic_do_step() -> list[str]:
+    return [
+        "        from processforge.coupling import deep_merge",
+        "        from processforge.flowsheet import Flowsheet as _Flowsheet",
+        "",
+        "        # Build a mutable config from current FMI inputs / parameters",
+        "        config = deepcopy(self._config)",
+        "",
+        "        # Feed stream boundary conditions",
+        "        for _sn in self._feed_stream_names:",
+        "            _ss = _sanitize_name(_sn)",
+        "            config['streams'][_sn]['T'] = float(getattr(self, f'feed_{_ss}_T'))",
+        "            config['streams'][_sn]['P'] = float(getattr(self, f'feed_{_ss}_P'))",
+        "            config['streams'][_sn]['flowrate'] = float(getattr(self, f'feed_{_ss}_flowrate'))",
+        "            for _c in self._components:",
+        "                _sc = _sanitize_name(_c)",
+        "                _attr = f'feed_{_ss}_z_{_sc}'",
+        "                if hasattr(self, _attr):",
+        "                    config['streams'][_sn]['z'][_c] = float(getattr(self, _attr))",
+        "",
+        "        # Unit parameters",
+        "        for _un, _pkeys in self._unit_param_keys.items():",
+        "            _su = _sanitize_name(_un)",
+        "            for _pk in _pkeys:",
+        "                _attr = f'param_{_su}_{_sanitize_name(_pk)}'",
+        "                if hasattr(self, _attr):",
+        "                    config['units'][_un][_pk] = float(getattr(self, _attr))",
+        "",
+        "        # SolverUnit inputs (deep-merged into unit configs)",
+        "        for _attr, (_un, _path) in self._solverunit_inputs.items():",
+        "            _value = float(getattr(self, _attr))",
+        "            _override = {}",
+        "            _cur = _override",
+        "            _parts = _path.split('.')",
+        "            for _part in _parts[:-1]:",
+        "                _cur[_part] = {}",
+        "                _cur = _cur[_part]",
+        "            _cur[_parts[-1]] = _value",
+        "            config['units'][_un] = deep_merge(config['units'][_un], _override)",
+        "",
+        "        # Lazy-build provider map on first step",
+        "        if self._provider_map is None:",
+        "            from processforge.providers.manager import build_provider_map",
+        "            self._provider_map = build_provider_map(",
+        "                providers_config=self._flowsheet_cfg.providers,",
+        "                flowsheet_config=self._flowsheet_cfg,",
+        "            )",
+        "",
+        "        # Rebuild flowsheet so design / provider changes are reflected",
+        "        _fs = _Flowsheet(config)",
+        "        _fs.build_units(provider_map=self._provider_map)",
+        "        _processing_order = _fs._get_processing_order()",
+        "        _components_set = set(self._components)",
+        "",
+        "        # Current stream state cache",
+        "        _current = {}",
+        "        for _sn in self._feed_stream_names:",
+        "            _ss = _sanitize_name(_sn)",
+        "            _current[_sn] = {",
+        "                'T': float(getattr(self, f'feed_{_ss}_T')),",
+        "                'P': float(getattr(self, f'feed_{_ss}_P')),",
+        "                'flowrate': float(getattr(self, f'feed_{_ss}_flowrate')),",
+        "                'z': {_c: float(getattr(self, f'feed_{_ss}_z_{_sanitize_name(_c)}'))",
+        "                      for _c in self._components}",
+        "            }",
+        "",
+        "        # Engine outputs cache",
+        "        self._cached_engine_outputs = {}",
+        "",
+        "        # Process units in topological order",
+        "        for _un in _processing_order:",
+        "            _unit = _fs.units[_un]",
+        "            _ucfg = config['units'][_un]",
+        "            _inlet = _fs._get_merged_inlet(_current, _ucfg)",
+        "",
+        "            if _ucfg['type'] == 'Tank':",
+        "                _outlet, self._tank_states[_un] = \\",
+        "                    _fs._integrate_tank_step(",
+        "                        _unit, _inlet, self._tank_states[_un],",
+        "                        step_size, _components_set",
+        "                    )",
+        "                _outlet_name = _ucfg['out']",
+        "                _current[_outlet_name] = _outlet",
+        "            elif _ucfg['type'] == 'SolverUnit':",
+        "                try:",
+        "                    _engine_out = _unit.run(_inlet)",
+        "                except Exception:",
+        "                    return False",
+        "                if getattr(_engine_out, 'status', 'completed') == 'failed':",
+        "                    return False",
+        "                if _engine_out is not None:",
+        "                    self._cached_engine_outputs[_un] = _engine_out",
+        "            else:",
+        "                _outlet = _unit.run(_inlet)",
+        "                _outlet_name = _ucfg['out']",
+        "                _current[_outlet_name] = _outlet",
+        "",
+        "        # Write stream outputs",
+        "        for _sn in self._output_stream_names:",
+        "            _ss = _sanitize_name(_sn)",
+        "            _stream = _current.get(_sn, {})",
+        "            setattr(self, f'out_{_ss}_T', float(_stream.get('T', 0.0)))",
+        "            setattr(self, f'out_{_ss}_P', float(_stream.get('P', 0.0)))",
+        "            setattr(self, f'out_{_ss}_flowrate', float(_stream.get('flowrate', 0.0)))",
+        "            for _c in self._components:",
+        "                _sc = _sanitize_name(_c)",
+        "                setattr(self, f'out_{_ss}_z_{_sc}',",
+        "                        float(_stream.get('z', {}).get(_c, 0.0)))",
+        "",
+        "        # Write SolverUnit outputs",
+        "        for _attr, (_un, _field) in self._solverunit_outputs.items():",
+        "            _engine_out = self._cached_engine_outputs.get(_un)",
+        "            _value = 0.0",
+        "            if _engine_out is not None:",
+        "                _field_obj = _engine_out.get_field(_field)",
+        "                if _field_obj is not None:",
+        "                    _value = float(_field_obj.quantity.value)",
+        "            setattr(self, _attr, _value)",
         "",
         "        # Write Tank state outputs",
         "        for _un, _state in self._tank_states.items():",
