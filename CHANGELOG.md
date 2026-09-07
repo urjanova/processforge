@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-09-07
+
+### Changed
+- **`pf runs` result inspection**: `pf runs <flowsheet> <run_id>` now prints a human-readable summary of the run's Zarr results (solver fields, stream tables, and artifacts) instead of the raw manifest JSON.
+- **`pf runs` listing**: `pf runs <flowsheet>` now shows a one-line result summary per run (e.g. `k_eff=1.02340±0.00120`) alongside the timestamp and latest marker.
+
+### Added
+- **`pf runs` shortcuts**: use `latest` as the run id to inspect the most recent run.
+- **`pf runs --schema`**: prints the `results.zarr.schema.json` for a specific run.
+- **`summarize_zarr_store`** and **`_one_line_summary`** helpers in `processforge.result` to extract provider-agnostic result summaries from Zarr stores.
+
 ## [0.4.0] - 2026-09-01
 
 ### Added
@@ -611,5 +622,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [0.2.0]: https://github.com/urjanova/processforge/compare/v0.1.0...HEAD
 
+[0.4.1]: https://github.com/urjanova/processforge/compare/v0.4.0...v0.4.1
 [0.3.14]: https://github.com/urjanova/processforge/compare/v0.3.13...v0.3.14
 [0.3.12]: https://github.com/urjanova/processforge/compare/v0.3.11...v0.3.12

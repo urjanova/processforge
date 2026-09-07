@@ -73,7 +73,7 @@ def test_relink_latest_results_symlinks_to_latest(tmp_path):
     assert abs(root["openmc_solver"]["k_eff"][0] - 1.06) < 1e-9
 
 
-def test_pf_runs_lists_runs_with_disk_status(tmp_path, monkeypatch):
+def test_pf_runs_lists_runs_with_summary(tmp_path, monkeypatch):
     monkeypatch.setenv("PROCESSFORGE_OUTPUT_DIR", str(tmp_path))
     base = "test_flowsheet"
     archive_path = tmp_path / f"{base}.pfarchive"
@@ -102,15 +102,18 @@ def test_pf_runs_lists_runs_with_disk_status(tmp_path, monkeypatch):
     assert rid_a in result.output
     assert rid_b in result.output
     assert "*" in result.output  # latest marker on run B
-    assert "LATEST" in result.output
+    assert "SUMMARY" in result.output
     assert "RUN ID" in result.output
+    assert "k_eff=1.04000" in result.output  # run A has results
+    assert "no results.zarr" in result.output  # run B has no results
 
 
-def test_pf_runs_shows_manifest_and_artifacts(tmp_path, monkeypatch):
+def test_pf_runs_shows_result_summary_and_artifacts(tmp_path, monkeypatch):
     monkeypatch.setenv("PROCESSFORGE_OUTPUT_DIR", str(tmp_path))
     base = "test_flowsheet"
     archive_path = tmp_path / f"{base}.pfarchive"
     runs_dir = archive_path / "runs"
+    results_dir = archive_path / "results"
     runs_dir.mkdir(parents=True)
 
     rid = "20260101T000000Z_aaaaaa"
@@ -119,13 +122,33 @@ def test_pf_runs_shows_manifest_and_artifacts(tmp_path, monkeypatch):
         units={"openmc_solver": _eo(rid[-6:], 1.04)},
     )
     (runs_dir / f"{rid}.json").write_text(manifest.model_dump_json())
+    save_results_zarr({"openmc_solver": _eo(rid[-6:], 1.04)},
+                      str(results_dir / rid / "results.zarr"), None)
+    (archive_path / "latest_run").write_text(rid)
 
     app = typer.Typer()
     app.command()(runs)
+
+    # Explicit run id
     result = CliRunner().invoke(app, [f"/tmp/{base}.json", rid])
     assert result.exit_code == 0, result.output
     assert "k_eff" in result.output
-    assert "Artifacts on disk:" in result.output
+    assert "Artifacts:" in result.output
+    assert "statepoint" in result.output
+    assert "openmc" in result.output
+
+    # 'latest' shortcut resolves to the same run
+    result_latest = CliRunner().invoke(app, [f"/tmp/{base}.json", "latest"])
+    assert result_latest.exit_code == 0, result_latest.output
+    assert rid in result_latest.output
+    assert "k_eff" in result_latest.output
+
+    # --schema prints the result schema JSON
+    result_schema = CliRunner().invoke(app, [f"/tmp/{base}.json", rid, "--schema"])
+    assert result_schema.exit_code == 0, result_schema.output
+    schema = json.loads(result_schema.output)
+    assert schema["store_type"] == "simulation_results"
+    assert "openmc_solver" in schema["streams"]
 
 
 def test_build_run_manifest_populates_timestamp():

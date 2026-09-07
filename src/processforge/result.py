@@ -499,3 +499,138 @@ def _load_dataframe_from_zarr(store_path):
 
     return pd.DataFrame(rows)
 
+
+def summarize_zarr_store(store_path: str) -> dict:
+    """Return a structured summary of a Zarr result store.
+
+    The returned dict contains enough provider-agnostic information for the
+    ``pf runs`` command to render a one-line summary or a detailed result view.
+    """
+    summary: dict = {"present": False}
+    if not os.path.isdir(store_path):
+        return summary
+
+    store = zarr.storage.LocalStore(store_path)
+    root = zarr.open_group(store=store, mode="r")
+
+    schema = None
+    schema_path = store_path + ".schema.json"
+    if os.path.isfile(schema_path):
+        with open(schema_path, "r", encoding="utf-8") as f:
+            schema = json.load(f)
+
+    summary = {
+        "present": True,
+        "mode": root.attrs.get("mode", "unknown"),
+        "schema": schema,
+        "streams": {},
+        "solver_units": {},
+        "engine_outputs": {},
+        "artifacts": [],
+    }
+
+    for name in root.group_keys():
+        if name == "run_info":
+            continue
+        group = root[name]
+        arrays = sorted(group.array_keys())
+        attrs = dict(group.attrs)
+
+        if arrays:
+            fields = {}
+            for arr_name in arrays:
+                arr = group[arr_name]
+                fields[arr_name] = {
+                    "value": _convert_value(arr[:]),
+                    "unit": arr.attrs.get("unit", ""),
+                    "std_dev": arr.attrs.get("std_dev", None),
+                }
+            if attrs.get("engine"):
+                summary["engine_outputs"][name] = {
+                    "engine": attrs.get("engine", ""),
+                    "sim_type": attrs.get("sim_type", ""),
+                    "status": attrs.get("status", ""),
+                    "fields": fields,
+                }
+            else:
+                summary["streams"][name] = {
+                    "variables": arrays,
+                    "units": {k: group[k].attrs.get("unit", "") for k in arrays},
+                    "fields": fields,
+                }
+        else:
+            if attrs.get("engine"):
+                summary["engine_outputs"][name] = {
+                    "engine": attrs.get("engine", ""),
+                    "sim_type": attrs.get("sim_type", ""),
+                    "status": attrs.get("status", ""),
+                    "fields": {},
+                    "attrs": attrs,
+                }
+            else:
+                summary["solver_units"][name] = {
+                    "variables": sorted(k for k in attrs if not k.startswith("_")),
+                    "attrs": attrs,
+                }
+
+        # Extract artifacts from an engine-output or solver-unit subgroup.
+        if "artifacts" in group.group_keys():
+            art_group = group["artifacts"]
+            for art_name, art_json in art_group.attrs.items():
+                try:
+                    summary["artifacts"].append(json.loads(art_json))
+                except json.JSONDecodeError:
+                    continue
+
+    return summary
+
+
+def _one_line_summary(summary: dict) -> str:
+    """Pick a short, representative result string from a Zarr summary."""
+    if not summary.get("present"):
+        return "no results.zarr"
+
+    for name, eo in summary.get("engine_outputs", {}).items():
+        engine = eo.get("engine", "").lower()
+        fields = eo.get("fields", {})
+
+        if engine == "openmc":
+            k_eff = fields.get("k_eff")
+            if k_eff is not None:
+                val = k_eff["value"]
+                std = k_eff.get("std_dev")
+                if std is not None:
+                    return f"k_eff={val:.5f}±{std:.5f}"
+                return f"k_eff={val:.5f}"
+            return "openmc completed"
+
+        if engine == "festim":
+            for fname, fdata in fields.items():
+                if "flux" in fname.lower():
+                    unit = fdata.get("unit", "")
+                    return f"{fname}={_fmt_scientific(fdata['value'])} {unit}".strip()
+            if fields:
+                first = next(iter(fields.values()))
+                unit = first.get("unit", "")
+                return f"{next(iter(fields))}={_fmt_scientific(first['value'])} {unit}".strip()
+            return "festim completed"
+
+    n_streams = len(summary.get("streams", {}))
+    if n_streams:
+        return f"{n_streams} streams"
+
+    return "completed"
+
+
+def _fmt_scientific(value) -> str:
+    """Format a scalar numerically; fall back to its string representation."""
+    if value is None:
+        return ""
+    try:
+        f = float(value)
+        if abs(f) >= 1e4 or (abs(f) < 1e-3 and abs(f) > 0):
+            return f"{f:.3e}"
+        return f"{f:.4f}"
+    except (TypeError, ValueError):
+        return str(value)
+
