@@ -533,11 +533,18 @@ class TestCheckProviders:
     def test_pip_provider_logs_ok(self, log_output):
         import processforge.providers.registry as registry_mod
         from processforge.cli.common import check_providers
+        from processforge.providers.registry import ProviderCatalogEntry
 
         with patch.object(
             registry_mod, "_PROVIDER_CATALOG",
-            {"coolprop": {"module": "processforge.providers.coolprop_provider",
-                          "optional_dep": None}},
+            {
+                "coolprop": ProviderCatalogEntry(
+                    module="processforge.providers.coolprop_provider",
+                    class_name="CoolPropProvider",
+                    optional_dep=None,
+                    description="CoolProp (test)",
+                ),
+            },
         ):
             check_providers(self._config(coolprop={"type": "coolprop"}), "fs.json")
 

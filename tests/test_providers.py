@@ -71,15 +71,22 @@ class TestNamingConvention:
             )
 
     def test_no_orphaned_provider_modules(self):
-        """Every *_provider.py module that calls register_provider() must
-        have its registered name match the module stem."""
+        """Every registered provider class must live in its catalog module."""
+        from processforge.providers.registry import _PROVIDER_CATALOG
+
         # Import all provider modules to populate _PROVIDERS
         for mod_info in pkgutil.iter_modules([str(PROVIDERS_PKG)]):
             if mod_info.name.endswith("_provider"):
                 importlib.import_module(f"processforge.providers.{mod_info.name}")
 
         for registered_name, cls in _PROVIDERS.items():
-            expected_module = f"processforge.providers.{registered_name}_provider"
+            catalog_entry = _PROVIDER_CATALOG.get(registered_name)
+            if catalog_entry is None:
+                pytest.fail(
+                    f"Provider '{registered_name}' is registered but has no "
+                    f"catalog entry."
+                )
+            expected_module = catalog_entry.module
             try:
                 mod = importlib.import_module(expected_module)
             except ModuleNotFoundError:
@@ -143,11 +150,16 @@ class TestRegistry:
     """The registry must be internally consistent."""
 
     def test_coolprop_always_registered(self):
+        from processforge.providers.registry import list_providers
+
+        list_providers()  # ensures registry is seeded
         assert "coolprop" in _PROVIDERS
 
     def test_coolprop_class_is_coolprop_provider(self):
         from processforge.providers.coolprop_provider import CoolPropProvider
+        from processforge.providers.registry import list_providers
 
+        list_providers()  # ensures registry is seeded
         assert _PROVIDERS["coolprop"] is CoolPropProvider
 
     def test_get_provider_class_returns_correct_class(self):
@@ -236,6 +248,21 @@ class TestBuildProviderMap:
         assert "__coolprop__" in pmap
         assert pmap["__coolprop__"] is not None
         assert len(list(pmap.values())) >= 1
+
+    def test_len_and_iter(self, flowsheet_config):
+        from processforge.providers.manager import build_provider_map
+
+        pmap = build_provider_map({}, flowsheet_config)
+        assert len(pmap) >= 1
+        assert "__coolprop__" in list(pmap)
+
+    def test_repr(self, flowsheet_config):
+        from processforge.providers.manager import build_provider_map
+
+        pmap = build_provider_map({}, flowsheet_config)
+        r = repr(pmap)
+        assert "ProviderMap" in r
+        assert "__coolprop__" in r
 
 
 # ---------------------------------------------------------------------------

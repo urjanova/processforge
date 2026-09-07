@@ -11,6 +11,7 @@ pattern used for solver backends:
 """
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from typing import Optional
 
 from loguru import logger
@@ -18,7 +19,9 @@ from pydantic import BaseModel, ConfigDict
 
 from processforge.types import CoolPropProviderConfig, FlowsheetConfig, ProviderConfig
 
+from .base import AbstractProvider
 from .coolprop_provider import CoolPropProvider
+from .errors import ProviderNotAvailableError
 from .registry import get_provider_class, is_containerized
 
 _BUILTIN_DEFAULT_KEY = "__coolprop__"
@@ -37,50 +40,48 @@ class UnitProviderConfig(BaseModel):
     provider: Optional[str] = None
 
 
-class ProviderMap(BaseModel):
+class ProviderMap(MutableMapping[str, AbstractProvider]):
     """Typed, dict-compatible container for initialised providers.
 
-    Supports the dict-like operations that existing call sites rely on
-    (``__getitem__``, ``__contains__``, ``__bool__``, ``.values()``)
-    while adding a :meth:`resolve` method for provider lookup.
+    Implements the :class:`~collections.abc.MutableMapping` protocol so existing
+    call sites can use ``__getitem__``, ``__contains__``, ``.values()``,
+    iteration, ``len()``, etc.  Adds :meth:`resolve` for provider lookup and a
+    ``_default`` fallback.
     """
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    def __init__(
+        self,
+        providers: Optional[dict[str, AbstractProvider]] = None,
+        default: Optional[AbstractProvider] = None,
+    ) -> None:
+        self._providers: dict[str, AbstractProvider] = dict(providers or {})
+        self._default: Optional[AbstractProvider] = default
 
-    _providers: dict[str, object] = {}
-    _default: Optional[object] = None
+    # -- MutableMapping protocol --------------------------------------------
 
-    def __init__(self, **data):
-        super().__init__(**data)
-        object.__setattr__(self, "_providers", data.get("_providers", {}))
-        object.__setattr__(self, "_default", data.get("_default"))
-
-    # -- dict-like access ---------------------------------------------------
-
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> AbstractProvider:
         return self._providers[key]
 
-    def __contains__(self, key: str) -> bool:
-        return key in self._providers
+    def __setitem__(self, key: str, value: AbstractProvider) -> None:
+        self._providers[key] = value
 
-    def __bool__(self) -> bool:
-        return bool(self._providers)
+    def __delitem__(self, key: str) -> None:
+        del self._providers[key]
 
-    def values(self):
-        return self._providers.values()
+    def __iter__(self):
+        return iter(self._providers)
 
-    def keys(self):
-        return self._providers.keys()
+    def __len__(self) -> int:
+        return len(self._providers)
 
-    def items(self):
-        return self._providers.items()
-
-    def get(self, key: str, default=None):
-        return self._providers.get(key, default)
+    def __repr__(self) -> str:
+        names = list(self._providers.keys())
+        default_name = self._default_name()
+        return f"ProviderMap({names!r}, default={default_name!r})"
 
     # -- provider resolution ------------------------------------------------
 
-    def resolve(self, unit_config: UnitProviderConfig) -> object:
+    def resolve(self, unit_config: UnitProviderConfig) -> AbstractProvider:
         """Return the provider for a unit, falling back to the default.
 
         Raises:
@@ -100,6 +101,15 @@ class ProviderMap(BaseModel):
         raise ValueError(
             "No provider specified and no default provider configured."
         )
+
+    def _default_name(self) -> Optional[str]:
+        """Return the key under which the default provider is stored, if any."""
+        if self._default is None:
+            return None
+        for name, provider in self._providers.items():
+            if provider is self._default:
+                return name
+        return "<external>"
 
 
 def build_provider_map(
@@ -127,9 +137,9 @@ def build_provider_map(
     coolprop = CoolPropProvider()
     try:
         coolprop.initialize(CoolPropProviderConfig(), flowsheet_config)
-        providers: dict = {_BUILTIN_DEFAULT_KEY: coolprop}
-    except ImportError as e:
-        logger.debug(f"Skipping implicit CoolProp fallback: {e}")
+        providers: dict[str, AbstractProvider] = {_BUILTIN_DEFAULT_KEY: coolprop}
+    except ProviderNotAvailableError as exc:
+        logger.debug(f"Skipping implicit CoolProp fallback: {exc}")
         providers = {}
         coolprop = None
 
@@ -142,7 +152,7 @@ def build_provider_map(
             # that talks to the container's provider_server.py.
             from .container_client import ContainerProviderClient
 
-            instance = ContainerProviderClient(ptype)
+            instance: AbstractProvider = ContainerProviderClient(ptype)
             logger.info(
                 f"Initialized provider '{name}' (type='{ptype}') via container client"
             )
@@ -154,7 +164,7 @@ def build_provider_map(
         providers[name] = instance
 
     # Step 3: resolve the active default.
-    default = None
+    default: Optional[AbstractProvider] = None
     user_default = flowsheet_config.default_provider
     if user_default is not None:
         if user_default not in providers:
@@ -168,7 +178,7 @@ def build_provider_map(
     elif coolprop is not None:
         default = coolprop
 
-    return ProviderMap(_providers=providers, _default=default)
+    return ProviderMap(providers=providers, default=default)
 
 
 def teardown_providers(provider_map: ProviderMap | None) -> None:

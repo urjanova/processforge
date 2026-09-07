@@ -99,17 +99,17 @@ def mixed_flowsheet(tmp_path):
 
 class TestProviderCatalog:
     def test_coolprop_no_docker(self):
-        assert _PROVIDER_CATALOG["coolprop"]["docker_image"] is None
-        assert _PROVIDER_CATALOG["coolprop"]["default_port"] is None
+        assert _PROVIDER_CATALOG["coolprop"].docker_image is None
+        assert _PROVIDER_CATALOG["coolprop"].default_port is None
 
     def test_openmc_has_docker(self):
-        assert _PROVIDER_CATALOG["openmc"]["docker_image"] is not None
-        assert _PROVIDER_CATALOG["openmc"]["default_port"] == 9001
+        assert _PROVIDER_CATALOG["openmc"].docker_image is not None
+        assert _PROVIDER_CATALOG["openmc"].default_port == 9001
 
     def test_festim_in_catalog(self):
         assert "festim" in _PROVIDER_CATALOG
-        assert _PROVIDER_CATALOG["festim"]["docker_image"] is not None
-        assert _PROVIDER_CATALOG["festim"]["default_port"] == 9002
+        assert _PROVIDER_CATALOG["festim"].docker_image is not None
+        assert _PROVIDER_CATALOG["festim"].default_port == 9002
 
     def test_get_provider_docker_image(self):
         assert get_provider_docker_image("openmc") is not None

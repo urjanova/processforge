@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `classify_run_error()` now accepts an `engine` argument and falls back to generic signatures for unknown engines.
 - `errors.py` now exposes an explicit `__all__` for its public API.
 - Provider `initialize()` methods now raise `ProviderNotAvailableError` when their optional backend dependency is missing.
+- **`ProviderCatalogEntry`** (`processforge.providers.registry`): validated Pydantic model for provider catalog metadata.
+- `ProviderMap` is now a typed `MutableMapping[str, AbstractProvider]` instead of a Pydantic `BaseModel`; it implements `__iter__`, `__len__`, and `__repr__`.
+- CoolProp registry seeding is now lazy (triggered on first registry access) so importing `processforge.providers.registry` does not import provider backends.
 
 ## [0.4.3] - 2026-09-07
 

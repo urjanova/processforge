@@ -252,13 +252,13 @@ def _check_pip_provider(
     """Verify a pip-installable provider's module is importable."""
     from ..providers.registry import _PROVIDER_CATALOG
 
-    catalog = _PROVIDER_CATALOG.get(ptype, {})
-    module = catalog.get("module", "")
+    catalog = _PROVIDER_CATALOG.get(ptype)
+    module = catalog.module if catalog else ""
     try:
         importlib.util.find_spec(module)
         logger.info(f"  [OK] {name} [{ptype}] (pip — importable)")
     except (ModuleNotFoundError, ValueError):
-        dep = catalog.get("optional_dep")
+        dep = catalog.optional_dep if catalog else None
         hint = f"pip install 'processforge[{dep}]'" if dep else "built-in"
         msg = (
             f"  [WARN] {name} [{ptype}] — not installed. "

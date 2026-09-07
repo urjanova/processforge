@@ -12,61 +12,90 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING
 
+from pydantic import BaseModel, ConfigDict, Field
+
 if TYPE_CHECKING:
     from .base import AbstractProvider
 
-# Registry is seeded with the built-in CoolProp provider at bottom of file.
+
+class ProviderCatalogEntry(BaseModel):
+    """Validated metadata entry for a provider in the canonical catalog."""
+
+    module: str
+    class_name: str = Field(alias="class")
+    optional_dep: str | None
+    description: str
+    docker_image: str | None = None
+    default_port: int | None = None
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+# Runtime registry of loaded provider classes.
 _PROVIDERS: dict[str, type] = {}
 
 # Types that are always available (no optional dependency).
 _BUILTIN_TYPES: frozenset[str] = frozenset({"coolprop"})
 
+# Whether the built-in CoolProp provider has been seeded into `_PROVIDERS`.
+# Seeding is deferred until first use so importing `registry` never imports
+# provider backends unless they are actually needed.
+_SEEDED: bool = False
+
 # Canonical catalog of all supported providers.
 # ``list_providers()`` reads this to report what exists without importing anything.
-# ``docker_image`` — pre-built Docker image for containerized providers (None for pip-installable).
-# ``default_port`` — default port for containerized providers (None for pip-installable).
-_PROVIDER_CATALOG: dict[str, dict[str, str | None | int]] = {
-    "coolprop": {
-        "module": "processforge.providers.coolprop_provider",
-        "class": "CoolPropProvider",
-        "optional_dep": None,
-        "description": "Thermodynamic properties via CoolProp (built-in)",
-        "docker_image": None,
-        "default_port": None,
-    },
-    "cantera": {
-        "module": "processforge.providers.cantera_provider",
-        "class": "CanteraProvider",
-        "optional_dep": "cantera",
-        "description": "Thermochemistry and reactor kinetics via Cantera",
-        "docker_image": None,
-        "default_port": None,
-    },
-    "modelica": {
-        "module": "processforge.providers.modelica_provider",
-        "class": "ModelicaProvider",
-        "optional_dep": "modelica",
-        "description": "FMU-based simulation via OpenModelica",
-        "docker_image": None,
-        "default_port": None,
-    },
-    "openmc": {
-        "module": "processforge.providers.openmc_provider",
-        "class": "OpenMCProvider",
-        "optional_dep": "openmc",
-        "description": "Neutronics simulation via OpenMC",
-        "docker_image": "ghcr.io/urjanova/processforge-openmc:latest",
-        "default_port": 9001,
-    },
-    "festim": {
-        "module": "processforge.providers.festim_provider",
-        "class": "FestimProvider",
-        "optional_dep": None,
-        "description": "Hydrogen transport FEM via FESTIM (Docker service)",
-        "docker_image": "ghcr.io/urjanova/processforge-festim:latest",
-        "default_port": 9002,
-    },
+_PROVIDER_CATALOG: dict[str, ProviderCatalogEntry] = {
+    "coolprop": ProviderCatalogEntry(
+        module="processforge.providers.coolprop_provider",
+        class_name="CoolPropProvider",
+        optional_dep=None,
+        description="Thermodynamic properties via CoolProp (built-in)",
+    ),
+    "cantera": ProviderCatalogEntry(
+        module="processforge.providers.cantera_provider",
+        class_name="CanteraProvider",
+        optional_dep="cantera",
+        description="Thermochemistry and reactor kinetics via Cantera",
+    ),
+    "modelica": ProviderCatalogEntry(
+        module="processforge.providers.modelica_provider",
+        class_name="ModelicaProvider",
+        optional_dep="modelica",
+        description="FMU-based simulation via OpenModelica",
+    ),
+    "openmc": ProviderCatalogEntry(
+        module="processforge.providers.openmc",
+        class_name="OpenMCProvider",
+        optional_dep="openmc",
+        description="Neutronics simulation via OpenMC",
+        docker_image="ghcr.io/urjanova/processforge-openmc:latest",
+        default_port=9001,
+    ),
+    "festim": ProviderCatalogEntry(
+        module="processforge.providers.festim",
+        class_name="FestimProvider",
+        optional_dep=None,
+        description="Hydrogen transport FEM via FESTIM (Docker service)",
+        docker_image="ghcr.io/urjanova/processforge-festim:latest",
+        default_port=9002,
+    ),
 }
+
+
+def _ensure_seeded() -> None:
+    """Seed the registry with the always-available CoolProp provider.
+
+    This is a one-time, lazy operation. It is safe to call repeatedly.
+    """
+    global _SEEDED
+    if _SEEDED:
+        return
+    # Set the flag BEFORE registering to prevent recursion: register_provider
+    # also calls _ensure_seeded().
+    _SEEDED = True
+    from .coolprop_provider import CoolPropProvider
+
+    _PROVIDERS["coolprop"] = CoolPropProvider
 
 
 def get_provider_class(provider_type: str) -> type:
@@ -80,6 +109,7 @@ def get_provider_class(provider_type: str) -> type:
     Raises:
         ValueError: If the type is not registered and cannot be imported.
     """
+    _ensure_seeded()
     cls = _PROVIDERS.get(provider_type)
     if cls is not None:
         return cls
@@ -111,6 +141,7 @@ def register_provider(name: str, cls: type) -> None:
     Called by each optional provider module so the registry stays current
     without hard imports at the top level.
     """
+    _ensure_seeded()
     _PROVIDERS[name] = cls
 
 
@@ -131,9 +162,10 @@ def list_providers() -> list[dict[str, object]]:
     This function does **not** import any provider modules, so it is safe
     to call at startup regardless of which extras are installed.
     """
+    _ensure_seeded()
     results: list[dict[str, object]] = []
     for type_name, info in _PROVIDER_CATALOG.items():
-        module_name = info["module"]
+        module_name = info.module
         try:
             importlib.util.find_spec(module_name)
             installed = True
@@ -143,10 +175,10 @@ def list_providers() -> list[dict[str, object]]:
         results.append(
             {
                 "type": type_name,
-                "description": info["description"],
-                "optional_dep": info["optional_dep"],
-                "docker_image": info.get("docker_image"),
-                "default_port": info.get("default_port"),
+                "description": info.description,
+                "optional_dep": info.optional_dep,
+                "docker_image": info.docker_image,
+                "default_port": info.default_port,
                 "installed": installed,
                 "registered": type_name in _PROVIDERS,
             }
@@ -159,7 +191,7 @@ def get_provider_docker_image(provider_type: str) -> str | None:
     info = _PROVIDER_CATALOG.get(provider_type)
     if info is None:
         raise ValueError(f"Unknown provider type '{provider_type}'")
-    return info.get("docker_image")
+    return info.docker_image
 
 
 def get_provider_default_port(provider_type: str) -> int | None:
@@ -167,7 +199,7 @@ def get_provider_default_port(provider_type: str) -> int | None:
     info = _PROVIDER_CATALOG.get(provider_type)
     if info is None:
         raise ValueError(f"Unknown provider type '{provider_type}'")
-    return info.get("default_port")
+    return info.default_port
 
 
 def is_containerized(provider_type: str) -> bool:
@@ -180,13 +212,3 @@ def is_containerized(provider_type: str) -> bool:
         return get_provider_docker_image(provider_type) is not None
     except ValueError:
         return False
-
-
-# Seed the registry with the always-available CoolProp provider.
-# Import is deferred to a function-level import to avoid circular deps.
-def _seed_registry() -> None:
-    from .coolprop_provider import CoolPropProvider
-    register_provider("coolprop", CoolPropProvider)
-
-
-_seed_registry()

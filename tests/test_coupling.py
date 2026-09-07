@@ -86,7 +86,7 @@ class _FakeB:
 
 def _make_provider_map():
     a, b = _FakeA(), _FakeB()
-    pmap = ProviderMap(_providers={"fakeA": a, "fakeB": b}, _default=None)
+    pmap = ProviderMap(providers={"fakeA": a, "fakeB": b}, default=None)
     return pmap, a, b
 
 
