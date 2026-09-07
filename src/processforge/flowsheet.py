@@ -835,6 +835,27 @@ class Flowsheet:
                     ) from exc
         return stream_ts
 
+    @staticmethod
+    def _store_dynamic_outlet(results: dict, cfg: dict, sol) -> None:
+        """Store a unit's dynamic solution into the result streams.
+
+        Handles the three outlet conventions supported by the framework:
+        * ``out`` is a string -> single outlet stream.
+        * ``out`` is a list of strings -> broadcast the same solution to each.
+        * ``retentate_out`` / ``permeate_out`` -> split the solution by key.
+        """
+        if "out" in cfg:
+            out_val = cfg["out"]
+            if isinstance(out_val, list):
+                for stream_name in out_val:
+                    results[stream_name] = sol
+            else:
+                results[out_val] = sol
+        else:
+            for out_key in ["retentate_out", "permeate_out"]:
+                if out_key in cfg and out_key in sol:
+                    results[cfg[out_key]] = sol[out_key]
+
     def _run_dynamic_sequential(self, solver, processing_order, results, t_eval, num_steps, start_time, end_time):
         """Standard sequential dynamic simulation for non-recycle flowsheets."""
         # Process units in topological order
@@ -842,7 +863,6 @@ class Flowsheet:
             unit = self.units[unit_name]
             cfg = self.config["units"][unit_name]
             inlet_name = cfg["in"]
-            outlets = self._get_unit_outlets(unit_name)
             if isinstance(inlet_name, list):
                 inlet_stream_ts = self._merge_inlet_timeseries(inlet_name, results, num_steps, t_eval)
             else:
@@ -853,23 +873,13 @@ class Flowsheet:
                 sol = unit.run_dynamic(
                     inlet_stream_ts, (start_time, end_time), t_eval, solver
                 )
-                if len(outlets) == 1:
-                    results[outlets[0]] = sol
-                else:
-                    for out_key, stream_name in zip(["retentate_out", "permeate_out"], outlets):
-                        if out_key in sol:
-                            results[stream_name] = sol[out_key]
+                self._store_dynamic_outlet(results, cfg, sol)
             else:
                 logger.debug(f"Processing static unit {unit_name} dynamically")
                 sol = self._process_static_unit(
                     unit, inlet_stream_ts, t_eval, num_steps
                 )
-                if len(outlets) == 1:
-                    results[outlets[0]] = sol
-                else:
-                    for out_key, stream_name in zip(["retentate_out", "permeate_out"], outlets):
-                        if out_key in sol:
-                            results[stream_name] = sol[out_key]
+                self._store_dynamic_outlet(results, cfg, sol)
 
         self.results = results
         logger.info("Dynamic simulation completed")
@@ -981,7 +991,10 @@ class Flowsheet:
                 
                 # Store results for this timestep
                 if "out" in cfg:
-                    self._store_snapshot_in_timeseries(results, cfg["out"], outlet_snapshot, step, components)
+                    out_val = cfg["out"]
+                    targets = out_val if isinstance(out_val, list) else [out_val]
+                    for stream_name in targets:
+                        self._store_snapshot_in_timeseries(results, stream_name, outlet_snapshot, step, components)
                 else:
                     for out_key in ["retentate_out", "permeate_out"]:
                         if out_key in cfg and out_key in outlet_snapshot:

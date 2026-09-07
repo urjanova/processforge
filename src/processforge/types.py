@@ -85,7 +85,7 @@ class UnitConfig(BaseModel):
     material: Optional[int] = None
     provider: Optional[str] = None
     inlets: list = []                                # JSON "in" key (stream feeds)
-    out: Optional[str] = None
+    out: Optional[Union[str, list[str]]] = None
     retentate_out: Optional[str] = None
     permeate_out: Optional[str] = None
     sim_type: Optional[str] = None

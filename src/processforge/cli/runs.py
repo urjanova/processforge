@@ -11,7 +11,16 @@ from loguru import logger
 
 from .common import flowsheet_basename, output_root
 from ..persistence.archive import ProcessStateArchive
-from ..result import _fmt_scientific, _one_line_summary, summarize_zarr_store
+from ..result import (
+    _fmt_scientific,
+    _one_line_summary,
+    _scalar_from_sequence,
+    summarize_zarr_store,
+)
+
+# Fixed column widths for the compact single-run stream table.
+STREAM_COL_WIDTH = 28
+VAR_COL_WIDTH = 10
 
 
 def _humanize_timestamp(ts: str) -> str:
@@ -42,8 +51,8 @@ def _artifact_status(artifact: dict) -> str:
     return "missing"
 
 
-def _format_run_details(manifest, summary: dict) -> str:
-    """Format a detailed, human-readable result summary for a single run."""
+def _format_run_compact(manifest, summary: dict) -> str:
+    """Format a compact, human-readable result summary for a single run."""
     lines = [
         f"Run: {manifest.run_id}",
         f"Timestamp: {manifest.timestamp}",
@@ -61,17 +70,25 @@ def _format_run_details(manifest, summary: dict) -> str:
             status = eo.get("status", "")
             lines.append(f"{name} ({engine} / {sim_type}) [{status}]")
             for fname, fdata in eo.get("fields", {}).items():
-                val = _fmt_scientific(fdata.get("value"))
+                val = _fmt_scientific(_scalar_from_sequence(fdata.get("value")))
                 unit = fdata.get("unit", "")
                 std = fdata.get("std_dev")
                 if std is not None:
-                    lines.append(f"  {fname}: {val} ± {_fmt_scientific(std)} {unit}".strip())
+                    lines.append(
+                        f"  {fname}: {val} ± {_fmt_scientific(std)} {unit}".strip()
+                    )
                 else:
                     lines.append(f"  {fname}: {val} {unit}".strip())
             if eo.get("attrs") and not eo.get("fields"):
                 for k, v in eo["attrs"].items():
-                    if not k.startswith("_") and k not in ("engine", "sim_type", "status"):
-                        lines.append(f"  {k}: {_fmt_scientific(v)}")
+                    if not k.startswith("_") and k not in (
+                        "engine",
+                        "sim_type",
+                        "status",
+                    ):
+                        lines.append(
+                            f"  {k}: {_fmt_scientific(_scalar_from_sequence(v))}"
+                        )
             lines.append("")
     else:
         lines.append("  (no solver/engine outputs)")
@@ -79,24 +96,32 @@ def _format_run_details(manifest, summary: dict) -> str:
 
     streams = summary.get("streams", {})
     if streams:
-        lines.append("Streams:")
+        lines.append("Streams (final timestep):")
         all_vars: set[str] = set()
         for sdata in streams.values():
             all_vars.update(sdata.get("variables", []))
         all_vars = sorted(all_vars)
 
-        header_parts = ["stream".ljust(20)] + [v.rjust(14) for v in all_vars]
+        header_parts = ["stream".ljust(STREAM_COL_WIDTH)] + [
+            v.rjust(VAR_COL_WIDTH) for v in all_vars
+        ]
         lines.append("  " + " ".join(header_parts))
         lines.append("  " + "-" * len("  ".join(header_parts)))
         for sname in sorted(streams):
             sdata = streams[sname]
             fields = sdata.get("fields", {})
-            row = [sname.ljust(20)]
+            display_name = sname[:STREAM_COL_WIDTH]
+            row = [display_name.ljust(STREAM_COL_WIDTH)]
             for var in all_vars:
                 fdata = fields.get(var, {})
                 val = fdata.get("value")
-                row.append(_fmt_scientific(val).rjust(14))
+                row.append(
+                    _fmt_scientific(_scalar_from_sequence(val)).rjust(VAR_COL_WIDTH)
+                )
             lines.append("  " + " ".join(row))
+        lines.append("")
+    else:
+        lines.append("Streams: none")
         lines.append("")
 
     artifacts = summary.get("artifacts", [])
@@ -106,7 +131,9 @@ def _format_run_details(manifest, summary: dict) -> str:
             name = art.get("name", "unknown")
             kind = art.get("kind", "")
             status = _artifact_status(art)
-            loc = art.get("local_path") or (art.get("remote_uris") or ["no location"])[0]
+            loc = (
+                art.get("local_path") or (art.get("remote_uris") or ["no location"])[0]
+            )
             lines.append(f"  [{kind}] {name}: {status} ({loc})")
     else:
         lines.append("Artifacts: none")
@@ -170,7 +197,7 @@ def runs(
         manifest = archive.load_run(resolved_id)
         summary = summarize_zarr_store(zarr_path)
         summary["_zarr_path"] = zarr_path
-        typer.echo(_format_run_details(manifest, summary))
+        typer.echo(_format_run_compact(manifest, summary))
         return
 
     # List all runs with a one-line summary.

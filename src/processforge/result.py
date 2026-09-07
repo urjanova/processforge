@@ -44,7 +44,15 @@ def _store_stream(stream_group, stream_data):
             if value:
                 stream_group.attrs["composition"] = sorted(value)
             continue
-        stream_group.create_array(key, data=_ensure_array(value))
+        arr = _ensure_array(value)
+        if arr.dtype.kind == "U":
+            # Use Zarr's stable variable-length UTF-8 dtype instead of
+            # numpy fixed-length unicode, which maps to the unstable
+            # FixedLengthUTF32 V3 dtype.
+            zarr_arr = stream_group.create_array(key, shape=arr.shape, dtype=str)
+            zarr_arr[:] = arr
+        else:
+            stream_group.create_array(key, data=arr)
 
 
 def _store_solver_unit(group, data):
@@ -136,6 +144,8 @@ def _store_run_info(root, run_info: RunInfo | dict) -> None:
 
 def _friendly_dtype(dt: str) -> str:
     dtype = str(dt)
+    if "StringDType" in dtype:
+        return "str"
     if dtype.startswith(("<U", "|U")) or dtype.startswith(("<S", "|S")):
         return "str"
     return dtype
@@ -179,8 +189,15 @@ def _build_schema(root) -> ResultSchema:
     if "run_info" in root:
         ri = root["run_info"]
         prov = {}
-        for key in ("git_hash", "timestamp", "mode", "backend",
-                     "python_version", "platform", "processforge_version"):
+        for key in (
+            "git_hash",
+            "timestamp",
+            "mode",
+            "backend",
+            "python_version",
+            "platform",
+            "processforge_version",
+        ):
             if key in ri.attrs:
                 prov[key] = ri.attrs[key]
                 if key == "processforge_version":
@@ -216,7 +233,9 @@ def _write_schema_s3(s3_uri, storage_options):
     logger.debug(f"Wrote schema to {schema_uri}")
 
 
-def save_results_zarr(results, fname="results.zarr", run_info: RunInfo | dict | None = None):
+def save_results_zarr(
+    results, fname="results.zarr", run_info: RunInfo | dict | None = None
+):
     """Persist simulation results in a Zarr directory.
 
     Args:
@@ -447,7 +466,9 @@ def _convert_value(value):
     if isinstance(value, np.ndarray):
         if value.size == 0:
             return ""
-        return _convert_value(value.item())
+        if value.size == 1:
+            return _convert_value(value.item())
+        return [_convert_value(v) for v in value.tolist()]
     if isinstance(value, np.generic):
         return value.item()
     return value
@@ -623,14 +644,17 @@ def _one_line_summary(summary: dict) -> str:
 
 
 def _fmt_scientific(value) -> str:
-    """Format a scalar numerically; fall back to its string representation."""
+    """Format a scalar numerically; fall back to its string representation.
+
+    Values outside [1e-3, 1e9) are shown in scientific notation; values inside
+    use fixed-point with comma thousands separators for readability.
+    """
     if value is None:
         return ""
     try:
         f = float(value)
-        if abs(f) >= 1e4 or (abs(f) < 1e-3 and abs(f) > 0):
+        if abs(f) >= 1e9 or (abs(f) < 1e-3 and abs(f) > 0):
             return f"{f:.3e}"
-        return f"{f:.4f}"
+        return f"{f:,.4f}"
     except (TypeError, ValueError):
         return str(value)
-
