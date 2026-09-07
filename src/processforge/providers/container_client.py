@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Optional
 from loguru import logger
 
 from .base import AbstractProvider
+from .errors import ProviderNotAvailableError
 from .registry import get_provider_default_port
 
 if TYPE_CHECKING:
@@ -134,7 +135,7 @@ class ContainerProviderClient(AbstractProvider):
                 f"status={health.get('status')}"
             )
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
-            raise RuntimeError(
+            raise ProviderNotAvailableError(
                 f"Provider '{self._ptype}' service unreachable at {self._url}. "
                 f"Ensure the container is running: pf init <flowsheet>"
             ) from exc

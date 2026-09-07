@@ -7,6 +7,7 @@ from loguru import logger
 
 from .base import AbstractProvider
 from .cantera_jacobian import CanteraJacobianMixin
+from .errors import ProviderNotAvailableError
 from .registry import register_provider
 
 if TYPE_CHECKING:
@@ -57,7 +58,7 @@ class CanteraProvider(AbstractProvider, CanteraJacobianMixin):
         try:
             import cantera as ct
         except ImportError as exc:
-            raise RuntimeError(
+            raise ProviderNotAvailableError(
                 "Cantera is not installed. "
                 "Install it with: pip install 'processforge[cantera]'"
             ) from exc

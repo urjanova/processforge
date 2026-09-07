@@ -4,11 +4,24 @@ from __future__ import annotations
 import pathlib
 
 from processforge.providers.errors import (
+    BC_SETUP,
     CROSS_SECTIONS,
+    ENVIRONMENT,
     GEOMETRY,
+    INPUT_VALIDATION,
+    MATERIAL_PROPERTY,
+    MESH_QUALITY,
     MPI_ABORT,
     NUCLEAR_DATA,
+    ProviderCleanupError,
+    ProviderConfigError,
+    ProviderError,
+    ProviderInitError,
+    ProviderNotAvailableError,
     ProviderRunError,
+    ProviderRuntimeError,
+    ProviderValidationError,
+    SOLVER_CONVERGENCE,
     UNKNOWN,
     classify_run_error,
     make_failed_output,
@@ -18,6 +31,31 @@ from processforge.types import EngineOutput
 
 def _classify(msg: str, engine: str = "openmc", captured: str = "") -> ProviderRunError:
     return classify_run_error(engine, RuntimeError(msg), captured=captured)
+
+
+# ---------------------------------------------------------------------------
+# Exception hierarchy
+# ---------------------------------------------------------------------------
+
+
+def test_provider_error_hierarchy():
+    assert issubclass(ProviderNotAvailableError, ProviderInitError)
+    assert issubclass(ProviderInitError, ProviderError)
+    assert issubclass(ProviderRuntimeError, ProviderError)
+    assert issubclass(ProviderCleanupError, ProviderError)
+    assert issubclass(ProviderValidationError, ProviderError)
+    assert issubclass(ProviderConfigError, ProviderError)
+
+
+def test_provider_not_available_error_carries_message():
+    exc = ProviderNotAvailableError("backend missing")
+    assert str(exc) == "backend missing"
+    assert isinstance(exc, ProviderInitError)
+
+
+# ---------------------------------------------------------------------------
+# OpenMC categories
+# ---------------------------------------------------------------------------
 
 
 def test_nuclear_data_category_and_hint():
@@ -49,6 +87,49 @@ def test_geometry_category():
     assert err.category == GEOMETRY
 
 
+# ---------------------------------------------------------------------------
+# FESTIM categories
+# ---------------------------------------------------------------------------
+
+
+def test_festim_mesh_quality_category():
+    err = _classify(
+        "Mesh generation failed: negative volume cells detected",
+        engine="festim",
+    )
+    assert err.category == MESH_QUALITY
+    assert "mesh" in err.hint.lower()
+
+
+def test_festim_bc_setup_category():
+    err = _classify(
+        "Boundary condition undefined for surface subdomain id=2",
+        engine="festim",
+    )
+    assert err.category == BC_SETUP
+
+
+def test_festim_solver_convergence_category():
+    err = _classify(
+        "Newton solver diverged after 25 iterations",
+        engine="festim",
+    )
+    assert err.category == SOLVER_CONVERGENCE
+
+
+def test_festim_material_property_category():
+    err = _classify(
+        "Material 'tungsten' is missing property pre-exponential D_0",
+        engine="festim",
+    )
+    assert err.category == MATERIAL_PROPERTY
+
+
+# ---------------------------------------------------------------------------
+# Engine scoping / fallback behavior
+# ---------------------------------------------------------------------------
+
+
 def test_unknown_fallback():
     err = _classify("some totally opaque engine complaint with no known signature")
     assert err.category == UNKNOWN
@@ -70,10 +151,41 @@ def test_captured_text_improves_classification():
     assert err.category == NUCLEAR_DATA
 
 
+def test_openmc_specific_signature_does_not_match_festim_engine():
+    # The same nuclear-data text should be UNKNOWN for festim because it has no
+    # cross-section concept; generic signatures should still apply.
+    err = _classify(
+        "Nuclear data library does not contain cross sections for Ni58",
+        engine="festim",
+    )
+    assert err.category == UNKNOWN
+
+
+def test_generic_environment_category_matches_any_engine():
+    err = _classify(
+        "Permission denied when writing to outputs/festim",
+        engine="festim",
+    )
+    assert err.category == ENVIRONMENT
+
+
+def test_generic_input_validation_category_matches_any_engine():
+    err = _classify(
+        "ValueError: solver_config expects float got str",
+        engine="my_custom_engine",
+    )
+    assert err.category == INPUT_VALIDATION
+
+
+# ---------------------------------------------------------------------------
+# ProviderRunError record / output builders
+# ---------------------------------------------------------------------------
+
+
 def test_from_exception_sets_fields():
-    err = ProviderRunError.from_exception(ValueError("bad value"))
+    err = ProviderRunError.from_exception(ValueError("expected float got str"))
     assert err.type == "ValueError"
-    assert err.category == "input_validation" or err.category  # input_validation or unknown
+    assert err.category == INPUT_VALIDATION
     assert err.detail
 
 

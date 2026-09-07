@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from .base import AbstractProvider
+from .errors import ProviderNotAvailableError
 
 if TYPE_CHECKING:
     from processforge.types import CoolPropProviderConfig, FlowsheetConfig
@@ -25,11 +26,11 @@ class CoolPropProvider(AbstractProvider):
         try:
             import CoolProp.CoolProp as CP
             self.CP = CP
-        except ImportError:
-            raise ImportError(
+        except ImportError as exc:
+            raise ProviderNotAvailableError(
                 "CoolProp is not installed. To use the CoolProp thermodynamics provider, "
                 "please install it by running `pip install \"processforge[coolprop]\"`"
-            )
+            ) from exc
 
     def get_thermo_properties(self, stream: dict) -> dict:
         """Calculate thermodynamic properties using CoolProp."""

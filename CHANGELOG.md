@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - Unreleased
+
+### Added
+- **Generic provider exception hierarchy** (`processforge.providers.errors`): new base `ProviderError` plus `ProviderInitError`, `ProviderNotAvailableError`, `ProviderRuntimeError`, `ProviderCleanupError`, `ProviderValidationError`, and `ProviderConfigError` so callers can catch provider failures with a single, stable exception type.
+- **Engine-scoped run-error classification**: `classify_run_error()` now selects error signatures per engine (`openmc`, `festim`, `generic`) instead of using a single global list.
+- **FESTIM-specific error categories**: `mesh_quality`, `bc_setup`, `solver_convergence`, and `material_property` with tailored remediation hints.
+
+### Changed
+- `classify_run_error()` now accepts an `engine` argument and falls back to generic signatures for unknown engines.
+- `errors.py` now exposes an explicit `__all__` for its public API.
+- Provider `initialize()` methods now raise `ProviderNotAvailableError` when their optional backend dependency is missing.
+
 ## [0.4.3] - 2026-09-07
 
 ### Changed

@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Optional
 from loguru import logger
 
 from .base import AbstractProvider
+from .errors import ProviderNotAvailableError
 from .modelica_jacobian import ModelicaJacobianMixin
 from .registry import register_provider
 
@@ -69,7 +70,7 @@ class ModelicaProvider(AbstractProvider, ModelicaJacobianMixin):
             from fmpy import read_model_description, extract
             from fmpy.fmi2 import FMU2Slave
         except ImportError as exc:
-            raise RuntimeError(
+            raise ProviderNotAvailableError(
                 "fmpy is not installed. "
                 "Install with: pip install 'processforge[modelica]'"
             ) from exc

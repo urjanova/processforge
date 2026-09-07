@@ -23,6 +23,16 @@ back to the built-in CoolProp provider — existing flowsheets are unaffected.
 from .base import AbstractProvider
 from .base_jacobian_mixin import BaseJacobianMixin
 from .coolprop_provider import CoolPropProvider
+from .errors import (
+    ProviderCleanupError,
+    ProviderConfigError,
+    ProviderError,
+    ProviderInitError,
+    ProviderNotAvailableError,
+    ProviderRunError,
+    ProviderRuntimeError,
+    ProviderValidationError,
+)
 from .jacobian_contributor import JacobianContributor, ReferenceState
 from .reference_state_registry import ReferenceStateRegistry
 from .registry import get_provider_class, list_providers, register_provider
@@ -38,4 +48,14 @@ __all__ = [
     "ReferenceState",
     "BaseJacobianMixin",
     "ReferenceStateRegistry",
+    # Provider error taxonomy
+    "ProviderError",
+    "ProviderInitError",
+    "ProviderNotAvailableError",
+    "ProviderRuntimeError",
+    "ProviderCleanupError",
+    "ProviderValidationError",
+    "ProviderConfigError",
+    "ProviderRunError",
 ]
+
