@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ProviderCatalogEntry`** (`processforge.providers.registry`): validated Pydantic model for provider catalog metadata.
 - `ProviderMap` is now a typed `MutableMapping[str, AbstractProvider]` instead of a Pydantic `BaseModel`; it implements `__iter__`, `__len__`, and `__repr__`.
 - CoolProp registry seeding is now lazy (triggered on first registry access) so importing `processforge.providers.registry` does not import provider backends.
+- **OpenMC/FESTIM restructuring**: the monolithic `openmc_provider.py` and `festim_provider.py` modules are replaced by focused subpackages (`processforge.providers.openmc`, `processforge.providers.festim`) containing `provider.py`, `strategies.py`, `build_helpers.py`, and `result_extraction.py`.
+- Added `BaseSimulationProvider` base class capturing shared behavior for engine-style providers (OpenMC, FESTIM, and future SolverUnit-backed engines).
+- Added shared `SimStrategy` ABC and engine-scoped strategy registry (`processforge.providers._sim_strategy`) so new engines can reuse the same `register_*_sim_type` / `get_registered_sim_types` pattern.
 
 ## [0.4.3] - 2026-09-07
 

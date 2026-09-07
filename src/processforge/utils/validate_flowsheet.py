@@ -492,7 +492,7 @@ def _get_openmc_sim_type_registry() -> dict[str, type]:
     Importing ``openmc_provider`` is safe at validation time because it does not
     import the ``openmc`` library at module level.
     """
-    from processforge.providers.openmc_provider import get_registered_sim_types  # noqa: PLC0415
+    from processforge.providers.openmc import get_registered_sim_types  # noqa: PLC0415
     return get_registered_sim_types()
 
 
@@ -503,7 +503,7 @@ def _check_openmc_unit_config(config: dict) -> None:
 
     1. ``sim_type`` is present.
     2. ``sim_type`` is registered in the provider's ``_SIM_TYPE_REGISTRY``
-       (supports types added via :func:`~processforge.providers.openmc_provider.register_openmc_sim_type`).
+       (supports types added via :func:`~processforge.providers.openmc.register_openmc_sim_type`).
     3. ``solver_config`` validates against the shared ``OpenMCSetting`` schema
        (this also enforces ``inactive < batches`` and mesh-tally id uniqueness).
     4. ``geometry_config`` validates against the strategy's ``config_model``
@@ -705,7 +705,7 @@ def _check_coupling_refs(config: dict) -> None:
 
 
 def _get_festim_sim_type_registry() -> dict:
-    from processforge.providers.festim_provider import get_registered_sim_types  # noqa: PLC0415
+    from processforge.providers.festim import get_registered_sim_types  # noqa: PLC0415
     return get_registered_sim_types()
 
 

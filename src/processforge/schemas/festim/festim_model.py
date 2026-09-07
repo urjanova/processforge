@@ -543,7 +543,7 @@ class FestimModel(BaseModel):
 
     Parsed automatically from the opaque ``solver_config`` JSON dict — this is
     the single source of truth used by both flowsheet validation and the
-    runtime :class:`~processforge.providers.festim_provider.FestimProvider`.
+    runtime :class:`~processforge.providers.festim.FestimProvider`.
     """
 
     model_config = ConfigDict(extra="forbid")

@@ -28,7 +28,7 @@ from processforge.providers.registry import _PROVIDERS
 from processforge.types import MaterialDef
 
 # Ensure the festim provider module is imported (self-registers on import)
-importlib.import_module("processforge.providers.festim_provider")
+importlib.import_module("processforge.providers.festim")
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +287,7 @@ def _mat(id_, name, **overrides):
 
 
 def _init_provider(tmp_path, materials, fake_festim=None):
-    from processforge.providers.festim_provider import FestimProvider
+    from processforge.providers.festim import FestimProvider
     from processforge.types import FestimProviderConfig
 
     provider = FestimProvider()
@@ -317,17 +317,17 @@ class TestFestimRegistration:
         assert "festim" in _PROVIDERS
 
     def test_festim_class_is_festim_provider(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
 
         assert _PROVIDERS["festim"] is FestimProvider
 
     def test_festim_subclasses_abstract_provider(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
 
         assert issubclass(FestimProvider, AbstractProvider)
 
     def test_all_abstract_methods_implemented(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
 
         abstract_methods = set(AbstractProvider.__abstractmethods__)
         missing = abstract_methods - set(dir(FestimProvider))
@@ -345,7 +345,7 @@ class TestFestimMaterialValidation:
     """validate_material should enforce D_0/E_D validity."""
 
     def test_valid_material(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
         from processforge.types import UnitConfig
 
         mat_def = MaterialDef(id=1, extra={"D_0": 1e-7, "E_D": 0.2})
@@ -356,7 +356,7 @@ class TestFestimMaterialValidation:
         assert errors == []
 
     def test_build_material_without_solubility_law(self, fake_festim):
-        from processforge.providers.festim_provider import FestimBuildHelpers
+        from processforge.providers.festim import FestimBuildHelpers
 
         mat = FestimBuildHelpers.build_material(
             fake_festim,
@@ -370,7 +370,7 @@ class TestFestimMaterialValidation:
         assert mat.solubility_law == "none"
 
     def test_build_material_passes_solubility_law(self, fake_festim):
-        from processforge.providers.festim_provider import FestimBuildHelpers
+        from processforge.providers.festim import FestimBuildHelpers
 
         mat = FestimBuildHelpers.build_material(
             fake_festim,
@@ -384,7 +384,7 @@ class TestFestimMaterialValidation:
     def test_build_material_warns_on_missing_optional_fields(self, fake_festim):
         from loguru import logger
 
-        from processforge.providers.festim_provider import FestimBuildHelpers
+        from processforge.providers.festim import FestimBuildHelpers
 
         captured = []
         hid = logger.add(lambda m: captured.append(m), level="WARNING")
@@ -419,7 +419,7 @@ class TestFestimMaterialValidation:
             ), f"expected warning for missing {field}; got: {captured}"
 
     def test_missing_D_0(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
         from processforge.types import UnitConfig
 
         mat_def = MaterialDef(id=1, extra={"E_D": 0.2})
@@ -431,7 +431,7 @@ class TestFestimMaterialValidation:
         assert "D_0" in errors[0]
 
     def test_missing_E_D(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
         from processforge.types import UnitConfig
 
         mat_def = MaterialDef(id=1, extra={"D_0": 1e-7})
@@ -443,7 +443,7 @@ class TestFestimMaterialValidation:
         assert "E_D" in errors[0]
 
     def test_missing_both(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
         from processforge.types import UnitConfig
 
         mat_def = MaterialDef(id=1, extra={})
@@ -454,7 +454,7 @@ class TestFestimMaterialValidation:
         assert len(errors) == 2
 
     def test_missing_extra_entirely(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
         from processforge.types import UnitConfig
 
         mat_def = MaterialDef(id=1)
@@ -465,7 +465,7 @@ class TestFestimMaterialValidation:
         assert len(errors) == 2
 
     def test_non_positive_D_0(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
         from processforge.types import UnitConfig
 
         mat_def = MaterialDef(id=1, extra={"D_0": 0, "E_D": 0.2})
@@ -477,7 +477,7 @@ class TestFestimMaterialValidation:
         assert "positive" in errors[0]
 
     def test_negative_E_D(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
         from processforge.types import UnitConfig
 
         mat_def = MaterialDef(id=1, extra={"D_0": 1e-7, "E_D": -1})
@@ -489,7 +489,7 @@ class TestFestimMaterialValidation:
         assert "non-negative" in errors[0]
 
     def test_unpaired_solubility_constants(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
         from processforge.types import UnitConfig
 
         mat_def = MaterialDef(id=1, extra={"D_0": 1e-7, "E_D": 0.2, "K_S_0": 1e-5})
@@ -570,13 +570,13 @@ class TestFestimCatalog:
         from processforge.providers.registry import _PROVIDER_CATALOG
 
         info = _PROVIDER_CATALOG["festim"]
-        assert info["docker_image"] == "ghcr.io/urjanova/processforge-festim:latest"
+        assert info.docker_image == "ghcr.io/urjanova/processforge-festim:latest"
 
     def test_has_default_port(self):
         from processforge.providers.registry import _PROVIDER_CATALOG
 
         info = _PROVIDER_CATALOG["festim"]
-        assert info["default_port"] == 9002
+        assert info.default_port == 9002
 
     def test_is_containerized(self):
         from processforge.providers.registry import is_containerized
@@ -587,7 +587,7 @@ class TestFestimCatalog:
         from processforge.providers.registry import _PROVIDER_CATALOG
 
         info = _PROVIDER_CATALOG["festim"]
-        assert info["optional_dep"] is None
+        assert info.optional_dep is None
 
 
 # ---------------------------------------------------------------------------
@@ -599,13 +599,13 @@ class TestFestimSimTypeRegistry:
     """FESTIM sim_type registry must map strings to strategy classes."""
 
     def test_get_registered_sim_types_callable(self):
-        from processforge.providers.festim_provider import get_registered_sim_types
+        from processforge.providers.festim import get_registered_sim_types
 
         result = get_registered_sim_types()
         assert isinstance(result, dict)
 
     def test_tds_strategy_registered(self):
-        from processforge.providers.festim_provider import (
+        from processforge.providers.festim import (
             FestimSimStrategy,
             get_registered_sim_types,
         )
@@ -615,14 +615,14 @@ class TestFestimSimTypeRegistry:
         assert issubclass(registry["hydrogen_transport_tds"], FestimSimStrategy)
 
     def test_legacy_hydrogen_transport_removed(self):
-        from processforge.providers.festim_provider import get_registered_sim_types
+        from processforge.providers.festim import get_registered_sim_types
 
         assert "hydrogen_transport" not in get_registered_sim_types()
 
     def test_register_new_sim_type(self):
-        from processforge.providers.festim_provider import (
+        from processforge.providers._sim_strategy import _SIM_TYPE_REGISTRIES
+        from processforge.providers.festim import (
             FestimSimStrategy,
-            _SIM_TYPE_REGISTRY,
             get_registered_sim_types,
             register_festim_sim_type,
         )
@@ -637,10 +637,10 @@ class TestFestimSimTypeRegistry:
             assert "custom_thing" in registry
             assert registry["custom_thing"] is _MockStrategy
         finally:
-            del _SIM_TYPE_REGISTRY["custom_thing"]
+            del _SIM_TYPE_REGISTRIES["festim"]["custom_thing"]
 
     def test_returns_copy(self):
-        from processforge.providers.festim_provider import get_registered_sim_types
+        from processforge.providers.festim import get_registered_sim_types
 
         r1 = get_registered_sim_types()
         r2 = get_registered_sim_types()
@@ -648,7 +648,7 @@ class TestFestimSimTypeRegistry:
         assert r1 is not r2
 
     def test_unknown_sim_type_raises(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
         from processforge.types import UnitConfig
 
         provider = FestimProvider()
@@ -667,10 +667,8 @@ class TestTDSTrappingStrategy:
     """The built-in TDS strategy builds a full HydrogenTransportProblem."""
 
     def _build(self, fake_festim):
-        from processforge.providers.festim_provider import (
-            FestimBuildHelpers,
-            _TDSTrappingStrategy,
-        )
+        from processforge.providers.festim import FestimBuildHelpers
+        from processforge.providers.festim.strategies import _TDSTrappingStrategy
         from processforge.schemas.festim.festim_model import FestimModel
 
         sc = _unit_config_from_flowsheet(
@@ -768,10 +766,8 @@ class TestTDSTrappingStrategy:
         assert settings.stepsize.max_stepsize(451) == 0.5
 
     def test_missing_material_raises(self, fake_festim):
-        from processforge.providers.festim_provider import (
-            FestimBuildHelpers,
-            _TDSTrappingStrategy,
-        )
+        from processforge.providers.festim import FestimBuildHelpers
+        from processforge.providers.festim.strategies import _TDSTrappingStrategy
         from processforge.schemas.festim.festim_model import FestimModel
 
         sc = _unit_config_from_flowsheet(
@@ -852,7 +848,7 @@ class TestFestimRunSimulation:
         assert result.error.detail
 
     def test_run_before_init_raises(self, fake_festim):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
         from processforge.types import UnitConfig
 
         provider = FestimProvider()
@@ -861,7 +857,7 @@ class TestFestimRunSimulation:
             provider.run_simulation(unit_cfg, {})
 
     def test_teardown_resets_state(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
 
         provider = FestimProvider()
         provider._initialized = True
@@ -869,13 +865,13 @@ class TestFestimRunSimulation:
         assert provider._initialized is False
 
     def test_compute_unit_returns_none(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
 
         provider = FestimProvider()
         assert provider.compute_unit("SolverUnit", {}, {}) is None
 
     def test_get_thermo_properties_raises(self):
-        from processforge.providers.festim_provider import FestimProvider
+        from processforge.providers.festim import FestimProvider
 
         provider = FestimProvider()
         with pytest.raises(NotImplementedError):

@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from processforge.providers.openmc_provider import OpenMCProvider
+from processforge.providers.openmc import OpenMCProvider
 from processforge.schemas.openmc.openmc_model import (
     OpenMCSetting,
     ReactorCoreGeometryConfig,
