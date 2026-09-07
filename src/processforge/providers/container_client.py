@@ -33,6 +33,7 @@ if TYPE_CHECKING:
         FlowsheetConfig,
         MaterialDef,
         ProviderConfig,
+        RunContext,
         UnitConfig,
     )
 
@@ -57,15 +58,13 @@ class ContainerProviderClient(AbstractProvider):
         self._provider_config: Optional["ProviderConfig"] = None
         self._materials: dict = {}
         self._initialized: bool = False
-        # Run context, set by the CLI so container-side artifact uploads carry
-        # the same run_id / flowsheet_hash as the on-host ProcessStateArchive.
-        self._run_id: str = ""
-        self._flowsheet_hash: str = ""
+        # Run context, set by the framework so container-side artifact uploads
+        # carry the same run_id / flowsheet_hash as the on-host archive.
+        self._run_context: Optional["RunContext"] = None
 
-    def set_run_context(self, run_id: str, flowsheet_hash: str = "") -> None:
-        """Associate subsequent /run calls with a CLI-generated run id."""
-        self._run_id = run_id
-        self._flowsheet_hash = flowsheet_hash
+    def set_run_context(self, context: "RunContext") -> None:
+        """Store run-level metadata for subsequent /run calls."""
+        self._run_context = context
 
     # ------------------------------------------------------------------
     # Helpers
@@ -155,8 +154,12 @@ class ContainerProviderClient(AbstractProvider):
         """Release provider state."""
         self._initialized = False
 
-    def run_simulation(self, unit_config: "UnitConfig", inlet: dict, run_id: str | None = None, flowsheet_hash: str | None = None) -> "EngineOutput":
+    def run_simulation(self, unit_config: "UnitConfig", inlet: dict) -> "EngineOutput":
         """Serialise the request, POST it to the container, return the result.
+
+        Run context (run_id / flowsheet_hash) is read from the context set by
+        ``set_run_context`` and forwarded in the request body so the container's
+        artifact uploads are keyed consistently with the on-host archive.
 
         The container returns a serialized :class:`EngineOutput`.  Artifact
         ``local_path`` values point at files *inside* the container and are not
@@ -178,14 +181,13 @@ class ContainerProviderClient(AbstractProvider):
             else {"type": unit_config.provider or self._ptype, "url": self._url}
         )
 
-        # Fall back to context set via set_run_context() (the CLI propagates the
-        # shared run_id/flowsheet_hash there). SolverUnit calls run_simulation()
-        # without these arguments, so without the fallback the container receives
-        # null and artifacts get uploaded under the wrong key.
-        if run_id is None:
-            run_id = self._run_id or None
-        if flowsheet_hash is None:
-            flowsheet_hash = self._flowsheet_hash or None
+        # Read run context set by the framework. Empty strings are sent when no
+        # context is set so the container server can still log the run_id field.
+        run_id = ""
+        flowsheet_hash = ""
+        if self._run_context is not None:
+            run_id = self._run_context.run_id or ""
+            flowsheet_hash = self._run_context.flowsheet_hash or ""
 
         body = {
             "unit_config": self._serialize_unit_config(unit_config),

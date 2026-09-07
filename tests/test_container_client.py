@@ -4,7 +4,7 @@ import json
 import urllib.request
 
 from processforge.providers.container_client import ContainerProviderClient
-from processforge.types import UnitConfig
+from processforge.types import RunContext, UnitConfig
 
 
 def test_serialize_unit_config_includes_geometry_config():
@@ -91,3 +91,58 @@ def test_run_simulation_body_excludes_output_dir(monkeypatch):
 
     assert "output_dir" not in captured["body"]
     assert "provider_config" in captured["body"]
+    assert captured["body"]["run_id"] == ""
+    assert captured["body"]["flowsheet_hash"] == ""
+
+
+def test_run_simulation_sends_run_context(monkeypatch):
+    """Run context set via set_run_context is forwarded in the POST body."""
+    captured = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {
+                    "status": "completed",
+                    "engine": "openmc",
+                    "sim_type": "eigenvalue_reactor",
+                    "fields": [],
+                    "artifacts": [],
+                    "diagnostics": {},
+                }
+            ).encode()
+
+    def _urlopen(req, timeout=0):
+        if req.full_url.endswith("/health"):
+            resp = _Resp()
+            resp.read = lambda: json.dumps({"status": "ready"}).encode()
+            return resp
+        captured["body"] = json.loads(req.data.decode())
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _urlopen)
+
+    client = ContainerProviderClient("openmc")
+    client.initialize(
+        type("Cfg", (), {"url": "http://localhost:9000", "output_dir": "outputs/openmc", "model_dump": lambda self: {"url": "http://localhost:9000", "output_dir": "outputs/openmc"}})(),
+        type("FS", (), {"materials": {}})(),
+    )
+    client.set_run_context(RunContext(run_id="run-123", flowsheet_hash="abc"))
+    client.run_simulation(
+        UnitConfig(
+            type="SolverUnit",
+            provider="openmc",
+            material=3,
+            sim_type="eigenvalue_reactor",
+        ),
+        inlet={},
+    )
+
+    assert captured["body"]["run_id"] == "run-123"
+    assert captured["body"]["flowsheet_hash"] == "abc"

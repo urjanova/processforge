@@ -8,12 +8,26 @@ Adding a new provider never requires changes to these models.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional, Union
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
 from .quantity import Quantity
+
+
+@dataclass(frozen=True)
+class RunContext:
+    """Orchestration metadata for one flowsheet run.
+
+    Passed to providers via ``AbstractProvider.set_run_context`` so backends
+    can tag artifacts, logs, and provenance with the same run identity the
+    CLI archive uses.
+    """
+
+    run_id: Optional[str] = None
+    flowsheet_hash: Optional[str] = None
 
 
 class MaterialDef(BaseModel):

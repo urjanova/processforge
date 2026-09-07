@@ -322,6 +322,17 @@ class TestCmdInit:
         assert any("non-empty" in m for m in log_output)
         assert any("providers" in m for m in log_output)
 
+    def test_init_with_coolprop_provider(self, tmp_path, coolprop_flowsheet, log_output):
+        from processforge.cli.init import init
+        from processforge.lock import read_lock
+
+        init(flowsheet=str(coolprop_flowsheet), path=str(tmp_path))
+        assert (tmp_path / ".processforge" / "config.json").exists()
+        lock = read_lock(str(tmp_path / ".processforge"), str(coolprop_flowsheet))
+        assert lock is not None
+        assert "coolprop" in lock["providers"]
+        assert any("initialised successfully" in m for m in log_output)
+
 
 # ---------------------------------------------------------------------------
 # cli/validate.py

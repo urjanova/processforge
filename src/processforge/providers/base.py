@@ -10,6 +10,7 @@ if TYPE_CHECKING:
         FlowsheetConfig,
         MaterialDef,
         ProviderConfig,
+        RunContext,
         UnitConfig,
     )
 
@@ -86,6 +87,18 @@ class AbstractProvider(ABC):
     @abstractmethod
     def teardown(self) -> None:
         """Release managed resources (FMU instances, Cantera solutions, etc.)."""
+
+    def set_run_context(self, context: "RunContext") -> None:
+        """Attach run-level orchestration metadata to this provider instance.
+
+        Called by the framework before a flowsheet run begins. The default
+        implementation is a no-op; providers that produce run-scoped artifacts
+        (e.g. the containerized HTTP client) may override this to capture the
+        context and forward it as needed.
+
+        Args:
+            context: Run identity and related metadata for this execution.
+        """
 
     # ------------------------------------------------------------------
     # Simulation provider interface (optional — override for FEM/neutronics)

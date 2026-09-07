@@ -96,13 +96,13 @@ def print_provider_health(config: dict, strict: bool = False) -> list[str]:
                 logger.error(msg)
                 failures.append(f"Provider '{name}' unreachable at {url}: {info}")
         else:
-            catalog = _PROVIDER_CATALOG.get(ptype, {})
-            module = catalog.get("module", "")
+            catalog = _PROVIDER_CATALOG.get(ptype)
+            module = catalog.module if catalog else ""
             try:
                 importlib.util.find_spec(module)
                 logger.info(f"  [OK] {name} [{ptype}] (pip — importable)")
             except (ModuleNotFoundError, ValueError):
-                dep = catalog.get("optional_dep")
+                dep = catalog.optional_dep if catalog else None
                 hint = f"pip install 'processforge[{dep}]'" if dep else "built-in"
                 logger.warning(f"  [WARN] {name} [{ptype}] — not installed ({hint})")
                 if strict:

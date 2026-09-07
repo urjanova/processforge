@@ -13,6 +13,7 @@ from processforge.cli.runs import runs
 from processforge.output_collector import (
     _timestamp_from_run_id,
     build_run_manifest,
+    collect_stream_outputs,
 )
 from processforge.result import relink_latest_results, save_results_zarr
 from processforge.types import (
@@ -237,3 +238,50 @@ def test_timestamp_from_run_id_falls_back_to_now():
     ts = _timestamp_from_run_id("not_a_real_run_id")
     assert arrow.get(ts)  # valid ISO-8601
     assert ts.endswith(("+00:00", "Z"))
+
+
+class FakeProvider:
+    def __init__(self):
+        self.calls = []
+
+    def get_thermo_properties(self, stream: dict) -> dict:
+        self.calls.append(stream)
+        return {
+            "H": 1234.5,
+            "Cp": 75.3,
+            "K_values": {"Water": 0.9, "Ethanol": 1.1},
+        }
+
+
+def test_collect_stream_outputs_handles_dynamic_timeseries():
+    """Dynamic simulations store T/P/z as lists; collector must normalize them."""
+    provider = FakeProvider()
+    stream_results = {
+        "after_valve": {
+            "P": [101325.0, 101325.0, 150000.0],
+            "T": [298.15, 307.5, 313.0],
+            "flowrate": [1.0, 1.0, 1.0],
+            "time": [0.0, 1.0, 2.0],
+            "z": {
+                "Water": [1.0, 1.0, 1.0],
+                "Ethanol": [0.0, 0.0, 0.0],
+            },
+        },
+    }
+
+    outputs = collect_stream_outputs(provider, stream_results)
+
+    assert "after_valve" in outputs
+    stream_output = outputs["after_valve"]
+    assert stream_output.stream == "after_valve"
+    assert stream_output.engine == "fake"
+
+    field_names = {f.name for f in stream_output.fields}
+    assert field_names == {"H", "Cp", "K_values"}
+
+    # Ensure the final timestep values were passed to the provider.
+    assert len(provider.calls) == 1
+    call = provider.calls[0]
+    assert call["T"] == 313.0
+    assert call["P"] == 150000.0
+    assert call["z"] == {"Water": 1.0, "Ethanol": 0.0}

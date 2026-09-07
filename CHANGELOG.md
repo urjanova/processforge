@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-09-07
+
+### Changed
+- Bumped version to `0.5.1` in `src/processforge/__init__.py` and `pyproject.toml`.
+- Fixed `run_id` generation in `cli/persist.py` to avoid collisions when multiple runs are started within the same second (now includes a 4-digit random suffix).
+
+
 ## [0.5.0] - Unreleased
 
 ### Added

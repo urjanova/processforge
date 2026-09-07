@@ -17,7 +17,7 @@ from typing import Optional
 from loguru import logger
 from pydantic import BaseModel, ConfigDict
 
-from processforge.types import CoolPropProviderConfig, FlowsheetConfig, ProviderConfig
+from processforge.types import CoolPropProviderConfig, FlowsheetConfig, ProviderConfig, RunContext
 
 from .base import AbstractProvider
 from .coolprop_provider import CoolPropProvider
@@ -179,6 +179,21 @@ def build_provider_map(
         default = coolprop
 
     return ProviderMap(providers=providers, default=default)
+
+
+def apply_run_context(
+    provider_map: ProviderMap | None,
+    context: RunContext | None,
+) -> None:
+    """Propagate run-level metadata to every provider in *provider_map*.
+
+    Providers that do not consume run context (e.g. CoolProp) inherit a no-op
+    implementation from ``AbstractProvider``.
+    """
+    if provider_map is None or context is None:
+        return
+    for provider in provider_map.values():
+        provider.set_run_context(context)
 
 
 def teardown_providers(provider_map: ProviderMap | None) -> None:

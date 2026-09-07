@@ -9,7 +9,7 @@ from typing import Literal
 import typer
 from loguru import logger
 
-from .persist import make_run_id, persist_run
+from .persist import flowsheet_hash, make_run_id, persist_run
 from ..eo import EOFlowsheet
 from ..provenance import build_run_info
 from .common import (
@@ -106,6 +106,8 @@ def apply(
     fs.solver_max_iter = max_iter
 
     logger.info("=== Running Apply (Steady-State EO) ===")
+    run_id = make_run_id()
+    fs.set_run_context(run_id, flowsheet_hash(config))
     t0 = time.perf_counter()
     results = fs.run()
     elapsed = time.perf_counter() - t0
@@ -122,7 +124,6 @@ def apply(
             label="converged state",
         )
         run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
-        run_id = make_run_id()
         persist_run(sm, fs, run_id, results, run_info, config, base_name, snapshot_id)
         logger.info("=== Apply Summary ===")
         logger.info("  Status       : CONVERGED")
@@ -142,7 +143,9 @@ def apply(
         from ..providers.manager import teardown_providers
 
         solver = EOSolver(backend=fs.backend, tol=tolerance, max_iter=max_iter)
+        run_id = make_run_id()
         tmp_fs = _EO(config, backend=backend)
+        tmp_fs.set_run_context(run_id, flowsheet_hash(config))
         manager = tmp_fs._build()
         try:
             homotopy_result = solve_with_homotopy(tmp_fs, manager, solver, state, drifted)
@@ -168,7 +171,6 @@ def apply(
                 label="homotopy solution",
             )
             run_info = build_run_info(config, x0=fs.x0, var_names=fs.var_names)
-            run_id = make_run_id()
             persist_run(sm, tmp_fs, run_id, tmp_fs.results, run_info, config, base_name, snapshot_id)
             logger.info("Homotopy apply succeeded. New snapshot saved.")
             return

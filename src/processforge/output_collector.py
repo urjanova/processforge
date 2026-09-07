@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import arrow
+import numpy as np
 from loguru import logger
 
 from .types import (
@@ -28,6 +29,26 @@ from .types import (
     RunManifest,
     StreamOutput,
 )
+
+
+def _to_scalar(value):
+    """Return the last element of a sequence, or the scalar value itself.
+
+    Dynamic simulations store stream properties as timeseries lists.  For
+    manifest-level thermo output we use the final timestep as the representative
+    scalar, matching the convention used by :func:`~processforge.result.plot_results`.
+    """
+    if isinstance(value, (list, tuple, np.ndarray)):
+        arr = np.asarray(value)
+        if arr.size == 0:
+            raise ValueError("empty sequence")
+        candidate = arr[-1]
+    else:
+        candidate = value
+    try:
+        return float(candidate)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"non-numeric value {candidate!r}") from exc
 
 
 def collect_stream_outputs(provider, stream_results: dict) -> dict[str, StreamOutput]:
@@ -44,7 +65,10 @@ def collect_stream_outputs(provider, stream_results: dict) -> dict[str, StreamOu
         if not isinstance(z, dict) or T is None or P is None:
             continue
         try:
-            props = provider.get_thermo_properties({"z": z, "T": T, "P": P})
+            z_norm = {comp: _to_scalar(frac) for comp, frac in z.items()}
+            T_norm = _to_scalar(T)
+            P_norm = _to_scalar(P)
+            props = provider.get_thermo_properties({"z": z_norm, "T": T_norm, "P": P_norm})
         except Exception as exc:  # noqa: BLE001
             logger.debug(f"thermo properties unavailable for stream '{name}': {exc}")
             continue

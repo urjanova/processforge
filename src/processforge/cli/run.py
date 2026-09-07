@@ -106,6 +106,7 @@ def run(
             logger.debug("No .pfarchive found — starting dynamic run from flowsheet defaults.")
 
         fs = Flowsheet(config)
+        fs.set_run_context(run_id, flowsheet_hash_value)
         logger.info("=== Dynamic Results ===")
         results = fs.run()
 
@@ -128,6 +129,7 @@ def run(
     else:
         # Pass None so EOFlowsheet resolves backend from config (with scipy default).
         fs = EOFlowsheet(config, backend=None)
+        fs.set_run_context(run_id, flowsheet_hash_value)
         logger.info("=== Steady-State EO Results ===")
         results = fs.run()
 
@@ -143,12 +145,6 @@ def run(
         snap_x, snap_vn = fs.x_converged, fs.var_names
         snap_backend = getattr(fs, "backend", "scipy")
         snap_ok = bool(getattr(fs, "converged", False))
-
-    # Propagate run context to any containerized providers so their S3 uploads
-    # are keyed by the same run_id/flowsheet_hash as this archive run.
-    for provider in getattr(fs, "_provider_map", {}).values():
-        if hasattr(provider, "set_run_context"):
-            provider.set_run_context(run_id, flowsheet_hash_value)
 
     # Build + persist the standardized run manifest.
     archive_path = os.path.join(outputs_dir, f"{base_name}.pfarchive")

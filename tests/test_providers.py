@@ -141,6 +141,17 @@ class TestProviderContract:
                 f"Provider '{name}' ({cls.__name__}) has no 'teardown' method."
             )
 
+    def test_all_providers_have_set_run_context(self):
+        for name, cls in _PROVIDERS.items():
+            assert hasattr(cls, "set_run_context"), (
+                f"Provider '{name}' ({cls.__name__}) has no 'set_run_context' method."
+            )
+
+    def test_container_provider_overrides_set_run_context(self):
+        from processforge.providers.container_client import ContainerProviderClient
+
+        assert ContainerProviderClient.set_run_context is not AbstractProvider.set_run_context
+
 
 # ---------------------------------------------------------------------------
 # 3. Registry consistency

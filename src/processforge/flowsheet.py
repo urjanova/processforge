@@ -9,7 +9,7 @@ from copy import deepcopy
 if TYPE_CHECKING:
     from .providers.manager import ProviderMap
 
-from .providers.manager import build_provider_map, teardown_providers
+from .providers.manager import apply_run_context, build_provider_map, teardown_providers
 from .types import EngineOutput, FlowsheetConfig, MergedInletTimeseries, StreamTimeseries
 from .solver import Solver
 from .providers.manager import UnitProviderConfig
@@ -111,6 +111,12 @@ class Flowsheet:
         self.streams = {}
         self.tear_streams = set()
         self.has_recycles = False
+
+    def set_run_context(self, run_id: str | None = None, flowsheet_hash: str | None = None) -> None:
+        """Store run-level metadata so containerized providers can tag artifacts."""
+        from processforge.types import RunContext
+
+        self._run_context = RunContext(run_id=run_id, flowsheet_hash=flowsheet_hash)
 
     def build_units(self, provider_map: ProviderMap | None = None):
         logger.info("Building units")
@@ -228,6 +234,8 @@ class Flowsheet:
         logger.info("Starting simulation")
         flowsheet_cfg = FlowsheetConfig.from_dict(self.config)
         provider_map = build_provider_map(providers_config=flowsheet_cfg.providers, flowsheet_config=flowsheet_cfg)
+        self._provider_map = provider_map
+        apply_run_context(provider_map, getattr(self, "_run_context", None))
         self.engine_outputs: dict = {}
         try:
             self.build_units(provider_map=provider_map)

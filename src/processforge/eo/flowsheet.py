@@ -51,6 +51,12 @@ class EOFlowsheet:
         self.solver_tol: float = 1e-6
         self.solver_max_iter: int = 50
 
+    def set_run_context(self, run_id: str | None = None, flowsheet_hash: str | None = None) -> None:
+        """Store run-level metadata so containerized providers can tag artifacts."""
+        from processforge.types import RunContext
+
+        self._run_context = RunContext(run_id=run_id, flowsheet_hash=flowsheet_hash)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -68,8 +74,9 @@ class EOFlowsheet:
             Stream result dict in the same format as ``Flowsheet.run()``:
             ``{stream_name: {"T": ..., "P": ..., "flowrate": ..., "z": {...}}}``
         """
-        from processforge.providers.manager import teardown_providers
+        from processforge.providers.manager import apply_run_context, teardown_providers
         manager = self._build()
+        apply_run_context(self._provider_map, getattr(self, "_run_context", None))
         self.engine_outputs: dict = {}
         try:
             x0 = self._warm_start(manager)
