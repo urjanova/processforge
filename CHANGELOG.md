@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **OpenMC/FESTIM restructuring**: the monolithic `openmc_provider.py` and `festim_provider.py` modules are replaced by focused subpackages (`processforge.providers.openmc`, `processforge.providers.festim`) containing `provider.py`, `strategies.py`, `build_helpers.py`, and `result_extraction.py`.
 - Added `BaseSimulationProvider` base class capturing shared behavior for engine-style providers (OpenMC, FESTIM, and future SolverUnit-backed engines).
 - Added shared `SimStrategy` ABC and engine-scoped strategy registry (`processforge.providers._sim_strategy`) so new engines can reuse the same `register_*_sim_type` / `get_registered_sim_types` pattern.
+- Added `docs/provider-template.md` — a step-by-step guide for authoring new providers, including base-class selection, catalog registration, simulation-type strategies, containerized vs in-process checklists, and error-handling conventions.
 
 ## [0.4.3] - 2026-09-07
 
