@@ -67,12 +67,29 @@ uv tool install "processforge[modelica]"
 
 ## Python API
 
+### Low-level API
+
 ```python
 from processforge import EOFlowsheet, validate_flowsheet
+
 config = validate_flowsheet("flowsheets/hydraulic-chain.json")
 fs = EOFlowsheet(config, backend="scipy")
 results = fs.run()
 ```
+
+### High-level runner (web-app friendly)
+
+```python
+from processforge import run_flowsheet
+
+result = run_flowsheet("flowsheets/hydraulic-chain.json")
+print(result.run_id, result.status, result.remote_uris)
+```
+
+`run_flowsheet` and `apply_flowsheet` perform the full CLI lifecycle
+(validate, health-check, solve, persist, and upload the pfarchive to S3) and
+return structured results instead of calling `SystemExit`. See
+[docs/usage.md](docs/usage.md) for a FastAPI + S3/Railway example.
 
 ## Usage
 See the [usage guide](docs/usage.md) for CLI commands and workflows.

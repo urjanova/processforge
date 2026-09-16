@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-09-16
+
+### Added
+- High-level Python runner (`processforge.runner`): `run_flowsheet()` and `apply_flowsheet()` expose the full `pf run`/`pf apply` lifecycle to library/HTTP callers, returning typed `RunResult`/`ApplyResult` and raising typed exceptions instead of `SystemExit`.
+- Client-side S3 upload of the processforge archive: `ArtifactStore.upload_file`, `upload_directory`, and `persist_archive` upload the run manifest, Zarr results, snapshots, and registry files from the host process.
+
+### Changed
+- `pf run` and `pf apply` now delegate to the runner, removing duplicated logic and fixing the latent `stream_results` NameError in `pf run --export-images`.
+- `ArtifactStore` now reads `S3_PREFIX` from the environment.
+- Bump version to `0.7.0` in `src/processforge/__init__.py` and `pyproject.toml`.
+
 ## [0.6.0] - 2026-09-16
 
 ### Removed

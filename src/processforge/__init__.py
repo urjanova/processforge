@@ -10,44 +10,66 @@ Provides steady-state and dynamic process simulation capabilities including:
 - Equation-oriented (EO) steady-state solver via EOFlowsheet
 """
 
+__version__ = "0.6.2"
+
+from .eo import EOFlowsheet, EOSolver
 from .flowsheet import Flowsheet
 from .provenance import build_run_info
-from .solver import Solver
-from .thermo import rachford_rice
-from .utils.validate_flowsheet import validate_flowsheet
 from .result import (
     plot_results,
     plot_timeseries,
     save_results_zarr,
 )
-from .units.pump import Pump
-from .units.valve import Valve
-from .units.strainer import Strainer
-from .units.tank import Tank
-from .units.pipes import Pipes
+from .runner import (
+    ApplyResult,
+    ConvergenceError,
+    FlowsheetValidationError,
+    ProcessforgeRunError,
+    ProviderRunError,
+    ProviderUnavailableError,
+    RunResult,
+    StatePersistenceError,
+    apply_flowsheet,
+    run_flowsheet,
+)
+from .solver import Solver
+from .thermo import rachford_rice
 from .units.flash import Flash
 from .units.heater import Heater
-from .eo import EOFlowsheet, EOSolver
-
-__version__ = "0.6.0"
+from .units.pipes import Pipes
+from .units.pump import Pump
+from .units.strainer import Strainer
+from .units.tank import Tank
+from .units.valve import Valve
+from .utils.validate_flowsheet import validate_flowsheet
 
 __all__ = [
-    "Flowsheet",
+    "ApplyResult",
+    "ConvergenceError",
     "EOFlowsheet",
     "EOSolver",
-    "Solver",
-    "rachford_rice",
-    "validate_flowsheet",
-    "plot_results",
-    "plot_timeseries",
-    "save_results_zarr",
-    "build_run_info",
+    "Flash",
+    "Flowsheet",
+    "FlowsheetValidationError",
+    "Heater",
+    "Pipes",
+    "ProcessforgeRunError",
+    "ProviderRunError",
+    "ProviderUnavailableError",
     "Pump",
-    "Valve",
+    "RunResult",
+    "Solver",
+    "StatePersistenceError",
     "Strainer",
     "Tank",
-    "Pipes",
-    "Flash",
-    "Heater",
+    "Valve",
     "__version__",
+    "apply_flowsheet",
+    "build_run_info",
+    "plot_results",
+    "plot_timeseries",
+    "rachford_rice",
+    "run_flowsheet",
+    "save_results_zarr",
+    "validate_flowsheet",
 ]

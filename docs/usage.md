@@ -46,6 +46,8 @@ pf export-fmu flowsheets/hydraulic-chain.json [--output-dir outputs/] [--backend
 
 ## Python API
 
+### Low-level API
+
 ```python
 from processforge import EOFlowsheet, validate_flowsheet
 
@@ -57,6 +59,68 @@ results = fs.run()
 Optional backends:
 - `"pyomo"` — requires `processforge[eo]`
 - `"casadi"` — requires `processforge[eo-casadi]`
+
+### High-level runner (recommended for web apps)
+
+For applications that need the full `pf run` / `pf apply` lifecycle — validation,
+provider health checks, persistence, and S3 upload — use the runner wrapper:
+
+```python
+from processforge import run_flowsheet, apply_flowsheet
+
+result = run_flowsheet("flowsheets/hydraulic-chain.json")
+print(result.run_id, result.status, result.archive_path)
+print(result.remote_uris)  # S3 URIs for provider artifacts + pfarchive
+
+# Warm-start / homotopy fallback
+result = apply_flowsheet("flowsheets/hydraulic-chain.json")
+```
+
+The runner returns typed :class:`~processforge.runner.RunResult` /
+:class:`~processforge.runner.ApplyResult` objects and raises typed exceptions
+(:class:`~processforge.runner.FlowsheetValidationError`,
+:class:`~processforge.runner.ProviderUnavailableError`,
+:class:`~processforge.runner.ConvergenceError`, …) instead of calling
+``SystemExit``.
+
+### FastAPI + S3 (Railway) example
+
+Deploy the OpenMC provider container on Railway (or any cloud) and run
+processforge from a FastAPI service.  Provider artifacts are uploaded to S3 by
+the container; the processforge archive is uploaded by the FastAPI process:
+
+```python
+import os
+from fastapi import FastAPI, BackgroundTasks
+from processforge import run_flowsheet
+
+app = FastAPI()
+
+# S3 credentials and bucket are read from environment variables:
+# S3_BUCKET, S3_PREFIX, S3_ACCESS_KEY, S3_SECRET_KEY, S3_ENDPOINT_URL, S3_REGION_NAME
+
+@app.post("/runs")
+def create_run(flowsheet_path: str, background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_flowsheet, flowsheet_path)
+    return {"status": "started"}
+```
+
+Flowsheet snippet pointing at the remote OpenMC container:
+
+```json
+{
+  "providers": {
+    "openmc": {
+      "type": "openmc",
+      "url": "https://processforge-openmc.up.railway.app"
+    }
+  }
+}
+```
+
+Set ``S3_BUCKET`` on both the Railway container (so OpenMC h5 artifacts land in
+S3) and the FastAPI host (so the run manifest, Zarr results, and snapshots are
+also durable in S3).
 
 ## Docker (Provider Images)
 

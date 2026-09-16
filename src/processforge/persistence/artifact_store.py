@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-from datetime import datetime, timezone
-from typing import Optional
 
 from loguru import logger
 
@@ -44,9 +42,9 @@ def _artifact_kind(path: str) -> str:
 class ArtifactStore:
     """Register and upload simulation artifact files to object storage."""
 
-    def __init__(self, bucket: Optional[str] = None, prefix: str = "processforge"):
+    def __init__(self, bucket: str | None = None, prefix: str | None = None):
         self.bucket = bucket or os.environ.get("S3_BUCKET")
-        self.prefix = prefix
+        self.prefix = prefix or os.environ.get("S3_PREFIX", "processforge")
 
     # ------------------------------------------------------------------
     # Registration
@@ -55,8 +53,8 @@ class ArtifactStore:
         self,
         path: str,
         *,
-        name: Optional[str] = None,
-        kind: Optional[str] = None,
+        name: str | None = None,
+        kind: str | None = None,
         run_id: str = "",
         flowsheet_hash: str = "",
         unit: str = "",
@@ -114,6 +112,96 @@ class ArtifactStore:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"S3 upload of '{artifact.name}' failed: {exc}")
         return artifact
+
+    # ------------------------------------------------------------------
+    # Host-side archive upload
+    # ------------------------------------------------------------------
+    def upload_file(
+        self,
+        path: str,
+        *,
+        remote_key: str,
+    ) -> str | None:
+        """Upload a single local file to a specific S3 key.
+
+        Returns the S3 URI on success, or ``None`` when S3 is not configured or
+        the upload failed.
+        """
+        if not self.bucket or not os.path.exists(path):
+            return None
+        try:
+            import s3fs
+
+            uri = f"s3://{self.bucket}/{remote_key}"
+            fs = s3fs.S3FileSystem(**s3_storage_options())
+            fs.put(path, uri)
+            logger.info(f"Uploaded file '{os.path.basename(path)}' to {uri}")
+            return uri
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"S3 upload of '{path}' failed: {exc}")
+            return None
+
+    def upload_directory(
+        self,
+        local_dir: str,
+        *,
+        key_prefix: str,
+        run_id: str = "",
+        flowsheet_hash: str = "",
+    ) -> list[str]:
+        """Recursively upload a local directory to S3 under *key_prefix*.
+
+        Relative paths inside *local_dir* are preserved in the S3 keys.  Returns
+        the list of URIs that were uploaded (or an empty list when S3 is
+        disabled).
+        """
+        if not self.bucket or not os.path.isdir(local_dir):
+            return []
+
+        base_key = "/".join(p for p in [self.prefix, flowsheet_hash, run_id, key_prefix] if p)
+        try:
+            import s3fs
+
+            fs = s3fs.S3FileSystem(**s3_storage_options())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"S3 upload of directory '{local_dir}' failed: {exc}")
+            return []
+
+        uris: list[str] = []
+        for root, _dirs, files in os.walk(local_dir):
+            for name in files:
+                local_path = os.path.join(root, name)
+                rel = os.path.relpath(local_path, local_dir)
+                key = f"{base_key}/{rel}"
+                uri = f"s3://{self.bucket}/{key}"
+                try:
+                    fs.put(local_path, uri)
+                    uris.append(uri)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"S3 upload of '{rel}' failed: {exc}")
+        logger.info(f"Uploaded directory '{local_dir}' to {len(uris)} S3 object(s)")
+        return uris
+
+    def persist_archive(
+        self,
+        archive_path: str,
+        *,
+        run_id: str = "",
+        flowsheet_hash: str = "",
+    ) -> list[str]:
+        """Upload an entire processforge pfarchive directory to S3.
+
+        Keys are laid out as ``<prefix>/<flowsheet_hash>/<run_id>/archive/<relpath>``.
+        This uploads the run manifest, Zarr results, snapshots, and registry
+        files from the host process so they are durable even when the host's
+        local disk is ephemeral.
+        """
+        return self.upload_directory(
+            archive_path,
+            key_prefix="archive",
+            run_id=run_id,
+            flowsheet_hash=flowsheet_hash,
+        )
 
     # ------------------------------------------------------------------
     # Container-side convenience: persist all artifacts in engine outputs
