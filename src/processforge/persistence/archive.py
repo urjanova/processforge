@@ -8,28 +8,20 @@ A ``<base>.pfarchive`` directory holds, in one place:
 * ``runs/<run_id>.json`` — a :class:`~processforge.types.RunManifest` capturing
   every engine output (OpenMC, FESTIM, CoolProp, Cantera) for one ``pf run`` /
   ``pf apply``.
-* ``outputs/streams/``   — stream timeseries from the flowsheet solve.
-* ``artifacts.json``     — content-addressed registry of every
-  :class:`~processforge.types.OutputArtifact` (local + remote URIs).
-* ``index.json``         — ``field_name -> [occurrences]`` for fast cross-run
-  queries.
+* ``results/<run_id>/results.zarr`` — stream timeseries and engine outputs
+  in a compressed Zarr store (the single source of truth for time-series data).
 * ``latest_run``         — pointer to the most recent run.
-
-This replaces the old split of ``.pfstate`` (state only) + ``_results.zarr``
-(stream results) + loose ``run_dir`` files.
 """
 from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
 from typing import Optional
 
-import zarr
 from loguru import logger
 
 from ..state import StateManager
-from ..types import OutputArtifact, RunManifest, SnapshotState
+from ..types import RunManifest, SnapshotState
 
 
 def _read_json(path: str, default):
@@ -51,7 +43,6 @@ class ProcessStateArchive:
     def __init__(self, path: str) -> None:
         self.path = path
         os.makedirs(self.path, exist_ok=True)
-        # Snapshots live inside the same archive, via the proven StateManager.
         self._state = StateManager(self.path)
 
     # ==================================================================
@@ -90,43 +81,11 @@ class ProcessStateArchive:
     def _runs_dir(self) -> str:
         return os.path.join(self.path, "runs")
 
-    def _outputs_dir(self) -> str:
-        return os.path.join(self.path, "outputs", "streams")
-
-    def save_run(self, manifest: RunManifest, stream_results: Optional[dict] = None) -> str:
-        """Persist a :class:`RunManifest` (and optional stream timeseries)."""
+    def save_run(self, manifest: RunManifest) -> str:
+        """Persist a :class:`RunManifest` to disk."""
         os.makedirs(self._runs_dir(), exist_ok=True)
         run_path = os.path.join(self._runs_dir(), f"{manifest.run_id}.json")
         _write_json(run_path, json.loads(manifest.model_dump_json()))
-
-        # Stream timeseries (kept for plotting / downstream consumers).
-        if stream_results:
-            for name, data in stream_results.items():
-                if isinstance(data, dict):
-                    _write_json(os.path.join(self._outputs_dir(), f"{name}.json"), data)
-
-        # Artifact registry (append-only, keyed by artifact_id).
-        registry = _read_json(os.path.join(self.path, "artifacts.json"), {})
-        for out in list(manifest.units.values()) + list(manifest.streams.values()):
-            for art in getattr(out, "artifacts", []):
-                registry[art.artifact_id] = art.model_dump()
-        _write_json(os.path.join(self.path, "artifacts.json"), registry)
-
-        # Field index for fast lookup.
-        index = _read_json(os.path.join(self.path, "index.json"), {})
-        for unit_name, out in manifest.units.items():
-            for f in out.fields:
-                index.setdefault(f.name, []).append({
-                    "run_id": manifest.run_id, "scope": "unit", "name": unit_name,
-                    "engine": out.engine, "units": f.quantity.unit,
-                })
-        for stream_name, out in manifest.streams.items():
-            for f in out.fields:
-                index.setdefault(f.name, []).append({
-                    "run_id": manifest.run_id, "scope": "stream", "name": stream_name,
-                    "engine": out.engine, "units": f.quantity.unit,
-                })
-        _write_json(os.path.join(self.path, "index.json"), index)
 
         with open(os.path.join(self.path, "latest_run"), "w", encoding="utf-8") as f:
             f.write(manifest.run_id)
@@ -159,8 +118,32 @@ class ProcessStateArchive:
         )
 
     def field_occurrences(self, field_name: str) -> list[dict]:
-        index = _read_json(os.path.join(self.path, "index.json"), {})
-        return index.get(field_name, [])
-
-    def list_artifacts(self) -> dict[str, dict]:
-        return _read_json(os.path.join(self.path, "artifacts.json"), {})
+        """Scan ``runs/*.json`` for fields matching *field_name*."""
+        results: list[dict] = []
+        runs_dir = self._runs_dir()
+        if not os.path.isdir(runs_dir):
+            return results
+        for fname in sorted(os.listdir(runs_dir)):
+            if not fname.endswith(".json"):
+                continue
+            run_id = fname.replace(".json", "")
+            manifest = self.load_run(run_id)
+            if manifest is None:
+                continue
+            for unit_name, out in manifest.units.items():
+                for f in out.fields:
+                    if f.name == field_name:
+                        results.append({
+                            "run_id": run_id, "scope": "unit",
+                            "name": unit_name, "engine": out.engine,
+                            "units": f.quantity.unit,
+                        })
+            for stream_name, out in manifest.streams.items():
+                for f in out.fields:
+                    if f.name == field_name:
+                        results.append({
+                            "run_id": run_id, "scope": "stream",
+                            "name": stream_name, "engine": out.engine,
+                            "units": f.quantity.unit,
+                        })
+        return results

@@ -15,7 +15,7 @@ from processforge.output_collector import (
     build_run_manifest,
     collect_stream_outputs,
 )
-from processforge.result import relink_latest_results, save_results_zarr
+from processforge.result import save_results_zarr
 from processforge.types import (
     EngineOutput,
     OutputArtifact,
@@ -48,39 +48,6 @@ def _eo(run_id_suffix: str, keff: float) -> EngineOutput:
             )
         ],
     )
-
-
-def test_relink_latest_results_symlinks_to_latest(tmp_path):
-    d = str(tmp_path)
-    rid_a = "20260101T000000Z_aaaaaa"
-    rid_b = "20260102T000000Z_bbbbbb"
-
-    save_results_zarr(
-        {"openmc_solver": _eo("a", 1.04)},
-        os.path.join(d, "results", rid_a, "results.zarr"),
-        None,
-    )
-    relink_latest_results(d, rid_a)
-    link = os.path.join(d, "results.zarr")
-    assert os.path.islink(link)
-    assert os.path.realpath(link) == os.path.realpath(
-        os.path.join(d, "results", rid_a, "results.zarr")
-    )
-
-    # A second run re-points the symlink without clobbering run A's zarr.
-    save_results_zarr(
-        {"openmc_solver": _eo("b", 1.06)},
-        os.path.join(d, "results", rid_b, "results.zarr"),
-        None,
-    )
-    relink_latest_results(d, rid_b)
-    assert os.path.realpath(link) == os.path.realpath(
-        os.path.join(d, "results", rid_b, "results.zarr")
-    )
-    assert os.path.isdir(os.path.join(d, "results", rid_a, "results.zarr"))
-
-    root = zarr.open_group(link, mode="r")
-    assert abs(root["openmc_solver"]["k_eff"][0] - 1.06) < 1e-9
 
 
 def test_pf_runs_lists_runs_with_summary(tmp_path, monkeypatch):

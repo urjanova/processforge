@@ -77,13 +77,11 @@ def persist_run(
     if snapshot_id is not None:
         manifest.snapshot_id = snapshot_id
 
-    stream_results = {k: v for k, v in results.items() if not hasattr(v, "fields")}
-    archive.save_run(manifest, stream_results=stream_results)
+    archive.save_run(manifest)
 
-    # Always persist a Zarr copy of the standardized outputs (fields + artifacts)
-    # inside the archive, mirroring `pf run`.
+    # Persist Zarr store (single source of truth for stream timeseries).
     try:
-        from ..result import relink_latest_results, save_results_zarr
+        from ..result import save_results_zarr
 
         run_results_dir = os.path.join(archive.path, "results", run_id)
         save_results_zarr(
@@ -91,7 +89,6 @@ def persist_run(
             os.path.join(run_results_dir, "results.zarr"),
             run_info,
         )
-        relink_latest_results(archive.path, run_id)
     except Exception as e:
         logger.warning(f"Failed to write results.zarr: {type(e).__name__}: {e}")
 

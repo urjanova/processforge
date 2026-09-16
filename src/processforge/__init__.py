@@ -18,7 +18,6 @@ from .utils.validate_flowsheet import validate_flowsheet
 from .result import (
     plot_results,
     plot_timeseries,
-    relink_latest_results,
     save_results_zarr,
 )
 from .units.pump import Pump
@@ -30,7 +29,7 @@ from .units.flash import Flash
 from .units.heater import Heater
 from .eo import EOFlowsheet, EOSolver
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 __all__ = [
     "Flowsheet",
@@ -42,7 +41,6 @@ __all__ = [
     "plot_results",
     "plot_timeseries",
     "save_results_zarr",
-    "relink_latest_results",
     "build_run_info",
     "Pump",
     "Valve",

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-16
+
+### Removed
+- Deduplicated `.pfarchive`: removed `outputs/streams/*.json`, `results.zarr` symlink, `index.json`, `artifacts.json`; Zarr per-run store + `runs/*.json` manifest are now single source of truth.
+
+### Changed
+- Bump version to `0.6.0` in `src/processforge/__init__.py` and `pyproject.toml`.
+
 ## [0.5.1] - 2026-09-07
 
 ### Changed
