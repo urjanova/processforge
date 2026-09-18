@@ -374,7 +374,7 @@ class TestCmdRun:
         with patch.object(
             runner_mod, "run_flowsheet", side_effect=FlowsheetValidationError("not found")
         ), pytest.raises(SystemExit) as exc_info:
-            run(flowsheet=str(tmp_path / "nope.json"), no_plot=True)
+            run(flowsheet=str(tmp_path / "nope.json"))
         assert exc_info.value.code == 1
 
     def test_run_flowsheet_delegates_to_runner(self, tmp_path, log_output):
@@ -382,7 +382,7 @@ class TestCmdRun:
         from processforge.cli.run import run
 
         with patch.object(run_mod, "run_flowsheet", return_value=self._mock_result()):
-            run(flowsheet=str(tmp_path / "fs.json"), no_plot=True)
+            run(flowsheet=str(tmp_path / "fs.json"))
 
         assert any("Run Summary" in m for m in log_output)
         assert any("converged" in m for m in log_output)

@@ -9,15 +9,10 @@ from ..runner import ProcessforgeRunError, run_flowsheet
 
 def run(
     flowsheet: str = typer.Argument(help="Path to the flowsheet JSON file"),
-    no_plot: bool = typer.Option(
-        False,
-        "--no-plot",
-        help="Skip terminal plots for simulation outputs",
-    ),
 ) -> None:
     """Run a process simulation from a flowsheet JSON file."""
     try:
-        result = run_flowsheet(flowsheet, no_plot=no_plot)
+        result = run_flowsheet(flowsheet, no_plot=True)
     except ProcessforgeRunError as exc:
         logger.error(str(exc))
         raise SystemExit(1) from exc

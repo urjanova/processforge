@@ -15,9 +15,9 @@ from ..result import (
     _fmt_scientific,
     _one_line_summary,
     _scalar_from_sequence,
-    plot_zarr_summary_terminal,
     summarize_zarr_store,
 )
+from ..utils.plotting import plot_zarr_summary_terminal
 
 # Fixed column widths for the compact single-run stream table.
 STREAM_COL_WIDTH = 28

@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.3] - Unreleased
 
 ### Added
-- Terminal-based result visualization via plotext: `pf run` and `pf runs <flowsheet> <run_id>` now render bar charts (temperatures, compositions) and timeseries plots directly in the terminal by default.
-- `--no-plot` flag on `pf run` and `pf runs <flowsheet> <run_id>` to skip terminal plotting.
+- Terminal-based result visualization via plotext: `pf runs <flowsheet> <run_id>` now renders bar charts (temperatures, compositions) and timeseries plots directly in the terminal by default.
+- `--no-plot` flag on `pf runs <flowsheet> <run_id>` to skip terminal plotting.
 
 ### Changed
 - matplotlib removed from core dependencies; plotext added as a core dependency.

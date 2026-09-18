@@ -548,7 +548,7 @@ def run_flowsheet(
 
     if not no_plot:
         try:
-            from .result import plot_results_to_terminal
+            from .utils.plotting import plot_results_to_terminal
 
             plot_results_to_terminal(
                 results,

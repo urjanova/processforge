@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
-import plotext as plt
 import zarr
 from loguru import logger
 
@@ -353,122 +352,6 @@ def save_results_zarr_s3(results, s3_uri: str, run_info: RunInfo | dict | None =
 
     _write_schema_s3(s3_uri, storage_options)
     logger.info(f"Saved Zarr results to {s3_uri}")
-
-
-def _plotext_figure():
-    """Return a fresh plotext figure with a sensible terminal size."""
-    fig = plt.figure
-    fig.clear()
-    fig.plot_size(80, 18)
-    return fig
-
-
-def plot_results_terminal(results, title=""):
-    """Render steady-state stream results as terminal bar charts."""
-    streams = [k for k, v in results.items() if isinstance(v, dict) and "T" in v]
-    if not streams:
-        return
-
-    temp_values = [_scalar_from_sequence(results[s].get("T")) or 0.0 for s in streams]
-
-    fig = _plotext_figure()
-    fig.draw(fig.bar(streams, temp_values, orientation="vertical"))
-    fig.title(title or "Stream Temperatures (Steady State)")
-    fig.show()
-    fig.clear()
-
-    comps = set()
-    for s in streams:
-        z = results[s].get("z")
-        if isinstance(z, dict):
-            comps.update(z.keys())
-    comps = sorted(comps)
-    if not comps:
-        return
-
-    values = []
-    for comp in comps:
-        values.append([
-            _scalar_from_sequence(results[s].get("z", {}).get(comp, 0.0)) or 0.0
-            for s in streams
-        ])
-
-    fig = _plotext_figure()
-    fig.draw(fig.bar(streams, values, orientation="vertical", stacked=True))
-    fig.title(title or "Stream Compositions (Steady State)")
-    fig.show()
-    fig.clear()
-
-
-def plot_timeseries_terminal(results, title=""):
-    """Render dynamic stream results as terminal line plots."""
-    streams = sorted(k for k, v in results.items() if isinstance(v, dict))
-    if not streams:
-        return
-
-    times = results[streams[0]].get("time", [])
-    if not times:
-        return
-
-    fig = _plotext_figure()
-    for s_name in streams:
-        if "T" in results[s_name]:
-            fig.draw(fig.signal(times, results[s_name]["T"]).label(s_name))
-    fig.title(title or "Stream Temperatures vs Time")
-    fig.show()
-    fig.clear()
-
-    comps = set()
-    for s_data in results.values():
-        if "z" in s_data and isinstance(s_data["z"], dict):
-            comps.update(s_data["z"].keys())
-    comps = sorted(comps)
-
-    for s_name in streams:
-        if "z" not in results[s_name]:
-            continue
-        fig = _plotext_figure()
-        for comp in comps:
-            if comp in results[s_name]["z"]:
-                fig.draw(fig.signal(times, results[s_name]["z"][comp]).label(comp))
-        fig.title(f"Compositions vs Time ({s_name})")
-        fig.show()
-        fig.clear()
-
-
-def plot_zarr_summary_terminal(summary: dict, title: str = "") -> None:
-    """Render a terminal visualization from a Zarr summary dict."""
-    if not summary.get("present"):
-        return
-
-    mode = summary.get("mode", "steady")
-    streams = summary.get("streams", {})
-
-    if mode == "dynamic":
-        # Reconstruct a results-like dict from Zarr summary for plotting.
-        results: dict = {}
-        for s_name, sdata in streams.items():
-            fields = sdata.get("fields", {})
-            results[s_name] = {k: v.get("value") for k, v in fields.items()}
-        plot_timeseries_terminal(results, title=title)
-    else:
-        # Steady: show final timestep values.
-        results = {}
-        for s_name, sdata in streams.items():
-            fields = sdata.get("fields", {})
-            results[s_name] = {
-                k: _scalar_from_sequence(v.get("value"))
-                for k, v in fields.items()
-            }
-        plot_results_terminal(results, title=title)
-
-
-def plot_results_to_terminal(results, title: str = "", mode: str = "steady") -> None:
-    """Dispatch to the appropriate terminal plotter for run results."""
-    if mode == "dynamic":
-        plot_timeseries_terminal(results, title=title)
-    else:
-        plot_results_terminal(results, title=title)
 
 
 def _convert_value(value):
