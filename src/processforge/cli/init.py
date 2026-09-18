@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 import os
 import shutil
 import subprocess
@@ -115,29 +114,6 @@ def init(
     # .processforge/docker-compose.yml at the root) into a per-flowsheet env
     # dir so existing repos aren't silently broken by the new structure.
     _migrate_legacy_env(pf_dir)
-
-    # Write config.json (always)
-    config_path = os.path.join(pf_dir, "config.json")
-    if not os.path.exists(config_path):
-        default_config = {
-            "version": 1,
-            "default_backend": "scipy",
-            "outputs_dir": "outputs",
-        }
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(default_config, f, indent=2)
-        logger.info(f"Created {config_path}")
-    else:
-        logger.info(f"{config_path} already exists — skipped.")
-
-    # Honour a configured outputs_dir for the rest of init.
-    outputs_dir_name = "outputs"
-    try:
-        with open(config_path, encoding="utf-8") as f:
-            outputs_dir_name = json.load(f).get("outputs_dir", "outputs")
-    except Exception:
-        pass
-    outputs_dir = os.path.join(root, outputs_dir_name)
 
     # Remove stale .pfstate snapshot directories from outputs/
     stale_count = 0

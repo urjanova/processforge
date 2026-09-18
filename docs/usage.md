@@ -2,7 +2,7 @@
 
 ## Plan / Apply Workflow
 
-1. `pf init` — creates `.processforge/config.json` and `outputs/`.
+1. `pf init` — creates `.processforge/` and `outputs/`.
 2. `pf plan` — validates schema, DOF, units, structural diff, and health-checks any Docker-containerized providers; no solver run.
 3. `pf apply` — loads the last snapshot as warm start, runs the solver, and saves a new snapshot on success.
 

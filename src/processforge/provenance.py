@@ -18,7 +18,7 @@ _KEY_PACKAGES = [
     "loguru",
     "pandas",
     "openpyxl",
-    "matplotlib",
+    "plotext",
     "jsonschema",
     "graphviz",
 ]

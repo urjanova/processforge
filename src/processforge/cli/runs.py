@@ -15,6 +15,7 @@ from ..result import (
     _fmt_scientific,
     _one_line_summary,
     _scalar_from_sequence,
+    plot_zarr_summary_terminal,
     summarize_zarr_store,
 )
 
@@ -157,6 +158,11 @@ def runs(
         "--schema",
         help="Print the result schema JSON instead of the summary.",
     ),
+    no_plot: bool = typer.Option(
+        False,
+        "--no-plot",
+        help="Skip terminal plots for the run summary.",
+    ),
 ):
     """List runs for a flowsheet, or inspect one run's Zarr result summary."""
     base = flowsheet_basename(flowsheet)
@@ -197,6 +203,16 @@ def runs(
         manifest = archive.load_run(resolved_id)
         summary = summarize_zarr_store(zarr_path)
         summary["_zarr_path"] = zarr_path
+
+        if not no_plot:
+            plot_title = f"{base} / {resolved_id}"
+            try:
+                plot_zarr_summary_terminal(summary, title=plot_title)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    f"Failed to render terminal plots: {type(exc).__name__}: {exc}"
+                )
+
         typer.echo(_format_run_compact(manifest, summary))
         return
 

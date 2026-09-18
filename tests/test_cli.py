@@ -286,7 +286,7 @@ class TestCmdInit:
         from processforge.cli.init import init
 
         init(flowsheet=None, path=str(tmp_path))
-        assert (tmp_path / ".processforge" / "config.json").exists()
+        assert not (tmp_path / ".processforge" / "config.json").exists()
         assert (tmp_path / "outputs").is_dir()
         assert any("initialised successfully" in m for m in log_output)
 
@@ -327,7 +327,7 @@ class TestCmdInit:
         from processforge.lock import read_lock
 
         init(flowsheet=str(coolprop_flowsheet), path=str(tmp_path))
-        assert (tmp_path / ".processforge" / "config.json").exists()
+        assert not (tmp_path / ".processforge" / "config.json").exists()
         lock = read_lock(str(tmp_path / ".processforge"), str(coolprop_flowsheet))
         assert lock is not None
         assert "coolprop" in lock["providers"]
@@ -374,7 +374,7 @@ class TestCmdRun:
         with patch.object(
             runner_mod, "run_flowsheet", side_effect=FlowsheetValidationError("not found")
         ), pytest.raises(SystemExit) as exc_info:
-            run(flowsheet=str(tmp_path / "nope.json"), export_images=False)
+            run(flowsheet=str(tmp_path / "nope.json"), no_plot=True)
         assert exc_info.value.code == 1
 
     def test_run_flowsheet_delegates_to_runner(self, tmp_path, log_output):
@@ -382,7 +382,7 @@ class TestCmdRun:
         from processforge.cli.run import run
 
         with patch.object(run_mod, "run_flowsheet", return_value=self._mock_result()):
-            run(flowsheet=str(tmp_path / "fs.json"), export_images=False)
+            run(flowsheet=str(tmp_path / "fs.json"), no_plot=True)
 
         assert any("Run Summary" in m for m in log_output)
         assert any("converged" in m for m in log_output)

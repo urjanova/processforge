@@ -36,7 +36,7 @@ def _to_scalar(value):
 
     Dynamic simulations store stream properties as timeseries lists.  For
     manifest-level thermo output we use the final timestep as the representative
-    scalar, matching the convention used by :func:`~processforge.result.plot_results`.
+    scalar, matching the convention used by terminal result plots.
     """
     if isinstance(value, (list, tuple, np.ndarray)):
         arr = np.asarray(value)

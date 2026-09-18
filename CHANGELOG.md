@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - Unreleased
+
+### Added
+- Terminal-based result visualization via plotext: `pf run` and `pf runs <flowsheet> <run_id>` now render bar charts (temperatures, compositions) and timeseries plots directly in the terminal by default.
+- `--no-plot` flag on `pf run` and `pf runs <flowsheet> <run_id>` to skip terminal plotting.
+
+### Changed
+- matplotlib removed from core dependencies; plotext added as a core dependency.
+- `--export-images` flag removed from `pf run` (matplotlib-based PNG export removed).
+
+### Removed
+- `pf init` no longer writes `.processforge/config.json` — it was never read at runtime; the EO backend resolves from the flowsheet (`simulation.backend` / `simulation.default_backend`) with a hardcoded `scipy` fallback.
+- `plot_results()` and `plot_timeseries()` functions removed from `processforge.result` and public API exports.
+
 ## [0.6.2] - 2026-09-16
 
 ### Added

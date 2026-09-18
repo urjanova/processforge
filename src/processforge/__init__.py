@@ -10,14 +10,12 @@ Provides steady-state and dynamic process simulation capabilities including:
 - Equation-oriented (EO) steady-state solver via EOFlowsheet
 """
 
-__version__ = "0.6.2"
+__version__ = "0.6.3"
 
 from .eo import EOFlowsheet, EOSolver
 from .flowsheet import Flowsheet
 from .provenance import build_run_info
 from .result import (
-    plot_results,
-    plot_timeseries,
     save_results_zarr,
 )
 from .runner import (
@@ -66,8 +64,6 @@ __all__ = [
     "__version__",
     "apply_flowsheet",
     "build_run_info",
-    "plot_results",
-    "plot_timeseries",
     "rachford_rice",
     "run_flowsheet",
     "save_results_zarr",

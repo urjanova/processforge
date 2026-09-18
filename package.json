@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "opencode-jan": "github:tachyonlabshq/opencode-jan"
+  }
+}

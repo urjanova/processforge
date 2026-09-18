@@ -399,7 +399,7 @@ def run_flowsheet(
     *,
     outputs_dir: str | None = None,
     backend: Literal["scipy", "pyomo", "casadi"] | None = None,
-    export_images: bool = False,
+    no_plot: bool = False,
     s3_bucket: str | None = None,
     s3_prefix: str | None = None,
 ) -> RunResult:
@@ -410,7 +410,7 @@ def run_flowsheet(
         outputs_dir: Directory for local pfarchive output. Defaults to
             ``PROCESSFORGE_OUTPUT_DIR`` or ``outputs/``.
         backend: Optional EO solver backend override (``scipy``/``pyomo``/``casadi``).
-        export_images: If ``True``, generate PNG plots of the results.
+        no_plot: If ``True``, skip terminal plots of the results.
         s3_bucket: S3 bucket for archive upload. Defaults to ``S3_BUCKET`` env var.
         s3_prefix: S3 key prefix. Defaults to ``S3_PREFIX`` env var or
             ``"processforge"``.
@@ -546,17 +546,19 @@ def run_flowsheet(
         s3_prefix=s3_prefix,
     )
 
-    if export_images:
+    if not no_plot:
         try:
-            from .result import plot_results, plot_timeseries
+            from .result import plot_results_to_terminal
 
-            plot_results(results, fname=f"{base_name}_results.png")
-            plot_timeseries(results, fname=f"{base_name}_timeseries.png")
-            logger.info(
-                f"Plots saved: {base_name}_results.png, {base_name}_timeseries.png"
+            plot_results_to_terminal(
+                results,
+                title=f"{base_name} / {run_id}",
+                mode=mode,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning(f"Failed to generate plots: {type(exc).__name__}: {exc}")
+            logger.warning(
+                f"Failed to render terminal plots: {type(exc).__name__}: {exc}"
+            )
 
     return result
 
