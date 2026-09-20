@@ -38,12 +38,13 @@ def run(body: dict):
     try:
         unit_cfg = UnitConfig.from_dict(body["unit_config"])
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid unit_config: {exc}") from exc
+        raise HTTPException(
+            status_code=400, detail=f"Invalid unit_config: {exc}"
+        ) from exc
 
     materials_raw = body.get("materials", {})
     materials = {
-        name: MaterialDef.from_dict(mat)
-        for name, mat in materials_raw.items()
+        name: MaterialDef.from_dict(mat) for name, mat in materials_raw.items()
     }
 
     from processforge.providers.registry import get_provider_class
@@ -64,12 +65,16 @@ def run(body: dict):
 
         provider_config = provider_config_from_dict(provider_config_raw)
     else:
-        provider_config = type("Cfg", (), {
-            "url": None,
-            "output_dir": os.environ.get("PROCESSFORGE_OUTPUT_DIR", "/data"),
-            "cross_sections": None,
-            "type": PROVIDER_TYPE,
-        })()
+        provider_config = type(
+            "Cfg",
+            (),
+            {
+                "url": None,
+                "output_dir": os.environ.get("PROCESSFORGE_OUTPUT_DIR", "/data"),
+                "cross_sections": None,
+                "type": PROVIDER_TYPE,
+            },
+        )()
 
     # Build a minimal flowsheet config holding materials.
     flowsheet_config = type("FS", (), {"materials": materials})()
@@ -85,7 +90,10 @@ def run(body: dict):
         from processforge.persistence.artifact_store import ArtifactStore
 
         ArtifactStore().persist_outputs(
-            result, run_id=run_id, flowsheet_hash=flowsheet_hash, unit=getattr(result, "unit", "")
+            result,
+            run_id=run_id,
+            flowsheet_hash=flowsheet_hash,
+            unit=getattr(result, "unit", ""),
         )
         return result.model_dump()
     except HTTPException:
@@ -104,7 +112,7 @@ def _log_startup() -> None:
     root = os.environ.get("PROCESSFORGE_OUTPUT_DIR", "outputs")
     logger.info(
         f"Provider run outputs (scratch) are kept locally in: {root} "
-        f"(per-provider subdirs: outputs/openmc, outputs/festim)."
+        f"(per-provider subdirs: outputs/openmc, outputs/festim, outputs/geant4)."
     )
     if os.environ.get("S3_BUCKET"):
         bucket = os.environ["S3_BUCKET"]
@@ -126,4 +134,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=DEFAULT_PORT)
-

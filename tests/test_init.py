@@ -1,4 +1,5 @@
 """Tests for pf init and pf validate commands."""
+
 from __future__ import annotations
 
 import json
@@ -92,6 +93,27 @@ def mixed_flowsheet(tmp_path):
     return path
 
 
+@pytest.fixture
+def geant4_flowsheet(tmp_path):
+    """Write a minimal flowsheet with geant4 (containerized)."""
+    flowsheet = {
+        "providers": {
+            "geant4": {
+                "type": "geant4",
+                "url": "http://localhost:9003",
+                "output_dir": "geant4/run",
+            }
+        },
+        "streams": {},
+        "units": {},
+        "simulation": {"mode": "steady"},
+    }
+    path = tmp_path / "geant4_flowsheet.json"
+    with open(path, "w") as f:
+        json.dump(flowsheet, f)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Registry tests
 # ---------------------------------------------------------------------------
@@ -110,6 +132,11 @@ class TestProviderCatalog:
         assert "festim" in _PROVIDER_CATALOG
         assert _PROVIDER_CATALOG["festim"].docker_image is not None
         assert _PROVIDER_CATALOG["festim"].default_port == 9002
+
+    def test_geant4_in_catalog(self):
+        assert "geant4" in _PROVIDER_CATALOG
+        assert _PROVIDER_CATALOG["geant4"].docker_image is not None
+        assert _PROVIDER_CATALOG["geant4"].default_port == 9003
 
     def test_get_provider_docker_image(self):
         assert get_provider_docker_image("openmc") is not None
@@ -149,7 +176,10 @@ class TestLockFile:
 
     def test_write_and_read_lock(self, tmp_pf_dir):
         providers = {
-            "openmc": {"docker_image": "ghcr.io/test:latest", "url": "http://localhost:9001"},
+            "openmc": {
+                "docker_image": "ghcr.io/test:latest",
+                "url": "http://localhost:9001",
+            },
             "coolprop": {"docker_image": None, "url": None},
         }
         write_lock(str(tmp_pf_dir), "test.json", providers, "0.2.34")
@@ -168,7 +198,9 @@ class TestLockFile:
         # No legacy root lock.json is written.
         assert not (tmp_pf_dir / "lock.json").exists()
         # Instead it lives in the hashed env dir.
-        assert (Path(flowsheet_env_dir(str(tmp_pf_dir), "a/test.json")) / "lock.json").exists()
+        assert (
+            Path(flowsheet_env_dir(str(tmp_pf_dir), "a/test.json")) / "lock.json"
+        ).exists()
 
     def test_two_flowsheets_separate_dirs(self, tmp_pf_dir):
         write_lock(str(tmp_pf_dir), "flows/a.json", {}, "0.2.34")
@@ -200,7 +232,9 @@ class TestComposeGeneration:
             },
         }
         generate_compose(str(tmp_pf_dir), docker_providers, flowsheet="a.json")
-        compose_path = os.path.join(flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME)
+        compose_path = os.path.join(
+            flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME
+        )
         assert os.path.exists(compose_path)
 
         content = Path(compose_path).read_text()
@@ -213,7 +247,9 @@ class TestComposeGeneration:
 
     def test_generate_compose_empty_when_no_docker(self, tmp_pf_dir):
         generate_compose(str(tmp_pf_dir), {}, flowsheet="a.json")
-        compose_path = os.path.join(flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME)
+        compose_path = os.path.join(
+            flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME
+        )
         assert not os.path.exists(compose_path)
 
     def test_generate_compose_multiple_providers(self, tmp_pf_dir):
@@ -222,9 +258,26 @@ class TestComposeGeneration:
             "festim": {"docker_image": "ghcr.io/test/festim:latest", "port": 9002},
         }
         generate_compose(str(tmp_pf_dir), docker_providers, flowsheet="a.json")
-        content = Path(os.path.join(flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME)).read_text()
+        content = Path(
+            os.path.join(flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME)
+        ).read_text()
         assert "openmc:" in content
         assert "festim:" in content
+
+    def test_generate_compose_with_geant4(self, tmp_pf_dir):
+        docker_providers = {
+            "geant4": {
+                "docker_image": "ghcr.io/urjanova/processforge-geant4:latest",
+                "port": 9003,
+            },
+        }
+        generate_compose(str(tmp_pf_dir), docker_providers, flowsheet="a.json")
+        content = Path(
+            os.path.join(flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME)
+        ).read_text()
+        assert "geant4:" in content
+        assert "ghcr.io/urjanova/processforge-geant4:latest" in content
+        assert "9003:9003" in content
 
     def test_generate_compose_custom_docker_image(self, tmp_pf_dir):
         docker_providers = {
@@ -234,7 +287,9 @@ class TestComposeGeneration:
             },
         }
         generate_compose(str(tmp_pf_dir), docker_providers, flowsheet="a.json")
-        content = Path(os.path.join(flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME)).read_text()
+        content = Path(
+            os.path.join(flowsheet_env_dir(str(tmp_pf_dir), "a.json"), COMPOSE_FILENAME)
+        ).read_text()
         assert "my-org/custom-openmc:v2" in content
         assert "ghcr.io/urjanova/processforge-openmc" not in content
 
@@ -266,6 +321,14 @@ class TestExtractProviders:
         providers = extract_providers(str(mixed_flowsheet))
         assert "coolprop" in providers
         assert "openmc" in providers
+
+    def test_extract_from_geant4_flowsheet(self, geant4_flowsheet):
+        from processforge.cli.common import extract_providers
+
+        providers = extract_providers(str(geant4_flowsheet))
+        assert "geant4" in providers
+        assert providers["geant4"]["type"] == "geant4"
+        assert providers["geant4"]["url"] == "http://localhost:9003"
 
     def test_extract_missing_file(self, tmp_path):
         from processforge.cli.common import extract_providers

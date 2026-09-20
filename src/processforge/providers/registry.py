@@ -7,6 +7,7 @@ Optional providers (Cantera, Modelica) self-register by calling
 only when the user declares them in the flowsheet JSON, so installing the
 extras is never required for base functionality.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -78,6 +79,14 @@ _PROVIDER_CATALOG: dict[str, ProviderCatalogEntry] = {
         description="Hydrogen transport FEM via FESTIM (Docker service)",
         docker_image="ghcr.io/urjanova/processforge-festim:latest",
         default_port=9002,
+    ),
+    "geant4": ProviderCatalogEntry(
+        module="processforge.providers.geant4",
+        class_name="Geant4Provider",
+        optional_dep="geant4-pybind",
+        description="Monte Carlo particle transport via Geant4 (Docker service)",
+        docker_image="ghcr.io/urjanova/processforge-geant4:latest",
+        default_port=9003,
     ),
 }
 

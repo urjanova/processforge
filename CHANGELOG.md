@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] - 2026-09-20
+
+### Added
+- **Geant4 provider** (`processforge.providers.geant4`): new containerized Monte Carlo particle-transport provider with `shielding_attenuation` simulation type, concentric cylindrical `reactor_core` geometry, and an MSRE-based example flowsheet.
+- New flowsheet: `flowsheets/geant4/msre_shielding.json`.
+- Docker images and entrypoints for Geant4 (`docker/Dockerfile.geant4`, `docker/Dockerfile.geant4.local`).
+
 ## [0.6.4] - 2026-09-18
 
 ### Added

@@ -1,0 +1,111 @@
+{
+  "metadata": {
+    "name": "MSRE Shielding — approximate reactor geometry",
+    "description": "Molten Salt Reactor Experiment fixed-source neutron shielding calculation using an approximate cylindrical reactor-core geometry (salt core, graphite reflector, inconel vessel, helium gap, inor structure). Uses all 5 declared materials. 2 MeV isotropic neutron source at reactor centre; scores per-shell energy deposition and transmission.",
+    "version": "1.0"
+  },
+  "providers": {
+    "geant4": {
+      "type": "geant4",
+      "url": "http://localhost:9003",
+      "output_dir": "geant4/msre_shielding_run"
+    }
+  },
+  "materials": {
+    "graphite": {
+      "id": 1,
+      "density": 2.26,
+      "density_units": "g/cm3",
+      "temperature": 300.0,
+      "elements": [
+        { "element": "C", "percent": 1.0, "percent_type": "ao" }
+      ]
+    },
+    "inor": {
+      "id": 2,
+      "density": 9.0,
+      "density_units": "g/cm3",
+      "temperature": 300.0,
+      "elements": [
+        { "element": "Ni", "percent": 0.72, "percent_type": "wo" },
+        { "element": "Mo", "percent": 0.16, "percent_type": "wo" },
+        { "element": "Cr", "percent": 0.07, "percent_type": "wo" },
+        { "element": "Fe", "percent": 0.05, "percent_type": "wo" }
+      ]
+    },
+    "salt": {
+      "id": 3,
+      "density": 2.2,
+      "density_units": "g/cm3",
+      "temperature": 300.0,
+      "nuclides": [
+        { "name": "Li7",  "percent": 0.335000, "percent_type": "ao" },
+        { "name": "U235", "percent": 0.000527, "percent_type": "ao" },
+        { "name": "U238", "percent": 0.001053, "percent_type": "ao" }
+      ],
+      "elements": [
+        { "element": "F",  "percent": 0.534653, "percent_type": "ao" },
+        { "element": "Be", "percent": 0.076667, "percent_type": "ao" },
+        { "element": "Zr", "percent": 0.010000, "percent_type": "ao" }
+      ]
+    },
+    "inconel": {
+      "id": 4,
+      "density": 8.9,
+      "density_units": "g/cm3",
+      "temperature": 300.0,
+      "elements": [
+        { "element": "Ni", "percent": 0.72, "percent_type": "ao" },
+        { "element": "Cr", "percent": 0.20, "percent_type": "ao" },
+        { "element": "Fe", "percent": 0.08, "percent_type": "ao" }
+      ]
+    },
+    "helium": {
+      "id": 5,
+      "density": 1.0e-4,
+      "density_units": "g/cm3",
+      "temperature": 300.0,
+      "nuclides": [
+        { "name": "He4", "percent": 1.0, "percent_type": "ao" }
+      ]
+    }
+  },
+  "streams": {},
+  "units": {
+    "geant4_solver": {
+      "type": "SolverUnit",
+      "provider": "geant4",
+      "material": 3,
+      "sim_type": "shielding_attenuation",
+      "solver_config": {
+        "physics_list": "FTFP_BERT",
+        "events": 10000,
+        "seed": 42,
+        "tracking_cutoff": 0.001
+      },
+      "geometry_config": {
+        "type": "reactor_core",
+        "core_radius": 72.5,
+        "core_height": 160.0,
+        "reflector_thickness": 50.0,
+        "vessel_thickness": 5.0,
+        "gap_thickness": 3.0,
+        "structure_thickness": 10.0,
+        "core_material": "salt",
+        "reflector_material": "graphite",
+        "vessel_material": "inconel",
+        "gap_material": "helium",
+        "structure_material": "inor",
+        "source": {
+          "particle": "neutron",
+          "energy_MeV": 2.0,
+          "distribution": "isotropic",
+          "position": {"x": 0.0, "y": 0.0, "z": 0.0}
+        }
+      }
+    }
+  },
+  "simulation": {
+    "mode": "steady"
+  }
+}
