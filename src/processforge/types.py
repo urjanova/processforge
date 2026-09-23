@@ -6,7 +6,6 @@ properties (e.g. nuclides for OpenMC) travel in ``extra``.
 
 Adding a new provider never requires changes to these models.
 """
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -99,14 +98,14 @@ class UnitConfig(BaseModel):
     type: str
     material: Optional[int] = None
     provider: Optional[str] = None
-    inlets: list = []  # JSON "in" key (stream feeds)
+    inlets: list = []                                # JSON "in" key (stream feeds)
     out: Optional[Union[str, list[str]]] = None
     retentate_out: Optional[str] = None
     permeate_out: Optional[str] = None
     sim_type: Optional[str] = None
     solver_config: dict = {}
     geometry_config: dict = {}
-    inputs: dict = {}  # coupling decls: dotted path -> {ref: "unit.field", ...}
+    inputs: dict = {}                                # coupling decls: dotted path -> {ref: "unit.field", ...}
     extra: dict = {}
 
     @classmethod
@@ -270,48 +269,6 @@ class FestimProviderConfig(BaseModel):
         )
 
 
-class Geant4ProviderConfig(BaseModel):
-    """Configuration for the Geant4 Monte Carlo particle transport provider.
-
-    Geant4 runs in a Docker container (the same architecture as OpenMC/FESTIM) —
-    locally via ``pf init`` (which generates a docker-compose and pulls the
-    image) or remotely via a ``url`` pointing at a deployed container. The
-    provider image listens on port ``9003`` by default.
-
-    Flowsheet JSON example::
-
-        "providers": {
-            "geant4": {
-                "type": "geant4",
-                "url": "http://localhost:9003",
-                "output_dir": "outputs/geant4"
-            }
-        }
-
-    Custom Docker image::
-
-        "providers": {
-            "geant4": {
-                "type": "geant4",
-                "docker_image": "my-org/custom-geant4:v1"
-            }
-        }
-    """
-
-    type: str = "geant4"
-    url: Optional[str] = None
-    output_dir: str = "outputs/geant4"
-    docker_image: Optional[str] = None
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "Geant4ProviderConfig":
-        return cls(
-            url=d.get("url"),
-            output_dir=d.get("output_dir", "outputs/geant4"),
-            docker_image=d.get("docker_image"),
-        )
-
-
 #: Union of all known provider config types — extend when adding a new provider.
 ProviderConfig = Union[
     CoolPropProviderConfig,
@@ -319,7 +276,6 @@ ProviderConfig = Union[
     ModelicaProviderConfig,
     OpenMCProviderConfig,
     FestimProviderConfig,
-    Geant4ProviderConfig,
 ]
 
 _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
@@ -328,7 +284,6 @@ _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
     "modelica": ModelicaProviderConfig,
     "openmc": OpenMCProviderConfig,
     "festim": FestimProviderConfig,
-    "geant4": Geant4ProviderConfig,
 }
 
 
@@ -375,15 +330,15 @@ class FlowsheetConfig(BaseModel):
         cfg.providers["openmc"]       # OpenMCProviderConfig
     """
 
-    providers: dict = {}  # dict[str, ProviderConfig]
+    providers: dict = {}             # dict[str, ProviderConfig]
     default_provider: Optional[str] = None
     streams: dict = {}
-    units: dict = {}  # dict[str, UnitConfig]
-    materials: dict = {}  # dict[str, MaterialDef]
+    units: dict = {}                 # dict[str, UnitConfig]
+    materials: dict = {}             # dict[str, MaterialDef]
     material_mixes: dict = {}
     simulation: dict = {}
     metadata: Optional[dict] = None
-    extra: dict = {}  # runtime / unknown fields
+    extra: dict = {}                 # runtime / unknown fields
 
     @classmethod
     def from_dict(cls, d: dict) -> "FlowsheetConfig":
@@ -394,7 +349,8 @@ class FlowsheetConfig(BaseModel):
             for name, cfg in d.get("providers", {}).items()
         }
         units = {
-            name: UnitConfig.from_dict(cfg) for name, cfg in d.get("units", {}).items()
+            name: UnitConfig.from_dict(cfg)
+            for name, cfg in d.get("units", {}).items()
         }
         materials = {
             name: MaterialDef.from_dict(mat)
@@ -494,7 +450,7 @@ class OutputArtifact(BaseModel):
     """
 
     name: str
-    kind: str  # statepoint|xdmf|csv|h5|vtk|png|zarr
+    kind: str                                       # statepoint|xdmf|csv|h5|vtk|png|zarr
     local_path: Optional[str] = None
     remote_uris: list[str] = Field(default_factory=list)
     size_bytes: Optional[int] = None
@@ -525,7 +481,7 @@ class EngineOutput(BaseModel):
 
     engine: str
     sim_type: str
-    status: str = "completed"  # completed|failed|partial
+    status: str = "completed"                       # completed|failed|partial
     unit: str = ""
     fields: list[OutputField] = Field(default_factory=list)
     artifacts: list[OutputArtifact] = Field(default_factory=list)
@@ -553,11 +509,7 @@ class EngineOutput(BaseModel):
 
     def as_dict(self) -> dict:
         """Debug/legacy flat view (no longer the storage contract)."""
-        d: dict = {
-            "status": self.status,
-            "sim_type": self.sim_type,
-            "engine": self.engine,
-        }
+        d: dict = {"status": self.status, "sim_type": self.sim_type, "engine": self.engine}
         for f in self.fields:
             d[f.name] = f.quantity.value
         d["metadata"] = {
@@ -680,14 +632,10 @@ class MergedInletTimeseries(BaseModel):
     # -- dict-compatible helpers for downstream consumers ------------------
 
     def get(self, key: str, default=None):
-        return (
-            getattr(self, key) if key in MergedInletTimeseries.model_fields else default
-        )
+        return getattr(self, key) if key in MergedInletTimeseries.model_fields else default
 
     def items(self):
-        return (
-            (name, getattr(self, name)) for name in MergedInletTimeseries.model_fields
-        )
+        return ((name, getattr(self, name)) for name in MergedInletTimeseries.model_fields)
 
     def keys(self):
         return MergedInletTimeseries.model_fields.keys()
