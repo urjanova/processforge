@@ -20,7 +20,7 @@
           "properties": {
             "type": {
               "type": "string",
-              "enum": ["coolprop", "cantera", "modelica", "openmc", "festim"],
+              "enum": ["coolprop", "cantera", "modelica", "openmc", "festim", "idaes"],
               "description": "Provider engine type"
             },
             "url": {

@@ -15,6 +15,7 @@ class Strainer(BaseUnitMixin, StrainerEOMixin):
     def __init__(self, name, delta_p=5000.0, **kwargs):
         self.name = name
         self.delta_p = delta_p
+        self.params = {"delta_p": delta_p, **kwargs}
 
     def _run_impl(self, inlet):
         """

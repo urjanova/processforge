@@ -16,6 +16,7 @@ class Pump(BaseUnitMixin, PumpEOMixin):
         self.name = name
         self.delta_p = delta_p
         self.efficiency = efficiency
+        self.params = {"delta_p": delta_p, "efficiency": efficiency, **kwargs}
 
     def _run_impl(self, inlet):
         """

@@ -15,6 +15,7 @@ class Valve(BaseUnitMixin, ValveEOMixin):
     def __init__(self, name, pressure_ratio=0.5, **kwargs):
         self.name = name
         self.pressure_ratio = pressure_ratio
+        self.params = {"pressure_ratio": pressure_ratio, **kwargs}
 
     def _run_impl(self, inlet):
         """

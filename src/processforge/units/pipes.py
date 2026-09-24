@@ -17,6 +17,7 @@ class Pipes(BaseUnitMixin, PipesEOMixin):
         self.name = name
         self.delta_p = delta_p
         self.diameter = diameter
+        self.params = {"delta_p": delta_p, "diameter": diameter, **kwargs}
 
     def _run_impl(self, inlet):
         """

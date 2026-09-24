@@ -79,6 +79,12 @@ _PROVIDER_CATALOG: dict[str, ProviderCatalogEntry] = {
         docker_image="ghcr.io/urjanova/processforge-festim:latest",
         default_port=9002,
     ),
+    "idaes": ProviderCatalogEntry(
+        module="processforge.providers.idaes_provider",
+        class_name="IdaesProvider",
+        optional_dep="idaes",
+        description="Rigorous process unit models and thermodynamics via IDAES",
+    ),
 }
 
 

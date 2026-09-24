@@ -227,6 +227,24 @@ class OpenMCProviderConfig(BaseModel):
         )
 
 
+class IdaesProviderConfig(BaseModel):
+    """Configuration for the IDAES process modelling provider.
+
+    Flowsheet JSON example::
+
+        "providers": {
+            "idaes": {"type": "idaes", "package": "ideal_pure_thermo"}
+        }
+    """
+
+    type: str = "idaes"
+    package: str = "ideal_pure_thermo"
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "IdaesProviderConfig":
+        return cls(package=d.get("package", "ideal_pure_thermo"))
+
+
 class FestimProviderConfig(BaseModel):
     """Configuration for the FESTIM hydrogen transport provider.
 
@@ -276,6 +294,7 @@ ProviderConfig = Union[
     ModelicaProviderConfig,
     OpenMCProviderConfig,
     FestimProviderConfig,
+    IdaesProviderConfig,
 ]
 
 _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
@@ -284,6 +303,7 @@ _PROVIDER_CONFIG_REGISTRY: dict[str, type] = {
     "modelica": ModelicaProviderConfig,
     "openmc": OpenMCProviderConfig,
     "festim": FestimProviderConfig,
+    "idaes": IdaesProviderConfig,
 }
 
 

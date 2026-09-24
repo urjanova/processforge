@@ -31,9 +31,18 @@ class BaseUnitMixin:
         """
         provider = getattr(self, "_provider", None)
         if provider is not None:
+            params = getattr(self, "params", None)
+            if not params:
+                # Fall back to instance attributes for units that store
+                # config as plain attributes (Pump, Valve, ...).
+                params = {
+                    k: v
+                    for k, v in self.__dict__.items()
+                    if k not in ("name", "_provider") and not k.startswith("_")
+                }
             result = provider.compute_unit(
                 type(self).__name__,
-                getattr(self, "params", {}),
+                params,
                 inlet,
             )
             if result is not None:

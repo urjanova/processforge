@@ -10,7 +10,7 @@ Provides steady-state and dynamic process simulation capabilities including:
 - Equation-oriented (EO) steady-state solver via EOFlowsheet
 """
 
-__version__ = "0.6.4"
+__version__ = "0.6.5"
 
 from .eo import EOFlowsheet, EOSolver
 from .flowsheet import Flowsheet

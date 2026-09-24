@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] - 2026-09-24
+
+### Added
+- **IDAES provider** (`processforge.providers.idaes_provider`): rigorous process unit models and thermodynamic property calculations via IDAES-PSE. Declare `"provider": "idaes"` on units to delegate Pump, Valve, Strainer, and Pipes computations to IDAES steady-state models. Install with `pip install "processforge[idaes]"` (adds `idaes-pse>=2.0` to optional dependencies).
+- `IdaesProviderConfig` added to `processforge.types` with a `package` field (default `"ideal_pure_thermo"`).
+
+### Changed
+- `flowsheet_schema.json` provider `type` enum extended with `"idaes"`.
+- `_PROVIDER_CATALOG` and `_PROVIDER_CONFIG_REGISTRY` updated to include the `idaes` entry.
+- Version bumped to `0.6.5` in `src/processforge/__init__.py` and `pyproject.toml`.
+
 ## [0.6.4] - 2026-09-18
 
 ### Added
