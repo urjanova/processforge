@@ -41,6 +41,29 @@ def _zarr_path(archive_path: str, run_id: str) -> str:
     return os.path.join(archive_path, "results", run_id, "results.zarr")
 
 
+def _flowsheet_has_engine_units(flowsheet_path: str) -> bool:
+    """Return True if the flowsheet declares any ``SolverUnit``.
+
+    Only ``SolverUnit`` instances produce :class:`~processforge.types.EngineOutput`
+    records (and their artifacts), so this gates whether the ``Results:`` and
+    ``Artifacts:`` sections are meaningful for a run. On any read/parse error we
+    return ``False`` — real engine outputs are still rendered regardless of this
+    flag, so the fallback only suppresses empty placeholder lines.
+    """
+    try:
+        with open(flowsheet_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+    units = config.get("units", {})
+    if not isinstance(units, dict):
+        return False
+    return any(
+        isinstance(cfg, dict) and cfg.get("type") == "SolverUnit"
+        for cfg in units.values()
+    )
+
+
 def _artifact_status(artifact: dict) -> str:
     """Return a short presence marker for an artifact dict."""
     local_path = artifact.get("local_path")
@@ -52,18 +75,27 @@ def _artifact_status(artifact: dict) -> str:
     return "missing"
 
 
-def _format_run_compact(manifest, summary: dict) -> str:
-    """Format a compact, human-readable result summary for a single run."""
+def _format_run_compact(
+    manifest, summary: dict, has_engine: bool = True
+) -> str:
+    """Format a compact, human-readable result summary for a single run.
+
+    ``has_engine`` indicates whether the flowsheet declares any ``SolverUnit``.
+    When it is ``False`` and there are no engine outputs/artifacts, those
+    sections are omitted entirely rather than printing empty placeholders.
+    Any outputs that *are* present are always rendered.
+    """
     lines = [
         f"Run: {manifest.run_id}",
         f"Timestamp: {manifest.timestamp}",
         f"Mode: {summary.get('mode', manifest.mode)}",
         "",
-        "Results:",
-        "────────",
     ]
 
     engine_outputs = summary.get("engine_outputs", {})
+    if engine_outputs or has_engine:
+        lines.append("Results:")
+        lines.append("────────")
     if engine_outputs:
         for name, eo in engine_outputs.items():
             engine = eo.get("engine", "")
@@ -91,7 +123,7 @@ def _format_run_compact(manifest, summary: dict) -> str:
                             f"  {k}: {_fmt_scientific(_scalar_from_sequence(v))}"
                         )
             lines.append("")
-    else:
+    elif has_engine:
         lines.append("  (no solver/engine outputs)")
         lines.append("")
 
@@ -136,7 +168,7 @@ def _format_run_compact(manifest, summary: dict) -> str:
                 art.get("local_path") or (art.get("remote_uris") or ["no location"])[0]
             )
             lines.append(f"  [{kind}] {name}: {status} ({loc})")
-    else:
+    elif has_engine:
         lines.append("Artifacts: none")
 
     zarr_path = summary.get("_zarr_path")
@@ -213,7 +245,8 @@ def runs(
                     f"Failed to render terminal plots: {type(exc).__name__}: {exc}"
                 )
 
-        typer.echo(_format_run_compact(manifest, summary))
+        has_engine = _flowsheet_has_engine_units(flowsheet)
+        typer.echo(_format_run_compact(manifest, summary, has_engine=has_engine))
         return
 
     # List all runs with a one-line summary.

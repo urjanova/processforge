@@ -866,10 +866,22 @@ class Flowsheet:
 
     def _run_dynamic_sequential(self, solver, processing_order, results, t_eval, num_steps, start_time, end_time):
         """Standard sequential dynamic simulation for non-recycle flowsheets."""
+        from .units.solver_unit import SolverUnit
+
         # Process units in topological order
         for unit_name in processing_order:
             unit = self.units[unit_name]
             cfg = self.config["units"][unit_name]
+
+            # Standalone engine units (no inlet/outlet streams) are run once and
+            # their EngineOutput is collected rather than modelled per timestep.
+            if isinstance(unit, SolverUnit):
+                logger.info(f"Running standalone SolverUnit {unit_name} (dynamic)")
+                result = unit.run({})
+                self.engine_outputs[unit_name] = result
+                results[unit_name] = result
+                continue
+
             inlet_name = cfg["in"]
             if isinstance(inlet_name, list):
                 inlet_stream_ts = self._merge_inlet_timeseries(inlet_name, results, num_steps, t_eval)
@@ -955,7 +967,18 @@ class Flowsheet:
                     "n": {c: unit.initial_n.get(c, 0.0) for c in components},
                     "T": unit.initial_T
                 }
-        
+
+        # Standalone engine units have no inlet/outlet streams; run them once
+        # and collect their EngineOutput instead of stepping them per timestep.
+        from .units.solver_unit import SolverUnit
+        for unit_name in processing_order:
+            unit = self.units[unit_name]
+            if isinstance(unit, SolverUnit):
+                logger.info(f"Running standalone SolverUnit {unit_name} (dynamic)")
+                result = unit.run({})
+                self.engine_outputs[unit_name] = result
+                results[unit_name] = result
+
         # Process timestep by timestep
         for step in range(num_steps):
             t = t_eval[step]
@@ -984,7 +1007,11 @@ class Flowsheet:
             for unit_name in processing_order:
                 unit = self.units[unit_name]
                 cfg = self.config["units"][unit_name]
-                
+
+                # SolverUnits already ran once above; skip timestep stepping.
+                if isinstance(unit, SolverUnit):
+                    continue
+
                 # Get merged inlet snapshot for this timestep
                 inlet_snapshot = self._get_inlet_snapshot(results, cfg, step)
                 

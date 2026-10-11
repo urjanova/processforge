@@ -220,6 +220,76 @@ class FakeProvider:
         }
 
 
+def _write_streams_only_run(tmp_path, base, rid):
+    """Create an archive + streams-only zarr for *base* and return the run id."""
+    archive_path = tmp_path / f"{base}.pfarchive"
+    runs_dir = archive_path / "runs"
+    results_dir = archive_path / "results"
+    runs_dir.mkdir(parents=True)
+
+    results = {
+        "after_valve": {
+            "P": [101325.0, 101325.0, 101325.0],
+            "T": [298.15, 307.5, 313.0],
+            "flowrate": [1.0, 1.0, 1.0],
+            "time": [0.0, 1.0, 2.0],
+        },
+    }
+    save_results_zarr(results, str(results_dir / rid / "results.zarr"), None)
+    manifest = RunManifest(
+        run_id=rid,
+        timestamp=rid.split("_")[0],
+        mode="dynamic",
+    )
+    (runs_dir / f"{rid}.json").write_text(manifest.model_dump_json())
+    (archive_path / "latest_run").write_text(rid)
+    return archive_path
+
+
+def test_pf_runs_omits_engine_sections_without_solver_units(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROCESSFORGE_OUTPUT_DIR", str(tmp_path))
+    base = "no_engine_flowsheet"
+    rid = "20260101T000000Z_aaaaaa"
+    _write_streams_only_run(tmp_path, base, rid)
+
+    # Flowsheet uses only built-in units -> no engine/artifacts sections.
+    flowsheet_path = tmp_path / f"{base}.json"
+    flowsheet_path.write_text(
+        json.dumps({"units": {"valve": {"type": "Valve"}}})
+    )
+
+    app = typer.Typer()
+    app.command()(runs)
+    result = CliRunner().invoke(app, [str(flowsheet_path), rid])
+    assert result.exit_code == 0, result.output
+    assert "(no solver/engine outputs)" not in result.output
+    assert "Artifacts:" not in result.output
+    assert "Results:" not in result.output
+    assert "Streams (final timestep):" in result.output
+
+
+def test_pf_runs_shows_placeholders_when_solver_unit_declared(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROCESSFORGE_OUTPUT_DIR", str(tmp_path))
+    base = "engine_flowsheet"
+    rid = "20260101T000000Z_bbbbbb"
+    _write_streams_only_run(tmp_path, base, rid)
+
+    # SolverUnit declared but produced nothing -> placeholders are informative.
+    flowsheet_path = tmp_path / f"{base}.json"
+    flowsheet_path.write_text(
+        json.dumps(
+            {"units": {"engine": {"type": "SolverUnit", "provider": "openmc"}}}
+        )
+    )
+
+    app = typer.Typer()
+    app.command()(runs)
+    result = CliRunner().invoke(app, [str(flowsheet_path), rid])
+    assert result.exit_code == 0, result.output
+    assert "(no solver/engine outputs)" in result.output
+    assert "Artifacts: none" in result.output
+
+
 def test_collect_stream_outputs_handles_dynamic_timeseries():
     """Dynamic simulations store T/P/z as lists; collector must normalize them."""
     provider = FakeProvider()

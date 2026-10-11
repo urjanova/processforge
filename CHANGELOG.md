@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] - 2026-10-11
+
+### Changed
+- `pf runs <flowsheet> <run_id>` now omits the `Results:` and `Artifacts:` sections for flowsheets without any `SolverUnit`, instead of printing misleading `(no solver/engine outputs)` / `Artifacts: none` placeholders.
+
+### Fixed
+- Dynamic runs now collect `SolverUnit` `EngineOutput`s (and their artifacts) into the run manifest/Zarr; previously they were discarded, and the sequential path raised `KeyError` on a unit without an `in` key.
+
 ## [0.6.5] - 2026-09-24
 
 ### Added
