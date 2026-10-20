@@ -97,7 +97,7 @@ Well-mixed molar tank. **Dynamic only** (requires dynamic mode).
 ### Flash
 
 Isothermal flash separator (Rachford–Rice) producing vapor and liquid
-outlets. 🔽 **Fall-through** — needs K-values from a thermo provider.**
+outlets. 🔽 **Fall-through** — needs K-values from a thermo provider.
 
 | Property | Built-in (SM) | IDAES (provider) | Default | Units | Description |
 |----------|--------------- |------------------|---------|-------|-------------|
