@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.6] - 2026-10-11
+## [0.6.7] - 2026-10-11
+
+### Added
+- **Unit operations reference** — new `docs/units.md` documenting every unit type in the flowsheet schema with a built-in (SM) and IDAES provider surface per unit, so flowsheet authors can see both property surfaces side by side as the IDAES provider grows.
 
 ### Changed
 - `pf runs <flowsheet> <run_id>` now omits the `Results:` and `Artifacts:` sections for flowsheets without any `SolverUnit`, instead of printing misleading `(no solver/engine outputs)` / `Artifacts: none` placeholders.
@@ -56,6 +59,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Bump version to `0.6.0` in `src/processforge/__init__.py` and `pyproject.toml`.
+
+## [0.6.7] - 2026-10-11
+
+### Added
+- **Unit operations reference** — new `docs/units.md` documenting every unit
+  type in the flowsheet schema. Each unit keeps **one name with two property
+  surfaces** (built-in SM vs. the IDAES provider), so flowsheet authors can see
+  both surfaces side-by-side and keep them matching. Covers the provider
+  resolution/fall-through model, common unit + stream conventions, per-unit
+  property tables, and the IDAES-specific properties surface (which is designed
+  to grow as the IDAES provider gains rigorous features).
 
 ## [0.5.1] - 2026-09-07
 
