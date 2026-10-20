@@ -7,9 +7,13 @@ This page documents every unit type that can appear in a processforge flowsheet'
 Processforge deliberately keeps **one unit type name with two property vectors**:
 
 - **Built-in (SM)** — the default sequential-modular models in
-  `processforge.units`. 
+  `processforge.units`. These units read and compute properties using
+  water-like assumptions (ρ = 1000 kg/m³, Cp = 4180 J/kg·K, MW = 0.018 kg/mol)
+  unless a thermodynamic provider is attached.
 - **IDAES (provider)** — when a unit sets `"provider": "idaes"`, the IDAES
-  provider intercepts the same unit types and can compute some of them with IDAES steady-state models.
+  provider intercepts the same unit types and can compute some of them with
+  IDAES steady-state models. IDAES currently supports a core set of properties
+  out of the box; more robust property support will be added later.
 
 Every unit type accepts the same shared keys regardless of vector:
 
@@ -29,15 +33,17 @@ MW = 0.018 kg/mol) unless a thermodynamic provider is attached.
 
 ## Unit operation properties
 
-The **Built-in (SM)** column says whether the default logic reads the key; the **IDAES (provider)** column says whether the IDAES provider understands it. A `—`
-means the vector does not model that property. Cells marked **fall-through**
-are unit types IDAES does **not** intercept — those always run the built-in
-logic today, but are reserved for future IDAES features.
+The **Built-in (SM)** column indicates whether the default sequential‑modular
+logic reads the key. The **IDAES (provider)** column indicates whether the
+IDAES provider understands the property out of the box. A `—` means the
+vector does not model that property. Cells marked **fall-through** are unit
+types that IDAES does not intercept — they always run the built-in logic
+today, but are reserved for future IDAES features.
 
 Legend:
 - ✅ — property is read on this vector.
 - — — property is not modelled on this vector.
-- 🔽 — unit type falls through to the built-in logic (IDAES does not intercept it).
+- 🔽 — unit type falls through to the built-in logic.
 
 ### Pump
 
@@ -54,7 +60,7 @@ temperature.
 Isenthalpic pressure reduction by a fixed ratio.
 
 | Property | Built-in (SM) | IDAES (provider) | Default | Units | Description |
-|----------|---------------|------------------|---------|-------|-------------|
+|----------|--------------- |------------------|---------|-------|-------------|
 | `pressure_ratio` | ✅ | ✅ | `0.5` | — | Outlet pressure / inlet pressure. |
 
 ### Strainer
@@ -62,7 +68,7 @@ Isenthalpic pressure reduction by a fixed ratio.
 Fixed pressure drop element.
 
 | Property | Built-in (SM) | IDAES (provider) | Default | Units | Description |
-|----------|---------------|------------------|---------|-------|-------------|
+|----------|--------------- |------------------|---------|-------|-------------|
 | `delta_p` | ✅ | ✅ | `5000.0` | Pa | Pressure drop. |
 
 ### Pipes
@@ -71,7 +77,7 @@ Laminar pipe with a fixed pressure drop; optionally computes flow from the
 drop via a simplified Hagen–Poiseuille relation.
 
 | Property | Built-in (SM) | IDAES (provider) | Default | Units | Description |
-|----------|---------------|------------------|---------|-------|-------------|
+|----------|--------------- |------------------|---------|-------|-------------|
 | `delta_p` | ✅ | ✅ | `1000.0` | Pa | Pressure drop. |
 | `diameter` | ✅ | ✅ | `0.1` | m | Pipe diameter. |
 
@@ -80,7 +86,7 @@ drop via a simplified Hagen–Poiseuille relation.
 Well-mixed molar tank. **Dynamic only** (requires dynamic mode).
 
 | Property | Built-in (SM) | IDAES (provider) | Default | Units | Description |
-|----------|---------------|------------------|---------|-------|-------------|
+|----------|--------------- |------------------|---------|-------|-------------|
 | `outlet_flow` | ✅ | — | `1.0` | mol/s | Outlet molar flow. |
 | `P` | ✅ | — | `101325.0` | Pa | Operating pressure. |
 | `duty` | ✅ | — | `0.0` | W | Heat duty (positive heats). |
@@ -94,34 +100,17 @@ Isothermal flash separator (Rachford–Rice) producing vapor and liquid
 outlets. 🔽 **Fall-through** — needs K-values from a thermo provider.**
 
 | Property | Built-in (SM) | IDAES (provider) | Default | Units | Description |
-|----------|---------------|------------------|---------|-------|-------------|
+|----------|--------------- |------------------|---------|-------|-------------|
 | `P` | ✅ | — | — | Pa | Operating pressure. |
 | `in` | ✅ | — | — | — | Inlet stream name. |
 | `out_vap` | ✅ | — | — | — | Outlet vapor stream name. |
 | `out_liq` | ✅ | — | — | — | Outlet liquid stream name. |
 
-## Heater, CSTR and PFR
+### Heater, CSTR and PFR
 
-These units are not supported in IDAES currently. 
-
-
-## Provider resolution & fall-through
-
-IDAES does **not** define new unit classes. It intercepts the same SM unit
-names via `IdaesProvider.compute_unit()`:
-
-| Unit type | IDAES intercepts? | IDAES reads | Notes |
-|-----------|-------------------|-------------|-------|
-| `Pump` | ✅ | `delta_p`, `efficiency` | — |
-| `Valve` | ✅ | `pressure_ratio` | — |
-| `Strainer` | ✅ | `delta_p` | — |
-| `Pipes` | ✅ | `delta_p`, `diameter` | — |
-| `Heater` | 🔽 | — | Needs thermo provider; built-in logic runs. |
-| `Flash` | 🔽 | — | Needs K-values; built-in logic runs. |
-| `CSTR` / `PFR` / `Tank` | 🔽 | — | Default SM / Cantera logic runs. |
-
-Execution order per unit: built-in SM logic → provider (`compute_unit`) →
-fall-through to the built-in SM logic when the provider returns `None`.
+These units are **not** supported in IDAES currently. CSTR and PFR require a
+Cantera provider (`"provider": "cantera"`). Heater relies on CoolProp for
+enthalpy calculations and is not yet IDAES‑compatible.
 
 ## Examples
 
