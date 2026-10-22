@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] - 2026-10-22
+
+### Changed
+- **Cleaner console output** — replaced loguru's default verbose handler (timestamp + module:function:line) with a concise `LEVEL | message` format across all `pf` commands (`init`, `plan`, `run`, `apply`, `validate`, etc.). Colours auto-disable when piped/redirected. `--debug` now also enables DEBUG-level logs.
+
 ## [0.6.7] - 2026-10-11
 
 ### Added
