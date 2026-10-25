@@ -224,28 +224,69 @@ def _check_unused_outlets(config, consumed_streams, defined_streams):
 
 def _check_unreachable_units(config, defined_streams):
     """
-    Detect unreachable units by propagating reachability from feed streams.
+    Detect units disconnected from any valid boundary.
 
-    Runs N iterations (N = unit count) to cover all paths including cycles.
-    SolverUnit types are excluded — they have no inlet stream dependency.
+    Connectivity is checked on the undirected unit graph, so a feed-less
+    closed loop is not treated as orphaned merely because it has no entry
+    point. A connected group of units is valid when it contains at least one
+    boundary:
+
+    - a unit consuming a declared feed stream;
+    - a SolverUnit (no inlet stream dependency);
+    - in dynamic mode, a Tank carrying initial state.
+
+    SolverUnit types are excluded from the orphan check — they have no inlet
+    stream dependency.
     """
-    reachable = set(defined_streams)
-    for _ in range(len(config["units"])):
-        for ucfg in config["units"].values():
-            if ucfg.get("type") in _SOLVER_UNIT_TYPES:
-                continue
-            if any(i in reachable for i in _get_unit_inlets(ucfg)):
-                for outlet in _get_unit_outlets(ucfg):
-                    reachable.add(outlet)
+    units = config["units"]
+    sim_mode = config.get("simulation", {}).get("mode", "steady")
+
+    # stream -> producing unit
+    producers = {}
+    for unit_name, ucfg in units.items():
+        for outlet in _get_unit_outlets(ucfg):
+            producers[outlet] = unit_name
+
+    # Undirected unit adjacency: producer <-> consumer.
+    adj = {name: set() for name in units}
+    for unit_name, ucfg in units.items():
+        for inlet in _get_unit_inlets(ucfg):
+            producer = producers.get(inlet)
+            if producer is not None and producer != unit_name:
+                adj[unit_name].add(producer)
+                adj[producer].add(unit_name)
+
+    # Valid boundaries seed the traversal.
+    reachable = {
+        name for name, ucfg in units.items()
+        if ucfg.get("type") in _SOLVER_UNIT_TYPES
+    }
+    for name, ucfg in units.items():
+        if any(i in defined_streams for i in _get_unit_inlets(ucfg)):
+            reachable.add(name)
+    if sim_mode == "dynamic":
+        for name, ucfg in units.items():
+            if ucfg.get("type") == "Tank" and ucfg.get("initial_n") is not None:
+                reachable.add(name)
+
+    stack = list(reachable)
+    while stack:
+        current = stack.pop()
+        for neighbour in adj[current]:
+            if neighbour not in reachable:
+                reachable.add(neighbour)
+                stack.append(neighbour)
 
     unreachable = [
-        u for u, cfg in config["units"].items()
-        if cfg.get("type") not in _SOLVER_UNIT_TYPES
-        and not any(o in reachable for o in _get_unit_outlets(cfg))
+        name for name, ucfg in units.items()
+        if ucfg.get("type") not in _SOLVER_UNIT_TYPES
+        and name not in reachable
     ]
     if unreachable:
         raise ValueError(
-            f"❌ Unreachable units detected: {', '.join(unreachable)}"
+            f"❌ Unreachable units detected: {', '.join(unreachable)}. "
+            f"Each connected group of units needs a feed stream or, in dynamic "
+            f"mode, a Tank with initial conditions."
         )
 
 
