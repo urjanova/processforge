@@ -11,8 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Tank `_ode_rhs`** evaluates enthalpies at tank `P` (not inlet `P`), eliminating phantom `v·ΔP` offset causing ~0.4 K equilibrium shift when P_in ≠ P_tank.
 - **`run_dynamic`** now consumes full inlet timeseries via `_inlet_interpolator` instead of `values[0]`.
-
-### Phase 2: Provider property sourcing & efficiency normalization
 - All built-in units (Tank, Pump, Pipes) resolve Cp/molar_volume/viscosity through provider first, with explicit unit params overriding.
 - **`Pump` efficiency**: values > 1 normalized as percent with warning; `require_pump_properties()` raises `RuntimeError` when unavailable.
 - **`Pipes`**: Hagen–Poiseuille uses provider viscosity; warning (not error) when absent, flow set to 0.
