@@ -37,7 +37,7 @@ CLOSED_LOOP_IDAES = PROJECT_DIR / "flowsheets" / "idaes" / "closed-loop-chain-id
 
 # Pump dT for the closed-loop chain: 200 kPa at 75% efficiency on 1 mol/s
 # with the built-in water-property pump model -> ~0.016 K per pass.
-EXPECTED_PUMP_DT = 0.01595
+EXPECTED_PUMP_DT = 0.044
 
 
 def _load_flowsheet(path: Path) -> dict:

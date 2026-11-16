@@ -37,7 +37,7 @@ from .units.heater import Heater
 from .units.pipes import Pipes
 from .units.pump import Pump
 from .units.strainer import Strainer
-from .units.tank import Tank
+from .units.tank import Tank, tank_energy_derivative
 from .units.valve import Valve
 from .utils.validate_flowsheet import validate_flowsheet
 
