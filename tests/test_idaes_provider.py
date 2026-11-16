@@ -221,7 +221,7 @@ class TestBaseUnitMixinIdaesDelegation:
         _install_fake_idaes(monkeypatch)
         from processforge.flowsheet import Flowsheet
 
-        cfg = json.load(open("flowsheets/hydraulic-chain-idaes.json"))
+        cfg = json.load(open("flowsheets/idaes/hydraulic-chain-idaes.json"))
         # Flowsheet does dict-based init; mock stays via sys.modules
         fs = Flowsheet(cfg)
         result = fs.run()
@@ -250,25 +250,31 @@ class TestFlowsheetIntegration:
     def test_hydraulic_chain_idaes_validates(self):
         from processforge.utils.validate_flowsheet import validate_flowsheet_dict
 
-        cfg = json.load(open("flowsheets/hydraulic-chain-idaes.json"))
+        cfg = json.load(open("flowsheets/idaes/hydraulic-chain-idaes.json"))
         assert validate_flowsheet_dict(cfg, "hydraulic-chain-idaes") is not None
 
     def test_closed_loop_idaes_validates(self):
         from processforge.utils.validate_flowsheet import validate_flowsheet_dict
 
-        cfg = json.load(open("flowsheets/closed-loop-chain-idaes.json"))
+        cfg = json.load(open("flowsheets/idaes/closed-loop-chain-idaes.json"))
         assert validate_flowsheet_dict(cfg, "closed-loop-chain-idaes") is not None
 
     def test_closed_loop_dynamic_runs(self, monkeypatch):
         _install_fake_idaes(monkeypatch)
         from processforge.flowsheet import Flowsheet
 
-        cfg = json.load(open("flowsheets/closed-loop-chain-idaes.json"))
+        cfg = json.load(open("flowsheets/idaes/closed-loop-chain-idaes.json"))
         result = Flowsheet(cfg).run()
         assert "recycle_to_tank" in result
         # dynamic result has list for P
         assert isinstance(result["recycle_to_tank"]["P"], list)
         assert len(result["recycle_to_tank"]["P"]) == 21
+        # Tank energy balance: no-duty tank must hold its initial temperature
+        # (298.15 K) instead of drifting toward the 500 K clamp.  The pump
+        # contributes only ~0.02 K of legitimate heating per pass.
+        for stream_name in ("after_tank_1", "recycle_to_tank"):
+            for t in result[stream_name]["T"]:
+                assert t == pytest.approx(298.15, abs=0.5)
 
     def test_idaes_flowsheet_fails_without_idaes(self, monkeypatch):
         # remove fake if present
@@ -277,6 +283,6 @@ class TestFlowsheetIntegration:
                 monkeypatch.delitem(sys.modules, k, raising=False)
         from processforge.flowsheet import Flowsheet
 
-        cfg = json.load(open("flowsheets/hydraulic-chain-idaes.json"))
+        cfg = json.load(open("flowsheets/idaes/hydraulic-chain-idaes.json"))
         with pytest.raises(ProviderNotAvailableError):
             Flowsheet(cfg).run()

@@ -14,6 +14,7 @@ from .types import EngineOutput, FlowsheetConfig, MergedInletTimeseries, StreamT
 from .solver import Solver
 from .providers.manager import UnitProviderConfig
 from .units.registry import get_unit_class
+from .units.tank import TANK_CP_FALLBACK
 
 _UNIT_META_KEYS = {"type", "in", "out", "material", "material_mix", "provider"}
 _DEFAULT_T = 298.15
@@ -1134,17 +1135,35 @@ class Flowsheet:
                     snapshot[prop] = values
         return snapshot
 
+    def _tank_cp(self, unit, x: dict, T: float) -> float:
+        """Mixture molar heat capacity [J/mol/K] for a tank state.
+
+        Routes through the unit's attached thermo provider when available and
+        falls back to ``TANK_CP_FALLBACK`` (75.3 J/mol/K, the same default as
+        the Modelica writer) if the provider is unavailable, fails, or returns
+        a non-positive / non-finite Cp (e.g. the IDAES provider returns 0.0
+        when its property package cannot be loaded).
+        """
+        try:
+            props = unit._get_thermo_properties(x, T, unit.P)
+            cp = props.get("Cp", 0.0)
+            if cp > 0:  # also False for NaN
+                return float(cp)
+        except Exception:  # noqa: BLE001 — Cp is best-effort; never block integration
+            pass
+        return TANK_CP_FALLBACK
+
     def _integrate_tank_step(self, unit, inlet_snapshot, state, dt, components):
         """
         Integrate Tank for one timestep using simple Euler method.
-        
+
         Args:
             unit: Tank unit instance
             inlet_snapshot: Dict with T, P, flowrate, z for inlet
             state: Current Tank state {n: {comp: moles}, T: temperature}
             dt: Timestep size
             components: Set of component names
-            
+
         Returns:
             tuple: (outlet_snapshot, new_state)
         """
@@ -1152,37 +1171,49 @@ class Flowsheet:
         n = state["n"]
         T = state["T"]
         n_tot = max(1e-12, sum(n.values()))
-        
+
         # Inlet properties
         F_in = inlet_snapshot.get("flowrate", 0.0)
         z_in = inlet_snapshot.get("z", {})
         T_in = inlet_snapshot.get("T", _DEFAULT_T)
-        
+
         # Outlet flow (constant from Tank params)
         F_out = unit.outflow
-        
+
         # Current compositions
         x = {c: n.get(c, 0.0) / n_tot for c in components}
-        
+
         # Molar balances: dn/dt = F_in * z_in - F_out * x
         new_n = {}
         for comp in components:
             dn_dt = F_in * z_in.get(comp, 0.0) - F_out * x.get(comp, 0.0)
             new_n[comp] = max(0.0, n.get(comp, 0.0) + dn_dt * dt)
-        
-        # Simple energy balance (approximate)
-        # dT/dt ~ (F_in * T_in - F_out * T) / n_tot (simplified)
+
+        # Well-mixed energy balance (constant Cp):
+        #   n_tot * Cp * dT/dt = F_in * Cp * (T_in - T) + Q
+        #   =>  dT/dt = (F_in * (T_in - T) + Q / Cp) / n_tot
+        # Matches the Modelica writer (unit_equations.tank_eq).  For duty = 0
+        # the Cp cancels and T relaxes toward T_in with time constant
+        # n_tot / F_in, independent of F_out.
         if n_tot > 1e-10:
-            dT_dt = (F_in * T_in - F_out * T + unit.duty / 100) / n_tot  # duty scaled
+            cp = self._tank_cp(unit, x, T)  # J/mol/K
+            dT_dt = (F_in * (T_in - T) + unit.duty / cp) / n_tot
             new_T = T + dT_dt * dt
         else:
             new_T = T_in
-        
-        new_T = max(200, min(500, new_T))  # Bound temperature
-        
+
+        # Sanity bound — warn instead of silently clamping so runaway energy
+        # balances are visible in the logs.
+        if new_T < 200 or new_T > 500:
+            logger.warning(
+                f"Tank '{unit.name}' temperature {new_T:.1f} K outside "
+                f"[200, 500] K — clamping. Check energy balance parameters."
+            )
+            new_T = max(200.0, min(500.0, new_T))
+
         # New state
         new_state = {"n": new_n, "T": new_T}
-        
+
         # Outlet snapshot
         new_n_tot = max(1e-12, sum(new_n.values()))
         outlet_snapshot = {
@@ -1191,7 +1222,7 @@ class Flowsheet:
             "flowrate": F_out,
             "z": {c: new_n.get(c, 0.0) / new_n_tot for c in components}
         }
-        
+
         return outlet_snapshot, new_state
 
     def _store_snapshot_in_timeseries(self, results, stream_name, snapshot, step, components):

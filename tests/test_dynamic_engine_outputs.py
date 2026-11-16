@@ -158,5 +158,12 @@ def test_dynamic_recycle_collects_engine_output(monkeypatch):
         "20260101T000000Z_bbbbbb", "dynamic", "dyn-engine-recycle"
     )
     assert "engine" in manifest.units
+
+    # Tank energy balance: the no-duty tank must equilibrate to the feed
+    # temperature (300.0 K in this fixture) instead of drifting toward the
+    # 500 K clamp (F_in=2 vs F_out=1 previously caused runaway heating).
+    for t in results["tank_out"]["T"]:
+        assert t == pytest.approx(300.0, abs=0.5)
+        assert t < 400.0
     # The engine output must not leak into the stream outputs.
     assert "engine" not in manifest.streams

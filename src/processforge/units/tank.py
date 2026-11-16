@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from .base import BaseUnitMixin
 from .registry import register_unit
 
+# Fallback molar heat capacity [J/mol/K] used when no thermo provider is
+# available (or the provider returns a non-positive Cp).  Matches the
+# ``Cp_default`` used by the Modelica writer (unit_equations.tank_eq).
+TANK_CP_FALLBACK = 75.3
+
 
 @dataclass
 class TankState:
@@ -140,14 +145,18 @@ class Tank(BaseUnitMixin):
         H_out = props_out["H"]  # J/mol
 
         # Cp mix
-        Cp_mix = props_out.get("Cp", 1e-6)  # J/mol/K (fallback or from provider)
-        if Cp_mix <= 0:
-            Cp_mix = 1e-6
+        Cp_mix = props_out.get("Cp", TANK_CP_FALLBACK)  # J/mol/K (from provider)
+        if not (Cp_mix > 0):  # also catches NaN from a failing provider
+            Cp_mix = TANK_CP_FALLBACK
 
         # energy balance (molar basis)
-        # dT/dt = (Fin*H_in - Fout*H_out + Q) / (n_tot * Cp_mix)
+        # Well-mixed enthalpy balance:
+        #   d(n*H)/dt = Fin*H_in - Fout*H + Q,  dn/dt = Fin - Fout
+        # expands to  n * dH/dt = Fin*(H_in - H) + Q, so with dH/dt = Cp*dT/dt:
+        #   dT/dt = (Fin * (H_in - H_out) + Q) / (n_tot * Cp_mix)
+        # (H_out is the tank/outlet enthalpy at the current tank state.)
         Q = self.duty
-        dT_dt = (Fin * H_in - Fout * H_out + Q) / (n_tot * Cp_mix)
+        dT_dt = (Fin * (H_in - H_out) + Q) / (n_tot * Cp_mix)
 
         return np.concatenate([dn_dt, [dT_dt]])
 
