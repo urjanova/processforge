@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.1] - 2026-11-16
 
 ### Fixed
-- **Tank energy balance** — the dynamic tank temperature integration (`Flowsheet._integrate_tank_step` and `Tank._ode_rhs`) was missing the `T·dn/dt` term of the enthalpy balance, adding a spurious `(F_in − F_out)·T / n_tot` term whenever inlet and outlet flows differed. In recycle loops (`F_in > F_out`) this drove tank temperatures into the silent 200–500 K clamp (e.g. `closed-loop-chain.json` drifted 271 K → 331 K instead of holding 298.15 K). Both paths now use the correct well-mixed balance `n·Cp·dT/dt = F_in·(H_in − H) + Q` (constant-Cp temperature form in the Euler step, enthalpy form in the ODE), matching the Modelica writer. The arbitrary `duty/100` scaling was replaced by `duty/Cp`, tank Cp is sourced from the thermo provider with a 75.3 J/mol/K fallback (tolerating providers that return `Cp = 0`), and the temperature clamp now logs a warning instead of failing silently.
+- **Tank energy balance** — the dynamic tank temperature integration (`Flowsheet._integrate_tank_step` and `Tank._ode_rhs`) was missing the `T·dn/dt` term of the enthalpy balance, adding a spurious `(F_in − F_out)·T / n_tot` term whenever inlet and outlet flows differed. 
 
 ## [0.7.0] - 2026-10-29
 
