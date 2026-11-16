@@ -5,10 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.7.1] - 2026-11-16
-
-### Fixed
-- **Tank energy balance** — the dynamic tank temperature integration (`Flowsheet._integrate_tank_step` and `Tank._ode_rhs`) was missing the `T·dn/dt` term of the enthalpy balance, adding a spurious `(F_in − F_out)·T / n_tot` term whenever inlet and outlet flows differed.
 
 ## [0.7.2] - 2026-11-16
 
@@ -25,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`_tank_cp()`** now raises `RuntimeError` when Cp unavailable instead of silent fallback.
 - Efficiency > 1 interpreted as percent with warning. 
 
+## [0.7.1] - 2026-11-16
+
+### Fixed
+- **Tank energy balance** — the dynamic tank temperature integration (`Flowsheet._integrate_tank_step` and `Tank._ode_rhs`) was missing the `T·dn/dt` term of the enthalpy balance, adding a spurious `(F_in − F_out)·T / n_tot` term whenever inlet and outlet flows differed.
 ## [0.7.0] - 2026-10-29
 
 ### Added
