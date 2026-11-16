@@ -1,0 +1,18 @@
+schema_version: "1.0"
+
+# Maps flowsheets to the CAE cases that apply to them. A flowsheet may be
+# linked to several cases (e.g. one per jurisdiction). Paths are resolved
+# relative to the repository root (the parent of this `cae/` directory).
+flowsheets:
+  - path: flowsheets/closed-loop-chain.json
+    cases:
+      - case_id: closed-loop-cae
+        version: "1.0.0"
+  - path: flowsheets/hydraulic-chain.json
+    cases:
+      - case_id: hydraulic-cae
+        version: "1.0.0"
+  - path: flowsheets/openmc/msre_eigenvalue.json
+    cases:
+      - case_id: openmc-cae
+        version: "1.0.0"

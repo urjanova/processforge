@@ -1,0 +1,79 @@
+schema_version: "1.0"
+
+case:
+  id: closed-loop-cae
+  title: Closed-loop circulation assurance case
+  version: "1.0.0"
+  description: >-
+    Sample assurance case for the closed-loop-chain flowsheet. Demonstrates
+    stream-backed evidence with per-jurisdiction claims.
+  jurisdictions:
+    - UK-GDA
+    - US-NRC
+
+requirements:
+  - id: REQ-001
+    statement: The recycle stream returns to the tank within the operating temperature band.
+    source: Design basis, section 4.2
+  - id: REQ-002
+    statement: Feed pressure remains within the design pressure envelope.
+    source: Design basis, section 5.1
+  - id: REQ-003
+    statement: Circulation flowrate is maintained above the minimum turndown limit.
+    source: Operating envelope, table 3
+
+claims:
+  - id: CLAIM-001
+    statement: The recycle loop returns fluid within the operating temperature band.
+    jurisdiction: UK-GDA
+    requirement_refs: [REQ-001]
+    argument_refs: [ARG-001]
+    summary: Recycle temperature is asserted from the final simulated timestep.
+
+  - id: CLAIM-002
+    statement: Feed pressure is bounded by the design envelope.
+    jurisdiction: US-NRC
+    requirement_refs: [REQ-002]
+    argument_refs: [ARG-002]
+    summary: Feed pressure is asserted directly from the simulation result.
+
+  - id: CLAIM-003
+    statement: Circulation flowrate stays above the minimum turndown limit.
+    jurisdiction: UK-GDA
+    requirement_refs: [REQ-003]
+    argument_refs: [ARG-003]
+    summary: Mean flowrate over the run is compared with the turndown limit.
+
+arguments:
+  - id: ARG-001
+    statement: The final recycle temperature is the controlling value for the band check.
+    evidence_refs: [EVD-001]
+  - id: ARG-002
+    statement: Feed pressure is recorded directly by the property provider.
+    evidence_refs: [EVD-002]
+  - id: ARG-003
+    statement: Mean circulation flowrate represents sustained operation.
+    evidence_refs: [EVD-003]
+
+evidence:
+  - id: EVD-001
+    description: Recycle stream temperature at the final timestep.
+    ref:
+      type: stream
+      name: recycle_to_tank
+      field: T
+      extract: final
+  - id: EVD-002
+    description: Feed stream pressure.
+    ref:
+      type: stream
+      name: feed
+      field: P
+      extract: value
+  - id: EVD-003
+    description: Mean tank outlet flowrate.
+    ref:
+      type: stream
+      name: after_tank_1
+      field: flowrate
+      extract: mean

@@ -32,7 +32,10 @@ def register_commands(app: typer.Typer) -> None:
     )(apply)
     app.command(
         "runs",
-        help="List runs for a flowsheet, or inspect one run's Zarr result summary (pf runs <flowsheet> [<run_id>|latest] [--schema])",
+        help=(
+            "List runs for a flowsheet, or inspect one run's Zarr result summary "
+            "(pf runs <flowsheet> [<run_id>|latest] [--schema] [--cae [--jurisdiction J]])"
+        ),
     )(runs)
     app.command(
         "plan",

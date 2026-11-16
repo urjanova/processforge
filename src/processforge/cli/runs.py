@@ -10,6 +10,7 @@ import typer
 from loguru import logger
 
 from .common import flowsheet_basename, output_root
+from ..cae import CAEError, generate_cae_reports
 from ..persistence.archive import ProcessStateArchive
 from ..result import (
     _fmt_scientific,
@@ -179,6 +180,51 @@ def _format_run_compact(
     return "\n".join(lines)
 
 
+def _render_cae(
+    *,
+    flowsheet: str,
+    run_id: str,
+    manifest,
+    summary: dict,
+    zarr_path: str,
+    jurisdiction: str | None,
+    cae_dir: str | None,
+) -> str:
+    """Load the flowsheet CAE cases and render the assurance report(s)."""
+    if not summary.get("present"):
+        logger.error(
+            f"No results.zarr found for run '{run_id}' at {zarr_path}. "
+            "CAE evidence cannot be resolved."
+        )
+        raise typer.Exit(code=1)
+
+    try:
+        with open(flowsheet, "r", encoding="utf-8") as handle:
+            config = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.error(f"Failed to read flowsheet '{flowsheet}': {exc}")
+        raise typer.Exit(code=1) from exc
+
+    try:
+        reports = generate_cae_reports(
+            flowsheet_path=flowsheet,
+            flowsheet_config=config,
+            run_id=run_id,
+            run_summary=summary,
+            manifest=manifest,
+            zarr_path=zarr_path,
+            jurisdiction=jurisdiction,
+            cae_root=cae_dir,
+            run_timestamp=getattr(manifest, "timestamp", "") if manifest else "",
+            run_mode=getattr(manifest, "mode", "") if manifest else "",
+        )
+    except CAEError as exc:
+        logger.error(str(exc))
+        raise typer.Exit(code=1) from exc
+
+    return "\n\n".join(report.text for report in reports)
+
+
 def runs(
     flowsheet: str = typer.Argument(..., help="Path to the flowsheet JSON"),
     run_id: str = typer.Argument(
@@ -195,8 +241,33 @@ def runs(
         "--no-plot",
         help="Skip terminal plots for the run summary.",
     ),
+    cae: bool = typer.Option(
+        False,
+        "--cae",
+        help="Print a CAE (Claims, Arguments, Evidence) assurance report for the run.",
+    ),
+    jurisdiction: str | None = typer.Option(
+        None,
+        "--jurisdiction",
+        help="Only include claims for this jurisdiction (implies --cae).",
+    ),
+    cae_dir: str | None = typer.Option(
+        None,
+        "--cae-dir",
+        help="Path to the CAE repository (defaults to the nearest 'cae/' directory).",
+    ),
 ):
     """List runs for a flowsheet, or inspect one run's Zarr result summary."""
+    want_cae = cae or jurisdiction is not None
+    if want_cae and schema:
+        logger.error("--cae cannot be combined with --schema.")
+        raise typer.Exit(code=1)
+    if want_cae and run_id is None:
+        logger.error(
+            "--cae requires a run id. Use 'latest' for the most recent run."
+        )
+        raise typer.Exit(code=1)
+
     base = flowsheet_basename(flowsheet)
     archive_path = os.path.join(output_root(), f"{base}.pfarchive")
 
@@ -235,6 +306,20 @@ def runs(
         manifest = archive.load_run(resolved_id)
         summary = summarize_zarr_store(zarr_path)
         summary["_zarr_path"] = zarr_path
+
+        if want_cae:
+            typer.echo(
+                _render_cae(
+                    flowsheet=flowsheet,
+                    run_id=resolved_id,
+                    manifest=manifest,
+                    summary=summary,
+                    zarr_path=zarr_path,
+                    jurisdiction=jurisdiction,
+                    cae_dir=cae_dir,
+                )
+            )
+            return
 
         if not no_plot:
             plot_title = f"{base} / {resolved_id}"

@@ -1,0 +1,58 @@
+schema_version: "1.0"
+
+case:
+  id: hydraulic-cae
+  title: Hydraulic chain pressure assurance case
+  version: "1.0.0"
+  description: >-
+    Sample assurance case for the hydraulic-chain flowsheet. Demonstrates
+    pressure and temperature claims backed by stream results.
+  jurisdictions:
+    - UK-GDA
+
+requirements:
+  - id: REQ-001
+    statement: Product pressure remains below the downstream design pressure.
+    source: Piping design basis, section 6.3
+  - id: REQ-002
+    statement: Pump discharge temperature does not exceed the material limit.
+    source: Material specification, table 2
+
+claims:
+  - id: CLAIM-001
+    statement: Product pressure is within the downstream design pressure.
+    jurisdiction: UK-GDA
+    requirement_refs: [REQ-001]
+    argument_refs: [ARG-001]
+    summary: Product pressure is asserted from the final simulated value.
+
+  - id: CLAIM-002
+    statement: Pump discharge temperature is below the material limit.
+    jurisdiction: UK-GDA
+    requirement_refs: [REQ-002]
+    argument_refs: [ARG-002]
+    summary: The maximum discharge temperature bounds the material limit.
+
+arguments:
+  - id: ARG-001
+    statement: The product stream is the terminal point of the hydraulic chain.
+    evidence_refs: [EVD-001]
+  - id: ARG-002
+    statement: The peak discharge temperature is the limiting value.
+    evidence_refs: [EVD-002]
+
+evidence:
+  - id: EVD-001
+    description: Product stream pressure at the end of the run.
+    ref:
+      type: stream
+      name: product
+      field: P
+      extract: final
+  - id: EVD-002
+    description: Maximum temperature after the first pump.
+    ref:
+      type: stream
+      name: after_pump_1
+      field: T
+      extract: max

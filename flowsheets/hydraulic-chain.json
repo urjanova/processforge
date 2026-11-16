@@ -32,7 +32,7 @@
   },
   "streams": {
     "feed": {
-      "T": 298.15,
+      "T": 598.15,
       "P": 101325,
       "flowrate": 1.0,
       "material_mix": 1

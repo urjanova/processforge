@@ -1,0 +1,74 @@
+schema_version: "1.0"
+
+case:
+  id: openmc-cae
+  title: MSRE eigenvalue assurance case
+  version: "1.0.0"
+  description: >-
+    Sample assurance case for the MSRE openmc eigenvalue flowsheet. Demonstrates
+    unit-backed evidence with uncertainty and an artifact reference.
+  jurisdictions:
+    - UK-GDA
+
+requirements:
+  - id: REQ-001
+    statement: The reactor remains subcritical with a demonstrable margin.
+    source: Criticality safety case, section 3.1
+  - id: REQ-002
+    statement: The reported k_eff uncertainty supports the safety margin claim.
+    source: Criticality safety case, section 3.4
+
+claims:
+  - id: CLAIM-001
+    statement: The simulated reactor remains subcritical.
+    jurisdiction: UK-GDA
+    requirement_refs: [REQ-001]
+    argument_refs: [ARG-001]
+    summary: k_eff is asserted below unity from the OpenMC solver.
+
+  - id: CLAIM-002
+    statement: The k_eff uncertainty is small enough to support the margin.
+    jurisdiction: UK-GDA
+    requirement_refs: [REQ-002]
+    argument_refs: [ARG-002]
+    summary: The solver-reported standard deviation is the uncertainty input.
+
+  - id: CLAIM-003
+    statement: The raw statepoint is retained for independent verification.
+    jurisdiction: UK-GDA
+    requirement_refs: [REQ-001]
+    argument_refs: [ARG-003]
+    summary: The statepoint artifact provides a verifiable audit trail.
+
+arguments:
+  - id: ARG-001
+    statement: The OpenMC eigenvalue solver reports a converged k_eff.
+    evidence_refs: [EVD-001]
+  - id: ARG-002
+    statement: The solver reports the k_eff standard deviation alongside the estimate.
+    evidence_refs: [EVD-002]
+  - id: ARG-003
+    statement: The raw statepoint is retained for independent verification.
+    evidence_refs: [EVD-003]
+
+evidence:
+  - id: EVD-001
+    description: OpenMC k_eff estimate.
+    ref:
+      type: unit
+      name: openmc_solver
+      field: k_eff
+      extract: value
+  - id: EVD-002
+    description: OpenMC k_eff standard deviation.
+    ref:
+      type: unit
+      name: openmc_solver
+      field: k_eff
+      extract: std_dev
+  - id: EVD-003
+    description: OpenMC statepoint retained as a verification artifact.
+    ref:
+      type: artifact
+      name: statepoint
+      unit: openmc_solver
