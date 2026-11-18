@@ -198,6 +198,124 @@ class OpenMCProvider(BaseSimulationProvider):
                 )
         return errors
 
+    @staticmethod
+    def _to_pydantic_material_dict(mat_name: str, mat_raw: dict) -> dict:
+        """Build a dict compatible with the Pydantic ``openmc_model.Material``.
+
+        Passes through only raw values present in the source material so
+        missing required fields are surfaced by Pydantic validation instead of
+        being masked by local defaults.
+        """
+        pydantic_dict = {
+            "name": mat_name,
+            "id": mat_raw["id"],
+            "nuclides": [
+                {
+                    "nuclide": n["name"],
+                    "fraction": n["percent"],
+                    **(
+                        {"percent_type": n["percent_type"]}
+                        if "percent_type" in n else {}
+                    ),
+                }
+                for n in mat_raw.get("nuclides", [])
+            ],
+            "temperature": mat_raw.get("temperature"),
+            "elements": mat_raw.get("elements"),
+        }
+        if "density" in mat_raw:
+            pydantic_dict["density"] = mat_raw["density"]
+        if "density_units" in mat_raw:
+            pydantic_dict["density_units"] = mat_raw["density_units"]
+        return pydantic_dict
+
+    @classmethod
+    def validate_unit_config(cls, unit_cfg: dict, flowsheet_config: dict) -> list:
+        """Validate OpenMC-specific ``SolverUnit`` fields for one unit.
+
+        Checks:
+        1. ``sim_type`` is present and registered (supports types added via
+           :func:`~processforge.providers.openmc.register_openmc_sim_type`).
+        2. ``solver_config`` validates against the shared ``OpenMCSetting``
+           schema (this also enforces ``inactive < batches`` and mesh-tally
+           id uniqueness).
+        3. ``geometry_config`` validates against the strategy's
+           ``config_model`` (which checks referenced materials exist in the
+           flowsheet).
+        4. The referenced material validates deeply against
+           ``openmc_model.Material``.
+
+        Returns:
+            List of human-readable error strings (without unit prefix).
+        """
+        from pydantic import ValidationError as PydanticValidationError
+        from processforge.schemas.openmc.openmc_model import (
+            Material as OpenMCMaterial,
+            OpenMCSetting,
+        )
+
+        sim_type = unit_cfg.get("sim_type")
+        if not sim_type:
+            return ["uses an OpenMC provider but is missing 'sim_type'."]
+
+        registry = get_registered_sim_types()
+        if sim_type not in registry:
+            return [
+                (
+                    f"has unknown OpenMC sim_type '{sim_type}'. "
+                    f"Registered types: {sorted(registry)}"
+                )
+            ]
+
+        strategy_cls = registry[sim_type]
+        sc = unit_cfg.get("solver_config") or {}
+
+        # Validate solver_config against the shared OpenMCSetting schema (this
+        # also enforces inactive < batches and mesh-tally id uniqueness).
+        try:
+            OpenMCSetting.model_validate(sc)
+        except PydanticValidationError as exc:
+            return [
+                f"{'solver_config.' + '.'.join(str(p) for p in err['loc']) if err['loc'] else 'solver_config'} — {err['msg']}"
+                for err in exc.errors()
+            ]
+        except Exception as exc:  # noqa: BLE001
+            return [f"solver_config failed OpenMC schema validation: {exc}"]
+
+        # Validate the per-strategy geometry_config against its config_model.
+        cfg_model = getattr(strategy_cls, "config_model", None)
+        geo = unit_cfg.get("geometry_config") or {}
+        if cfg_model is not None:
+            materials = flowsheet_config.get("materials", {})
+            try:
+                cfg_model.model_validate(geo, context={"materials": materials})
+            except PydanticValidationError as exc:
+                return [
+                    f"{'geometry_config.' + '.'.join(str(p) for p in err['loc']) if err['loc'] else 'geometry_config'} — {err['msg']}"
+                    for err in exc.errors()
+                ]
+            except Exception as exc:  # noqa: BLE001
+                return [f"geometry_config failed validation: {exc}"]
+
+        # Deep Pydantic validation using the self-contained openmc_model.Material
+        mat_id = unit_cfg.get("material")
+        id_to_mat_raw = {
+            mat_dict["id"]: (mat_name, mat_dict)
+            for mat_name, mat_dict in flowsheet_config.get("materials", {}).items()
+        }
+        if mat_id in id_to_mat_raw:
+            mat_name, mat_raw = id_to_mat_raw[mat_id]
+            try:
+                OpenMCMaterial.model_validate(
+                    cls._to_pydantic_material_dict(mat_name, mat_raw)
+                )
+            except Exception as exc:  # noqa: BLE001
+                return [
+                    f"material '{mat_name}' failed OpenMC schema validation: {exc}"
+                ]
+
+        return []
+
     def run_simulation(
         self, unit_config: "UnitConfig", inlet: dict
     ) -> "EngineOutput":

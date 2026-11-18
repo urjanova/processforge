@@ -40,7 +40,8 @@ def test_feedless_dynamic_closed_loop_is_connected():
     config = _closed_loop()
     config["simulation"] = {"mode": "dynamic"}
 
-    assert check_stream_connectivity(config) is True
+    # Returns None on success; raises ValueError on any failure.
+    assert check_stream_connectivity(config) is None
 
 
 def test_feedless_dynamic_loop_without_initial_n_is_unreachable():
@@ -90,4 +91,4 @@ def test_feed_based_flowsheet_still_passes():
         },
     }
 
-    assert check_stream_connectivity(config) is True
+    assert check_stream_connectivity(config) is None

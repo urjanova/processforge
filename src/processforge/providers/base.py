@@ -158,6 +158,30 @@ class AbstractProvider(ABC):
         """
         return []
 
+    @classmethod
+    def validate_unit_config(cls, unit_cfg: dict, flowsheet_config: dict) -> list:
+        """Return validation error strings for a unit backed by this provider.
+
+        Called by the flowsheet validator for every unit whose ``provider``
+        resolves to this provider type. Returning an empty list means the unit
+        configuration is valid for this provider.
+
+        Override in providers that own unit-level config rules (e.g. OpenMC
+        validates ``sim_type``/``solver_config``/``geometry_config``; FESTIM
+        validates its full problem model). Messages must NOT include a unit
+        prefix — the flowsheet validator adds ``"Unit '<name>': "``.
+
+        Args:
+            unit_cfg:         Raw unit dict from the flowsheet configuration.
+            flowsheet_config: The full (schema-valid) flowsheet config dict,
+                for cross-references such as ``materials`` and declared
+                providers.
+
+        Returns:
+            List of human-readable error strings. Empty list = config is valid.
+        """
+        return []
+
     # ------------------------------------------------------------------
     # Context manager support
     # ------------------------------------------------------------------

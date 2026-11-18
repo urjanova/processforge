@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.7.4] - 2026-11-18
+
+### Changed
+- Flowsheet validation refactored: provider-specific checks (OpenMC/FESTIM `sim_type`, `solver_config`, materials) moved behind a new `AbstractProvider.validate_unit_config()` hook, so adding a provider no longer requires changes to the validator.
+- Checks now accumulate and report all errors in one run; the "flowsheet is valid" log only prints after every check passes; `validate_flowsheet_dict` no longer mutates the caller's dict (returns a resolved copy).
+- `convergence_signal.provider` is validated against declared provider names instead of a hardcoded `"openmc"` literal; the JSON schema enum was relaxed accordingly.
+
+### Fixed
+- Provider class lookup for subpackage providers (`openmc`, `festim`) in the registry, which silently skipped provider-owned material validation during flowsheet validation.
+- Coupling `ref` sources now include `retentate_out`/`permeate_out` streams.
+- `pf validate` reports file-read and JSON parse errors cleanly instead of a raw traceback.
+
 ## [0.7.3] - 2026-11-18
 
 ### Added

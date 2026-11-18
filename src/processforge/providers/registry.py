@@ -34,9 +34,6 @@ class ProviderCatalogEntry(BaseModel):
 # Runtime registry of loaded provider classes.
 _PROVIDERS: dict[str, type] = {}
 
-# Types that are always available (no optional dependency).
-_BUILTIN_TYPES: frozenset[str] = frozenset({"coolprop"})
-
 # Whether the built-in CoolProp provider has been seeded into `_PROVIDERS`.
 # Seeding is deferred until first use so importing `registry` never imports
 # provider backends unless they are actually needed.
@@ -120,23 +117,28 @@ def get_provider_class(provider_type: str) -> type:
     if cls is not None:
         return cls
 
-    # Not yet registered — try the convention-based lazy import.
-    if provider_type not in _BUILTIN_TYPES:
-        module_name = f"processforge.providers.{provider_type}_provider"
+    # Not yet registered — try the convention-based lazy import
+    # (``processforge.providers.{type}_provider``), then the canonical catalog
+    # module (covers subpackage providers like openmc/festim that do not follow
+    # the ``*_provider`` naming convention). This keeps import-time cost zero
+    # for providers the flowsheet never references.
+    candidate_modules = [f"processforge.providers.{provider_type}_provider"]
+    catalog_entry = _PROVIDER_CATALOG.get(provider_type)
+    if catalog_entry is not None:
+        candidate_modules.append(catalog_entry.module)
+
+    for module_name in candidate_modules:
         try:
             importlib.import_module(module_name)
-        except ModuleNotFoundError as exc:
-            raise ValueError(
-                f"No provider module found for type '{provider_type}'. "
-                f"Expected module '{module_name}' to exist and self-register."
-            ) from exc
-
+        except ModuleNotFoundError:
+            continue
         cls = _PROVIDERS.get(provider_type)
         if cls is not None:
             return cls
 
     raise ValueError(
-        f"Unknown provider type '{provider_type}'. "
+        f"No provider module found for type '{provider_type}'. "
+        f"Expected one of {candidate_modules} to exist and self-register. "
         f"Registered types: {sorted(_PROVIDERS)}"
     )
 

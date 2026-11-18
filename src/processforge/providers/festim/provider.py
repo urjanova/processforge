@@ -99,6 +99,68 @@ class FestimProvider(BaseSimulationProvider):
 
         return errors
 
+    @classmethod
+    def validate_unit_config(cls, unit_cfg: dict, flowsheet_config: dict) -> list:
+        """Validate FESTIM-specific ``SolverUnit`` fields for one unit.
+
+        Checks:
+        1. ``sim_type`` is present and registered.
+        2. ``solver_config`` validates against ``FestimModel`` — the single
+           source of truth for the whole problem (mesh, subdomains, species,
+           reactions, sources, boundary conditions, exports, settings,
+           temperature).  Pydantic errors are reported per-location.
+        3. Every material referenced by a volume subdomain exists in the
+           flowsheet ``materials`` registry (the JSON schema cannot check
+           this — materials live outside ``solver_config``).
+
+        Returns:
+            List of human-readable error strings (without unit prefix).
+        """
+        from pydantic import ValidationError as PydanticValidationError
+
+        sim_type = unit_cfg.get("sim_type")
+        if not sim_type:
+            return ["uses a FESTIM provider but is missing 'sim_type'."]
+
+        registry = get_registered_sim_types()
+        if sim_type not in registry:
+            return [
+                (
+                    f"has unknown FESTIM sim_type '{sim_type}'. "
+                    f"Registered types: {sorted(registry)}"
+                )
+            ]
+
+        sc = unit_cfg.get("solver_config") or {}
+        if not sc:
+            return [
+                (
+                    "solver_config is empty — define the FESTIM problem "
+                    "(mesh, subdomains, species, …) in 'solver_config'."
+                )
+            ]
+
+        try:
+            festim_model = FestimModel.model_validate(sc)
+        except PydanticValidationError as exc:
+            return [
+                f"{'solver_config.' + '.'.join(str(part) for part in err['loc']) if err['loc'] else 'solver_config'} — {err['msg']}"
+                for err in exc.errors()
+            ]
+        except Exception as exc:  # noqa: BLE001
+            return [f"solver_config failed FESTIM schema validation: {exc}"]
+
+        # Material references must exist in the flowsheet materials registry.
+        materials = flowsheet_config.get("materials", {})
+        errors = []
+        for vol in festim_model.subdomains.volume:
+            if vol.material not in materials:
+                errors.append(
+                    f"volume subdomain id={vol.id} references unknown material "
+                    f"'{vol.material}'. Available: {sorted(materials)}"
+                )
+        return errors
+
     def run_simulation(
         self, unit_config: "UnitConfig", inlet: dict
     ) -> "EngineOutput":
