@@ -298,23 +298,39 @@ class Flowsheet:
     # ------------------------------------------------------------------
     # Standardized output collection
     # ------------------------------------------------------------------
-    def _thermo_provider(self):
-        """Return the first provider capable of stream thermo properties."""
-        provider_map = getattr(self, "_provider_map", None) or {}
-        for provider in provider_map.values():
-            name = type(provider).__name__
-            if "Container" in name:
-                continue
-            method = getattr(provider, "get_thermo_properties", None)
-            if callable(method):
-                # ContainerProviderClient raises NotImplementedError; skip those.
-                try:
-                    from inspect import signature
+    def _thermo_provider(self, stream_name: Optional[str] = None):
+        """Return the thermo provider for a given stream.
 
-                    return provider
-                except Exception:  # noqa: BLE001
-                    continue
-        return None
+        If *stream_name* is provided, the provider is selected from the
+        stream's ``thermo_provider`` (if declared) or the producing unit's
+        ``thermo_provider``.  Otherwise the run-level default is used.
+
+        Returns:
+            The selected :class:`AbstractProvider` or ``None`` if no provider
+            is configured and the run-level default is unavailable.
+        """
+        provider_map = getattr(self, "_provider_map", None)
+        if provider_map is None:
+            return None
+
+        # If a stream name is given, try to find its producing unit and use
+        # that unit's thermo_provider, then fall back to run defaults.
+        if stream_name is not None:
+            # Look up which unit produces this stream
+            for unit_name, unit_cfg in self.config["units"].items():
+                out = unit_cfg.get("out")
+                if isinstance(out, list):
+                    if stream_name in out:
+                        unit = self.units[unit_name]
+                        ucfg = UnitProviderConfig(**{k: v for k, v in unit_cfg.items() if k not in _UNIT_META_KEYS})
+                        return provider_map.thermo_resolve(ucfg)
+                elif out == stream_name:
+                    unit = self.units[unit_name]
+                    ucfg = UnitProviderConfig(**{k: v for k, v in unit_cfg.items() if k not in _UNIT_META_KEYS})
+                    return provider_map.thermo_resolve(ucfg)
+
+        # Fall back to run-level default
+        return provider_map._thermo_default
 
     def collect_outputs(self, run_id: str, mode: str, flowsheet_name: str, provenance: dict | None = None):
         """Assemble a :class:`RunManifest` from this run's results.
@@ -336,6 +352,8 @@ class Flowsheet:
             provenance=provenance or {},
             engine_outputs=getattr(self, "engine_outputs", {}),
             stream_results=stream_results,
+            # Pass the run-level default; per-stream selection happens in
+            # _register_stream via _thermo_provider(stream_name=...).
             thermo_provider=self._thermo_provider(),
         )
 
@@ -384,7 +402,8 @@ class Flowsheet:
         try:
             from .output_collector import collect_stream_outputs
 
-            tp = self._thermo_provider()
+            # Use the stream's producing unit's thermo_provider, or the run default.
+            tp = self._thermo_provider(stream_name=stream_name)
             if tp is not None:
                 so = collect_stream_outputs(tp, {stream_name: stream_dict})
                 for _name, s_out in so.items():

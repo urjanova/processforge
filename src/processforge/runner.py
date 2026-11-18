@@ -605,7 +605,7 @@ def apply_flowsheet(
     mode = sim_cfg.get("mode", "steady")
     if mode != "steady":
         raise FlowsheetValidationError(
-            "apply_flowsheet is only supported for steady-state EO flowsheets."
+            "pf apply is only supported for steady-state EO flowsheets, try using pf run command."
         )
 
     archive, state = load_state_manager(outputs_dir, base_name)

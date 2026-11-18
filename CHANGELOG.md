@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [0.7.3] - 2026-11-18
+
+### Added
+- Explicit `thermo_provider` selection on units and streams; `providers` is now a strict global allow-list with CoolProp as the default.
+- Deterministic `K_values` ordering with component labels.
+- Real IDAES thermodynamic property support for supported components.
+
+### Changed
+- Provider resolution is fully isolated: IDAES units use only IDAES, CoolProp units use only CoolProp, with no silent fallback.
+- IDAES Pump/Pipes use fluid properties instead of hardcoded water constants.
+- Updated provider documentation in `docs/flowsheets.md` and `docs/units.md`.
+
+### Fixed
+- Removed the eager CoolProp fallback in EO Flash and silent omission of stream outputs on provider errors.
+
 ## [0.7.2] - 2026-11-16
 
 ### Fixed
@@ -756,6 +771,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 [0.2.0]: https://github.com/urjanova/processforge/compare/v0.1.0...HEAD
+
+[0.8.0]: https://github.com/urjanova/processforge/compare/v0.7.2...v0.8.0
 
 [0.4.3]: https://github.com/urjanova/processforge/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/urjanova/processforge/compare/v0.4.1...v0.4.2

@@ -335,7 +335,9 @@ def _check_provider_references(config: dict) -> None:
 
     Checks:
     1. Every unit's ``"provider"`` key names a declared entry in ``providers``.
-    2. ``"default_provider"`` (if set) names a declared entry in ``providers``.
+    2. Every unit's ``"thermo_provider"`` key names a declared entry in ``providers``.
+    3. Every stream's ``"thermo_provider"`` key names a declared entry in ``providers``.
+    4. ``"default_provider"`` (if set) names a declared entry in ``providers``.
     """
     declared = set(config.get("providers", {}).keys())
 
@@ -347,14 +349,74 @@ def _check_provider_references(config: dict) -> None:
             f"Declared providers: {sorted(declared)}"
         )
 
-    for unit_name, unit_cfg in config.get("units", {}).items():
-        ref = unit_cfg.get("provider")
-        if ref is not None and ref not in declared:
-            raise ValueError(
-                f"❌ Unit '{unit_name}' references provider '{ref}', which is "
-                f"not declared in the 'providers' block. "
-                f"Declared providers: {sorted(declared)}"
-            )
+    # If coolprop is not declared, units/streams must explicitly set their provider.
+    if "coolprop" not in declared:
+        # Unit provider checks
+        for unit_name, unit_cfg in config.get("units", {}).items():
+            ref = unit_cfg.get("provider")
+            if ref is None:
+                raise ValueError(
+                    f"❌ Unit '{unit_name}' omits 'provider' but 'coolprop' is not "
+                    f"declared in 'providers'. Add it to 'providers' or set 'provider' "
+                    f"explicitly on unit '{unit_name}'."
+                )
+            if ref not in declared:
+                raise ValueError(
+                    f"❌ Unit '{unit_name}' references provider '{ref}', which is "
+                    f"not declared in 'providers'. Declared providers: {sorted(declared)}"
+                )
+        # Unit thermo_provider checks
+        for unit_name, unit_cfg in config.get("units", {}).items():
+            ref = unit_cfg.get("thermo_provider")
+            if ref is None:
+                raise ValueError(
+                    f"❌ Unit '{unit_name}' omits 'thermo_provider' but 'coolprop' is not "
+                    f"declared in 'providers'. Add it to 'providers' or set 'thermo_provider' "
+                    f"explicitly on unit '{unit_name}'."
+                )
+            if ref not in declared:
+                raise ValueError(
+                    f"❌ Unit '{unit_name}' references thermo_provider '{ref}', which is "
+                    f"not declared in 'providers'. Declared providers: {sorted(declared)}"
+                )
+        # Stream thermo_provider checks
+        for stream_name, stream_cfg in config.get("streams", {}).items():
+            ref = stream_cfg.get("thermo_provider")
+            if ref is None:
+                raise ValueError(
+                    f"❌ Stream '{stream_name}' omits 'thermo_provider' but 'coolprop' is not "
+                    f"declared in 'providers'. Add it to 'providers' or set 'thermo_provider' "
+                    f"explicitly on stream '{stream_name}'."
+                )
+            if ref not in declared:
+                raise ValueError(
+                    f"❌ Stream '{stream_name}' references thermo_provider '{ref}', which is "
+                    f"not declared in 'providers'. Declared providers: {sorted(declared)}"
+                )
+    else:
+        # coolprop is declared: allow optional explicit setting
+        for unit_name, unit_cfg in config.get("units", {}).items():
+            ref = unit_cfg.get("thermo_provider")
+            if ref is not None and ref not in declared:
+                raise ValueError(
+                    f"❌ Unit '{unit_name}' references thermo_provider '{ref}', which is "
+                    f"not declared in 'providers'. Declared providers: {sorted(declared)}"
+                )
+        for stream_name, stream_cfg in config.get("streams", {}).items():
+            ref = stream_cfg.get("thermo_provider")
+            if ref is not None and ref not in declared:
+                raise ValueError(
+                    f"❌ Stream '{stream_name}' references thermo_provider '{ref}', which is "
+                    f"not declared in 'providers'. Declared providers: {sorted(declared)}"
+                )
+        # Unit provider still optional when coolprop is declared
+        for unit_name, unit_cfg in config.get("units", {}).items():
+            ref = unit_cfg.get("provider")
+            if ref is not None and ref not in declared:
+                raise ValueError(
+                    f"❌ Unit '{unit_name}' references provider '{ref}', which is "
+                    f"not declared in 'providers'. Declared providers: {sorted(declared)}"
+                )
 
 
 def _check_material_semantics(config):
