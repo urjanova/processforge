@@ -302,13 +302,107 @@
               "type": "number"
             },
             "pressure_ratio": {
-              "type": "number"
+              "type": "number",
+              "description": "Legacy valve pressure ratio (P_out = ratio * P_in). Ignored in hydraulic mode with a warning."
+            },
+            "Cv": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "description": "IDAES-style valve flow coefficient [mol/s/Pa**0.5]. Used by hydraulic network mode."
+            },
+            "valve_opening": {
+              "type": "number",
+              "minimum": 0.0,
+              "maximum": 1.0,
+              "description": "Valve opening fraction [0, 1] (hydraulic mode). Defaults to 1 (fully open)."
+            },
+            "valve_function": {
+              "type": "string",
+              "enum": ["linear", "quick_opening", "equal_percentage"],
+              "description": "IDAES valve characteristic (hydraulic mode). Default 'linear'."
+            },
+            "alpha": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "description": "Equal-percentage valve rangeability (hydraulic mode). Default 100."
+            },
+            "check_valve": {
+              "type": "boolean",
+              "default": false,
+              "description": "If true the valve only permits forward flow (hydraulic mode)."
+            },
+            "pump_curve": {
+              "type": "object",
+              "description": "EPANET/WNTR-style head-flow curve for pumps (hydraulic mode). dP = A - B*Q**C.",
+              "properties": {
+                "flow": {
+                  "type": "array",
+                  "items": { "type": "number", "minimum": 0.0 },
+                  "minItems": 1
+                },
+                "head": {
+                  "type": "array",
+                  "items": { "type": "number", "minimum": 0.0 },
+                  "description": "Head [m] at each flow point. Converted using the fluid density."
+                },
+                "delta_p": {
+                  "type": "array",
+                  "items": { "type": "number", "minimum": 0.0 },
+                  "description": "Pressure rise [Pa] at each flow point."
+                }
+              },
+              "required": ["flow"],
+              "additionalProperties": false
+            },
+            "design_flowrate": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "description": "Design molar flow [mol/s] at which delta_p is specified (hydraulic mode for pipes/strainers)."
+            },
+            "flow_boundary": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Fixed molar flow [mol/s] for a feed stream in hydraulic mode (optional pressure-flow boundary)."
             },
             "delta_p": {
               "type": "number"
             },
             "diameter": {
               "type": "number"
+            },
+            "length": {
+              "type": "number",
+              "description": "Pipe length [m] (hydraulic mode geometry path)."
+            },
+            "roughness": {
+              "type": "number",
+              "minimum": 0.0,
+              "description": "Absolute pipe roughness [m] (hydraulic mode geometry path). Default 0 (smooth)."
+            },
+            "viscosity": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "description": "Dynamic viscosity [Pa·s] override (hydraulic mode). Defaults to the provider value."
+            },
+            "molar_volume": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "description": "Molar volume [m³/mol] override (hydraulic mode). Defaults to the provider value."
+            },
+            "density": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "description": "Density [kg/m³] override (hydraulic mode). Defaults to the provider value."
+            },
+            "molar_mass": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "description": "Molar mass [kg/mol] override (hydraulic mode). Defaults to the provider value."
+            },
+            "cp": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "description": "Molar heat capacity [J/mol/K] override. Defaults to the provider value."
             },
             "volume": {
               "type": "number"
@@ -424,6 +518,42 @@
             }
           },
           "required": ["signal_key", "target"]
+        },
+        "hydraulics": {
+          "type": "object",
+          "description": "Pressure-driven hydraulic network mode. When enabled, stream pressures and element flows are solved simultaneously each timestep with a native SciPy network solver instead of being imposed by each unit. Valves, pumps, pipes and strainers use physically consistent pressure-flow laws; tank outflow is network-determined.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Opt-in to hydraulic network mode."
+            },
+            "tol": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "default": 1e-8,
+              "description": "Scaled residual tolerance for the network solve."
+            },
+            "max_iter": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "default": 50,
+              "description": "Maximum solver evaluations (per active-set round)."
+            },
+            "flow_scale": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "default": 1e-3,
+              "description": "Flow scaling [mol/s] used by the network solver."
+            },
+            "pressure_scale": {
+              "type": "number",
+              "exclusiveMinimum": 0.0,
+              "default": 1e5,
+              "description": "Pressure scaling [Pa] used by the network solver."
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": true

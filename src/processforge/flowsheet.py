@@ -15,6 +15,7 @@ from .solver import Solver
 from .providers.manager import UnitProviderConfig
 from .units.registry import get_unit_class
 from .units.tank import TANK_CP_FALLBACK
+from .hydraulic_network import build_hydraulic_network
 
 _UNIT_META_KEYS = {"type", "in", "out", "material", "material_mix", "provider"}
 _DEFAULT_T = 298.15
@@ -112,6 +113,8 @@ class Flowsheet:
         self.streams = {}
         self.tear_streams = set()
         self.has_recycles = False
+        self._hydraulic_network = None
+        self._tank_outlet_streams = {}
 
     def set_run_context(self, run_id: str | None = None, flowsheet_hash: str | None = None) -> None:
         """Store run-level metadata so containerized providers can tag artifacts."""
@@ -833,12 +836,236 @@ class Flowsheet:
         for stream_name, stream_data in self.config["streams"].items():
             results[stream_name] = self._init_stream_timeseries(stream_name, stream_data, t_eval, num_steps)
 
+        if self._hydraulics_enabled():
+            self._hydraulic_network, self._tank_outlet_streams = self._build_hydraulic_network(
+                processing_order
+            )
+            return self._run_dynamic_hydraulic(
+                solver, processing_order, results, t_eval, num_steps, start_time, end_time
+            )
+
         if self.has_recycles:
             # Timestep-by-timestep processing for recycle loops
             return self._run_dynamic_with_recycle(solver, processing_order, results, t_eval, num_steps, start_time, end_time)
         else:
             # Standard unit-by-unit processing for non-recycle flowsheets
             return self._run_dynamic_sequential(solver, processing_order, results, t_eval, num_steps, start_time, end_time)
+
+    def _hydraulics_enabled(self) -> bool:
+        """Return True when pressure-driven hydraulic network mode is enabled."""
+        hyd = (self.config.get("simulation") or {}).get("hydraulics") or {}
+        return bool(hyd.get("enabled", False))
+
+    def _hydraulic_initial_states(self, processing_order) -> dict:
+        """Forward-pass stream states at t=0 for hydraulic property resolution.
+
+        Produces a snapshot ``{stream_name: {T, P, flowrate, z}}`` for every
+        stream by running each non-tank, non-SolverUnit through its ``run``
+        method starting from the feed streams.  Failures are tolerated: any
+        unit whose ``run`` raises is skipped, and its outlet is left unset so
+        the network builder can still proceed (it only needs provider
+        properties on the *inlet* side of each hydraulic element).
+        """
+        from .units.solver_unit import SolverUnit
+
+        states: dict[str, dict] = {}
+        for name, stream in self.config["streams"].items():
+            states[name] = deepcopy(stream)
+        for unit_name in processing_order:
+            cfg = self.config["units"][unit_name]
+            unit = self.units[unit_name]
+            if cfg["type"] == "Tank":
+                total = max(1e-12, sum(unit.initial_n.values()))
+                z = (
+                    {c: n / total for c, n in unit.initial_n.items()}
+                    if unit.initial_n
+                    else next(
+                        (s.get("z", {}) for s in self.config["streams"].values()),
+                        {},
+                    )
+                )
+                state = {
+                    "T": unit.initial_T,
+                    "P": unit.P,
+                    "flowrate": unit.outflow if unit.outflow > 0 else unit.flow_in,
+                    "z": z,
+                }
+                for out_name in self._get_unit_outlets(unit_name):
+                    states[out_name] = deepcopy(state)
+                continue
+            if isinstance(unit, SolverUnit):
+                continue
+            inlet_names = self._get_unit_inlets(unit_name)
+            if not inlet_names or not all(n in states for n in inlet_names):
+                continue
+            inlet_snapshot = self._get_merged_inlet(states, cfg)
+            try:
+                outlet = unit.run(inlet_snapshot)
+            except Exception:  # noqa: BLE001 — skip; network build may still work
+                continue
+            for out_name in self._get_unit_outlets(unit_name):
+                states[out_name] = outlet
+        return states
+
+    def _build_hydraulic_network(self, processing_order):
+        """Assemble the pressure-flow network for hydraulic mode."""
+        hyd_cfg = (self.config.get("simulation") or {}).get("hydraulics") or {}
+        initial_states = self._hydraulic_initial_states(processing_order)
+        return build_hydraulic_network(
+            self.config,
+            self.units,
+            initial_states,
+            hyd_cfg,
+        )
+
+    def _run_dynamic_hydraulic(
+        self, solver, processing_order, results, t_eval, num_steps, start_time, end_time
+    ):
+        """Dynamic engine using the solved hydraulic network for P and flow.
+
+        The network determines all stream pressures and element flows at each
+        timestep; the existing unit logic then computes T/composition and tank
+        inventories from those flows.  ``Tank`` outlet flows are network
+        determined — there is no ``outlet_flow`` fallback.
+        """
+        network = self._hydraulic_network
+        from .units.solver_unit import SolverUnit
+
+        logger.info("Running dynamic simulation with hydraulic network")
+        # Collect component names for timeseries storage.
+        components = set()
+        for stream_data in self.config["streams"].values():
+            z_cfg = stream_data.get("z")
+            if isinstance(z_cfg, dict):
+                components.update(z_cfg.keys())
+        for stream_ts in results.values():
+            z_ts = stream_ts.get("z")
+            if isinstance(z_ts, dict):
+                components.update(z_ts.keys())
+        for unit_name in processing_order:
+            if self.config["units"][unit_name].get("type") == "Tank":
+                unit = self.units[unit_name]
+                if hasattr(unit, "initial_n") and isinstance(unit.initial_n, dict):
+                    components.update(unit.initial_n.keys())
+
+        # Ensure every stream has a timeseries structure.
+        for unit_name in processing_order:
+            if isinstance(self.units[unit_name], SolverUnit):
+                continue
+            for outlet_name in self._get_unit_outlets(unit_name):
+                if outlet_name not in results:
+                    results[outlet_name] = {
+                        "time": t_eval.tolist(),
+                        "T": [_DEFAULT_T] * num_steps,
+                        "P": [_DEFAULT_P] * num_steps,
+                        "flowrate": [0.0] * num_steps,
+                        "z": {comp: [0.0] * num_steps for comp in components},
+                    }
+        for stream_name in list(results):
+            ts = results[stream_name]
+            if not isinstance(ts, dict) or "T" not in ts:
+                continue
+            if "z" not in ts:
+                ts["z"] = {}
+            if "T" not in ts:
+                ts["T"] = [_DEFAULT_T] * num_steps
+            if "P" not in ts:
+                ts["P"] = [_DEFAULT_P] * num_steps
+            if "flowrate" not in ts:
+                ts["flowrate"] = [0.0] * num_steps
+            for comp in components:
+                if comp not in ts["z"]:
+                    ts["z"][comp] = [0.0] * num_steps
+
+        # Tank states for integration.
+        tank_states = {}
+        for unit_name in processing_order:
+            if self.config["units"][unit_name].get("type") == "Tank":
+                unit = self.units[unit_name]
+                tank_states[unit_name] = {
+                    "n": {c: unit.initial_n.get(c, 0.0) for c in components},
+                    "T": unit.initial_T,
+                }
+
+        # Standalone engine units run once.
+        from .units.solver_unit import SolverUnit
+
+        for unit_name in processing_order:
+            unit = self.units[unit_name]
+            if isinstance(unit, SolverUnit):
+                logger.info(f"Running standalone SolverUnit {unit_name} (hydraulic dynamic)")
+                result = unit.run({})
+                self.engine_outputs[unit_name] = result
+                results[unit_name] = result
+
+        for step in range(num_steps):
+            dt = t_eval[1] - t_eval[0] if num_steps > 1 else 1.0
+            solution = network.solve()
+
+            # Use the network solution as ground truth for P and flow.
+            declared_streams = set(self.config.get("streams", {}).keys())
+            for stream_name, pressure in solution.pressures.items():
+                if stream_name in results:
+                    results[stream_name]["P"][step] = pressure
+            for stream_name, flow in solution.stream_flows.items():
+                if stream_name in results and "flowrate" in results[stream_name]:
+                    if stream_name not in declared_streams:
+                        results[stream_name]["flowrate"][step] = flow
+
+            # Propagate previous-step T/composition on tear streams; they are
+            # solved globally each step for P and flow but evolve stepwise for
+            # T/z.
+            if step > 0:
+                for tear_stream in self.tear_streams:
+                    if tear_stream not in results:
+                        continue
+                    tear_ts = results[tear_stream]
+                    if "T" in tear_ts:
+                        tear_ts["T"][step] = tear_ts["T"][step - 1]
+                    for comp_ts in tear_ts.get("z", {}).values():
+                        comp_ts[step] = comp_ts[step - 1]
+
+            for unit_name in processing_order:
+                unit = self.units[unit_name]
+                cfg = self.config["units"][unit_name]
+                if isinstance(unit, SolverUnit):
+                    continue
+
+                inlet_snapshot = self._get_inlet_snapshot(results, cfg, step)
+
+                if cfg["type"] == "Tank":
+                    outlet_stream_names = self._tank_outlet_streams[unit_name]
+                    F_out = network.outlet_flow(outlet_stream_names)
+                    outlet_snapshot, tank_states[unit_name] = self._integrate_tank_step(
+                        unit, inlet_snapshot, tank_states[unit_name], dt, components,
+                        F_out=F_out,
+                    )
+                else:
+                    outlet_snapshot = unit.run(inlet_snapshot)
+
+                targets = self._get_unit_outlets(unit_name)
+                for stream_name in targets:
+                    if stream_name not in results:
+                        continue
+                    self._store_snapshot_in_timeseries(
+                        results, stream_name, outlet_snapshot, step, components
+                    )
+
+            # Enforce the network solution for P and flow after all unit logic.
+            # Pressure is always network-determined; flow is network-determined for
+            # internal streams but preserved for declared feed/boundary streams.
+            declared_streams = set(self.config.get("streams", {}).keys())
+            for stream_name, pressure in solution.pressures.items():
+                if stream_name in results and "P" in results[stream_name]:
+                    results[stream_name]["P"][step] = pressure
+            for stream_name, flow in solution.stream_flows.items():
+                if stream_name in results and "flowrate" in results[stream_name]:
+                    if stream_name not in declared_streams:
+                        results[stream_name]["flowrate"][step] = flow
+
+        self.results = results
+        logger.info("Hydraulic dynamic simulation completed")
+        return results
 
     def _init_stream_timeseries(self, stream_name, stream_data, t_eval, num_steps):
         """Initialize a stream's timeseries structure from its configuration."""
@@ -1172,7 +1399,7 @@ class Flowsheet:
             pass
         return TANK_CP_FALLBACK
 
-    def _integrate_tank_step(self, unit, inlet_snapshot, state, dt, components):
+    def _integrate_tank_step(self, unit, inlet_snapshot, state, dt, components, F_out=None):
         """
         Integrate Tank for one timestep using simple Euler method.
 
@@ -1182,6 +1409,9 @@ class Flowsheet:
             state: Current Tank state {n: {comp: moles}, T: temperature}
             dt: Timestep size
             components: Set of component names
+            F_out: Outlet flow [mol/s]. When provided (hydraulic network mode)
+                the network determines the tank outflow; otherwise the Tank's
+                configured ``outflow`` is used.
 
         Returns:
             tuple: (outlet_snapshot, new_state)
@@ -1196,8 +1426,16 @@ class Flowsheet:
         z_in = inlet_snapshot.get("z", {})
         T_in = inlet_snapshot.get("T", _DEFAULT_T)
 
-        # Outlet flow (constant from Tank params)
-        F_out = unit.outflow
+        # Outlet flow: network-determined in hydraulic mode, else Tank param.
+        if F_out is None:
+            F_out = unit.outflow
+        else:
+            net = F_in - F_out
+            if abs(net) > 1e-12:
+                logger.debug(
+                    f"Tank '{unit.name}' non-zero net flow {net:+.6g} mol/s "
+                    f"(in {F_in:.6g}, out {F_out:.6g}) — accumulating/depleting inventory"
+                )
 
         # Current compositions
         x = {c: n.get(c, 0.0) / n_tot for c in components}

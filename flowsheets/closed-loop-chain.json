@@ -1,8 +1,8 @@
 {
   "metadata": {
-    "name": "Closed Loop Recycle Example",
-    "description": "A closed-loop hydraulic system with recycle stream back to tank.",
-    "version": "2.0"
+    "name": "Closed Loop Recycle Example (Hydraulic mode)",
+    "description": "A closed-loop hydraulic system with recycle stream back to tank. Runs in pressure-driven hydraulic network mode with IDAES valve law, Darcy-Weisbach pipes, and pump-curve head-flow relation.",
+    "version": "2.1"
   },
   "providers": {
     "coolprop": {
@@ -82,13 +82,17 @@
       "out": "after_pipe_1",
       "delta_p": 1000.0,
       "diameter": 0.065,
+      "length": 2.0,
+      "design_flowrate": 1.0,
       "material": 3
     },
     "valve_1": {
       "type": "Valve",
       "in": "after_pipe_1",
       "out": "after_valve_1",
-      "pressure_ratio": 0.5,
+      "Cv": 0.009,
+      "valve_opening": 0.5,
+      "valve_function": "linear",
       "material": 3
     },
     "pipe_2": {
@@ -97,13 +101,17 @@
       "out": "after_pipe_2",
       "delta_p": 1000.0,
       "diameter": 0.08,
+      "length": 3.0,
+      "design_flowrate": 1.0,
       "material": 3
     },
     "valve_2": {
       "type": "Valve",
       "in": "after_pipe_2",
       "out": "after_valve_2",
-      "pressure_ratio": 0.5,
+      "Cv": 0.009,
+      "valve_opening": 0.5,
+      "valve_function": "linear",
       "material": 3
     },
     "pipe_2a": {
@@ -112,6 +120,8 @@
       "out": "before_pump_1",
       "delta_p": 1000.0,
       "diameter": 0.08,
+      "length": 2.0,
+      "design_flowrate": 1.0,
       "material": 3
     },
     "pump_1": {
@@ -120,7 +130,11 @@
       "out": "after_pump_1",
       "delta_p": 200000.0,
       "efficiency": 0.75,
-      "material": 3
+      "material": 3,
+      "pump_curve": {
+        "flow": [0.0, 1.0, 2.0],
+        "delta_p": [250000.0, 200000.0, 100000.0]
+      }
     },
     "pipe_2b": {
       "type": "Pipes",
@@ -128,13 +142,17 @@
       "out": "before_valve_3",
       "delta_p": 1000.0,
       "diameter": 0.08,
+      "length": 2.0,
+      "design_flowrate": 1.0,
       "material": 3
     },
     "valve_3": {
       "type": "Valve",
       "in": "before_valve_3",
       "out": "after_valve_3",
-      "pressure_ratio": 0.5,
+      "Cv": 0.009,
+      "valve_opening": 0.5,
+      "valve_function": "linear",
       "material": 3
     },
     "pipe_3": {
@@ -143,13 +161,17 @@
       "out": "after_pipe_3",
       "delta_p": 1000.0,
       "diameter": 0.08,
+      "length": 3.0,
+      "design_flowrate": 1.0,
       "material": 3
     },
     "valve_4": {
       "type": "Valve",
       "in": "after_pipe_3",
       "out": "after_valve_4",
-      "pressure_ratio": 0.5,
+      "Cv": 0.009,
+      "valve_opening": 0.5,
+      "valve_function": "linear",
       "material": 3
     },
     "pipe_4": {
@@ -158,6 +180,8 @@
       "out": "recycle_to_tank",
       "delta_p": 1000.0,
       "diameter": 0.08,
+      "length": 2.0,
+      "design_flowrate": 1.0,
       "material": 3
     }
   },
@@ -165,6 +189,11 @@
     "mode": "dynamic",
     "t0": 0.0,
     "tf": 20.0,
-    "dt": 1.0
+    "dt": 1.0,
+    "hydraulics": {
+      "enabled": true,
+      "tol": 1e-8,
+      "max_iter": 200
+    }
   }
 }

@@ -209,6 +209,9 @@
     "mode": "dynamic",
     "t0": 0.0,
     "tf": 20.0,
-    "dt": 1.0
+    "dt": 1.0,
+    "hydraulics": {
+      "enabled": false
+    }
   }
 }
