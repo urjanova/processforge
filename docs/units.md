@@ -185,28 +185,48 @@ Opt-in via the `simulation` block:
 }
 ```
 
+Hydraulics works in both modes:
+- **`dynamic`**: the network is re-solved at every timestep and tank inventories
+  integrate the network-determined flows.
+- **`steady`**: the network is solved once; unit logic then evaluates T and
+  composition at those pressures/flows. (`pf run` routes steady hydraulic
+  flowsheets to the native engine instead of the equation-oriented solver.)
+
 When enabled:
-- Stream **pressures** are solved simultaneously for all streams each timestep.
+- Stream **pressures** are solved simultaneously for all streams.
 - Element **flows** are determined by the pressure–flow laws of valves, pipes,
   strainers, and pumps.
 - **Tank** `outlet_flow` is **ignored**: the network determines the actual outflow.
+  A nonzero net tank flow is accumulation/depletion in dynamic mode.
 - **Pipes** and **valves** must specify hydraulic parameters (`Cv`, `valve_opening`,
   `design_flowrate`, etc.) instead of relying solely on `delta_p`.
 - **Pumps** can use `pump_curve` for realistic head-flow behavior or `delta_p` as a
   fixed-rise fallback.
+- Declared feed streams that feed an element directly are network boundaries, so
+  their flow is solved. Feeds that feed a `Tank` keep their declared `flowrate`
+  (the tank inventory integrates it).
 
 ### Solver overview
 
 The network solver builds a nonlinear system:
 - **Nodes** are streams connected to tanks or declared as feeds are fixed-pressure
   boundaries; every other stream is a free node with a mass balance.
-- **Edges** are single-inlet/single-outlet units (Pump, Valve, Pipes, Strainer,
-  Heater). Each edge contributes one pressure–flow relation.
+- **Terminal outlets** — a produced stream that nothing consumes, such as a drain
+  or product — are anchored at `outlet_pressure` on the producing unit, a declared
+  stream pressure, or atmospheric pressure (`101325 Pa`) as a last resort.
+- **Edges** are units (Pump, Valve, Pipes, Strainer, Heater). Each edge contributes
+  one pressure–flow relation.
+- **Junctions** — a unit with multiple inlets (for example a mixing valve) — merge
+  its inlet streams into one zero-volume node. The node has one pressure unknown
+  and its mass balance sums every incoming branch. A `Pump` must have exactly one
+  inlet.
 
 The system is solved with `scipy.optimize.least_squares` using pressure (Pa)
-and flow (mol/s) scaling. An active-set loop closes check valves and pumps that
-would reverse flow. On failure, `HydraulicSolveError` is raised with the residual
-norm, pressure imbalance, and active valve states.
+and flow (mol/s) scaling. The flow scale is inferred from the design flow and feed
+flowrates unless `flow_scale` is set. An active-set loop closes check valves and
+pumps that would reverse flow. On failure, `HydraulicSolveError` is raised with the
+residual norm, the worst equation, the solver status, and the active valve/pump
+states.
 
 ### Property resolution
 
@@ -219,7 +239,8 @@ unit config). Explicit parameters always override provider values.
 
 `Flash` is **not supported** in hydraulic mode because it has multiple outlets
 and would need internal composition-dependent pressure splits. Use hydraulic
-mode only for simple single-inlet/single-outlet loops.
+mode for networks built from pumps, valves, pipes, strainers, heaters and tanks;
+multi-inlet junction units are supported, but multi-outlet units are not.
 
 ## Examples
 

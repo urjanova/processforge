@@ -41,14 +41,41 @@ _UNIT_REQUIRED: dict[str, list] = {
     "IdealGasReactor": ["residence_time"],
 }
 
+# Required parameters when ``simulation.hydraulics.enabled`` is true.  The
+# pressure-driven network solver determines flows and pressures itself, so the
+# legacy fixed-value specs (``pressure_ratio``, ``outlet_flow``) are *not*
+# required — instead each element needs the parameters of its hydraulic law.
+_HYDRAULIC_UNIT_REQUIRED: dict[str, list] = {
+    "Pump":     [("delta_p", "pump_curve")],
+    "Valve":    [("Cv", "cv")],
+    "Strainer": ["delta_p", "design_flowrate"],
+    # Geometry path needs a diameter; the design-point path needs a design
+    # flow (and a delta_p, checked below).
+    "Pipes":    [("diameter", "design_flowrate")],
+    "Heater":   [("duty", "outlet_T")],
+    "Tank":     ["P"],
+}
+
 # Units that produce two outlet streams (affects variables count)
 _TWO_OUTLET_UNITS = frozenset({"Flash"})
 
 
-def _check_required(unit_cfg: dict, unit_type: str, sim_mode: str) -> list[str]:
+def _check_required(
+    unit_cfg: dict, unit_type: str, sim_mode: str, hydraulics: bool = False
+) -> list[str]:
     """Return a list of issue strings for any missing required params."""
     issues = []
-    required = list(_UNIT_REQUIRED.get(unit_type, []))
+    if hydraulics:
+        required = list(
+            _HYDRAULIC_UNIT_REQUIRED.get(
+                unit_type, _UNIT_REQUIRED.get(unit_type, [])
+            )
+        )
+        # Design-point fallback pipes also need a delta_p to scale from.
+        if unit_type == "Pipes" and "design_flowrate" in unit_cfg:
+            required = required + ["delta_p"]
+    else:
+        required = list(_UNIT_REQUIRED.get(unit_type, []))
 
     # Dynamic mode: Tank needs initial conditions too
     if unit_type == "Tank" and sim_mode == "dynamic":
@@ -86,7 +113,9 @@ def analyze_dof(config: dict) -> SystemDOFReport:
     Returns:
         SystemDOFReport with per-unit results and system totals.
     """
-    sim_mode = config.get("simulation", {}).get("mode", "steady")
+    simulation = config.get("simulation", {}) or {}
+    sim_mode = simulation.get("mode", "steady")
+    hydraulics = bool((simulation.get("hydraulics") or {}).get("enabled", False))
 
     # Determine component set from feed streams
     component_names: list[str] = []
@@ -110,7 +139,7 @@ def analyze_dof(config: dict) -> SystemDOFReport:
         variables = n_outlets * vars_per_stream
         equations = n_outlets * vars_per_stream  # each unit fully determines its outlets
 
-        issues = _check_required(unit_cfg, unit_type, sim_mode)
+        issues = _check_required(unit_cfg, unit_type, sim_mode, hydraulics)
 
         # Each missing required param = one DOF penalty
         dof_penalty = len(issues)

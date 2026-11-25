@@ -444,6 +444,9 @@ def run_flowsheet(
     sim_cfg = config.get("simulation", {})
     mode = sim_cfg.get("mode", "steady")
     is_dynamic = mode == "dynamic"
+    hydraulics_enabled = bool(
+        (sim_cfg.get("hydraulics") or {}).get("enabled", False)
+    )
 
     run_id = make_run_id()
     fhash = flowsheet_hash(config)
@@ -494,6 +497,34 @@ def run_flowsheet(
 
         run_info = build_run_info(config, x0=x0, var_names=var_names)
         snap_x, snap_vn, snap_backend, snap_ok = x0, var_names, "dynamic", True
+    elif hydraulics_enabled:
+        # Hydraulic network mode is not part of the equation-oriented solver;
+        # use the native sequential/hydraulic engine so the steady state honours
+        # pressure-driven flows and pressures.
+        fs = Flowsheet(config)
+        fs.set_run_context(run_id, fhash)
+        logger.info("=== Steady-State Hydraulic Results ===")
+        results = fs.run()
+
+        _check_for_failed_units(fs)
+
+        if getattr(fs, "converged", True):
+            logger.info("Steady-state hydraulic simulation converged.")
+        else:
+            logger.warning(
+                "Steady-state hydraulic simulation did NOT converge. "
+                "Results may be unreliable."
+            )
+        try:
+            x0, var_names = build_dynamic_x0(config)
+        except Exception as exc:
+            raise StatePersistenceError(
+                f"Failed to build initial state vector: {exc}"
+            ) from exc
+        run_info = build_run_info(config, x0=x0, var_names=var_names)
+        snap_x, snap_vn = x0, var_names
+        snap_backend = "hydraulic"
+        snap_ok = bool(getattr(fs, "converged", True))
     else:
         fs = EOFlowsheet(config, backend=backend)
         fs.set_run_context(run_id, fhash)

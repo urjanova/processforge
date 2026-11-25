@@ -1,8 +1,8 @@
 {
   "metadata": {
     "name": "Hydraulic Chain Example",
-    "description": "A two-pump, one-valve, one-strainer steady-state hydraulic system. Updated with hydraulic-ready properties (Cv valve, design-flowrate pipes, pump-curve pump).",
-    "version": "2.1"
+    "description": "A two-pump, one-valve, one-strainer steady-state hydraulic system. Pressure-driven network solve with IDAES valve law, design-flow pipes, and EPANET pump curves; the product stream discharges at atmospheric pressure.",
+    "version": "2.2"
   },
   "providers": {
     "coolprop": {
@@ -65,7 +65,7 @@
       "type": "Valve",
       "in": "after_pipe_1",
       "out": "after_valve_1",
-      "Cv": 0.01,
+      "Cv": 0.02,
       "valve_opening": 0.5,
       "valve_function": "linear",
       "material": 3
@@ -118,6 +118,7 @@
       "diameter": 0.12,
       "length": 12.0,
       "design_flowrate": 1.0,
+      "outlet_pressure": 101325.0,
       "material": 3
     }
   },
@@ -127,7 +128,9 @@
     "tf": 15.0,
     "dt": 1.0,
     "hydraulics": {
-      "enabled": false
+      "enabled": true,
+      "tol": 1e-8,
+      "max_iter": 200
     }
   }
 }

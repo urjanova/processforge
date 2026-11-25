@@ -8,30 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.5] - 2026-11-24
 
 ### Added
-- **Hydraulic network solver:** Solves pressures and flows together using `scipy.optimize.least_squares` when `simulation.hydraulics.enabled` is turned on.
+- **Hydraulic network solver:** Solves pressures and flows together using `scipy.optimize.least_squares` when `simulation.hydraulics.enabled` is turned on — in both `dynamic` and `steady` modes.
 - **Equipment models:** Added hydraulic math for valves, pipes (geometry or design-point fallback), pumps (head-flow curves), strainers (linear resistance), and tanks (flow set by the network rather than `outlet_flow`).
-- **Errors and schema:** Added hydraulic error classes and updated the schema with the new hydraulic and fluid properties.
-
-### Changed
-- **Docs and sample flowsheets:** Updated `docs/units.md` and migrated the
-  repository flowsheets for hydraulic mode:
-  - `flowsheets/closed-loop-chain.json` and
-    `flowsheets/custom/crimson/simple_water_system_modified.json` are fully
-    migrated (`Cv` valves, design-flow pipes, pump curve) and enabled.
-  - `flowsheets/custom/crimson/simple_water_system_modified_b.json` migrated
-    from `pressure_ratio` to `Cv`/`valve_opening` with equal tank outlet flows.
-  - `flowsheets/hydraulic-chain.json`, the IDAES variants, and the custom
-    branched/dead-end flowsheets declare a `simulation.hydraulics` block
-    (disabled where the topology — multi-inlet valves or unconsumed drain
-    outlets — is not yet supported by the network solver).
-  - Audit tests assert every fluid-network flowsheet declares a
-    `simulation.hydraulics` block and no non-fluid flowsheet enables it.
+- **Terminal outlets:** Produced streams that nothing consumes (drains, products) are anchored at the unit's `outlet_pressure`, a declared stream pressure, or atmospheric pressure.
+- **Junction units:** Units with multiple inlets (for example a mixing valve) merge their inlet streams into one zero-volume node with a shared pressure and a summed mass balance.
+- **Errors and schema:** Added hydraulic error classes and updated the schema with the new hydraulic and fluid properties, including `outlet_pressure`. Non-convergence diagnostics now report the worst equation, solver status, and active valve/pump states.
 
 ### Fixed
 - **Closed-loop pressures:** Fixed closed-loop water systems ignoring the `4.13 bar` pressure difference at `tank_2`.
-- **Feed/boundary flows:** declared feed streams keep their configured
-  `flowrate` in hydraulic mode instead of being overwritten by the network
-  solution.
+- **Feed/boundary flows:** declared feed streams that feed a `Tank` keep their
+  configured `flowrate` in hydraulic mode, while feeds that feed an element
+  directly take the network-solved flow so the boundary mass balance closes.
+- **`pf plan` DOF analysis is hydraulic-aware:** when
+  `simulation.hydraulics.enabled` is true, valves are checked for `Cv` (not
+  `pressure_ratio`), pumps accept `delta_p` or `pump_curve`, strainers use
+  `delta_p` + `design_flowrate`, pipes use geometry or design-point specs, and
+  tanks no longer require `outlet_flow`. Legacy flowsheets still require
+  `pressure_ratio` when hydraulics is disabled. (`pf run` itself never required
+  `pressure_ratio`; the warning came from `pf plan`.)
 
 ## [0.7.4] - 2026-11-18
 

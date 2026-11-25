@@ -262,6 +262,9 @@ class Flowsheet:
         """
         logger.info("Running steady-state simulation")
 
+        if self._hydraulics_enabled():
+            return self._run_steady_hydraulic()
+
         # Determine processing order (this also detects recycles)
         processing_order = self._get_processing_order()
 
@@ -918,6 +921,116 @@ class Flowsheet:
             hyd_cfg,
         )
 
+    def _run_steady_hydraulic(self):
+        """Steady-state simulation using the hydraulic network.
+
+        The network is solved once; unit logic then evaluates T and composition
+        at those network-determined pressures/flows.  Recycle loops keep the
+        network solution fixed (it is already a steady state) and iterate only
+        on the tear-stream temperature and composition.
+        """
+        from .units.solver_unit import SolverUnit
+
+        logger.info("Running steady-state simulation with hydraulic network")
+        processing_order = self._get_processing_order()
+        self.has_couplings = any(
+            isinstance(u.get("inputs"), dict) and u.get("inputs")
+            for u in self.config.get("units", {}).values()
+        )
+        network, _ = self._build_hydraulic_network(processing_order)
+        solution = network.solve()
+
+        declared = set(self.config.get("streams", {}).keys())
+        # A declared feed that feeds an element directly (rather than a Tank)
+        # is a network boundary whose flow is solved, so let the network set it.
+        element_inlets = {el.inlet for el in network.elements}
+        results = {k: deepcopy(v) for k, v in self.config["streams"].items()}
+        for name, pressure in solution.pressures.items():
+            state = results.setdefault(name, {})
+            state["P"] = pressure
+        for name, flow in solution.stream_flows.items():
+            if name not in declared or name in element_inlets:
+                results.setdefault(name, {})["flowrate"] = flow
+
+        default_stream = deepcopy(next(iter(self.config["streams"].values()), {}))
+        for name in self.tear_streams:
+            results.setdefault(name, deepcopy(default_stream))
+
+        max_iter = 100 if self.tear_streams else 1
+        tear_tolerance = 1e-6
+        converged = not self.tear_streams
+        error = 0.0
+        for iteration in range(max_iter):
+            old_tears = {
+                name: {
+                    "T": results[name].get("T"),
+                    "z": dict(results[name].get("z", {})),
+                }
+                for name in self.tear_streams
+                if name in results
+            }
+
+            for unit_name in processing_order:
+                unit = self.units[unit_name]
+                cfg = self.config["units"][unit_name]
+                if isinstance(unit, SolverUnit):
+                    logger.info(
+                        f"Running standalone SolverUnit {unit_name} (steady hydraulic)"
+                    )
+                    engine_out = unit.run({})
+                    self.engine_outputs[unit_name] = engine_out
+                    results[unit_name] = engine_out
+                    continue
+
+                inlet = self._get_merged_inlet(results, cfg)
+                outlet = unit.run(inlet)
+                if isinstance(outlet, EngineOutput):
+                    self.engine_outputs[unit_name] = outlet
+                    continue
+                for stream_name in self._get_unit_outlets(unit_name):
+                    snapshot = deepcopy(outlet)
+                    if stream_name in solution.pressures:
+                        snapshot["P"] = solution.pressures[stream_name]
+                    if stream_name in solution.stream_flows and (
+                        stream_name not in declared
+                        or stream_name in element_inlets
+                    ):
+                        snapshot["flowrate"] = solution.stream_flows[stream_name]
+                    results[stream_name] = snapshot
+
+            error = 0.0
+            for name, old in old_tears.items():
+                new = results.get(name, {})
+                if old.get("T") is not None and new.get("T") is not None:
+                    error = max(error, abs(new["T"] - old["T"]))
+                for comp, value in old.get("z", {}).items():
+                    if comp in new.get("z", {}):
+                        error = max(error, abs(new["z"][comp] - value))
+            if error < tear_tolerance:
+                converged = True
+                break
+            logger.debug(
+                f"Steady hydraulic iteration {iteration + 1}: tear error {error:.2e}"
+            )
+
+        if not converged:
+            logger.warning(
+                "Steady hydraulic recycle iteration did not converge after "
+                f"{max_iter} iterations (tear error {error:.2e})"
+            )
+
+        # Enforce the network solution on every stream after unit logic.
+        for name, pressure in solution.pressures.items():
+            results.setdefault(name, {})["P"] = pressure
+        for name, flow in solution.stream_flows.items():
+            if name not in declared or name in element_inlets:
+                results.setdefault(name, {})["flowrate"] = flow
+
+        self.converged = bool(converged)
+        self.results = results
+        logger.info("Steady-state simulation with hydraulic network completed")
+        return results
+
     def _run_dynamic_hydraulic(
         self, solver, processing_order, results, t_eval, num_steps, start_time, end_time
     ):
@@ -998,6 +1111,7 @@ class Flowsheet:
                 self.engine_outputs[unit_name] = result
                 results[unit_name] = result
 
+        element_inlets = {el.inlet for el in network.elements}
         for step in range(num_steps):
             dt = t_eval[1] - t_eval[0] if num_steps > 1 else 1.0
             solution = network.solve()
@@ -1009,7 +1123,7 @@ class Flowsheet:
                     results[stream_name]["P"][step] = pressure
             for stream_name, flow in solution.stream_flows.items():
                 if stream_name in results and "flowrate" in results[stream_name]:
-                    if stream_name not in declared_streams:
+                    if stream_name not in declared_streams or stream_name in element_inlets:
                         results[stream_name]["flowrate"][step] = flow
 
             # Propagate previous-step T/composition on tear streams; they are
@@ -1060,7 +1174,7 @@ class Flowsheet:
                     results[stream_name]["P"][step] = pressure
             for stream_name, flow in solution.stream_flows.items():
                 if stream_name in results and "flowrate" in results[stream_name]:
-                    if stream_name not in declared_streams:
+                    if stream_name not in declared_streams or stream_name in element_inlets:
                         results[stream_name]["flowrate"][step] = flow
 
         self.results = results

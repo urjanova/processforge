@@ -90,10 +90,10 @@ class HydraulicNetwork:
         max_iter: int = 50,
         flow_scale: float = 1e-3,
         pressure_scale: float = 1e5,
+        node_aliases: dict[str, str] | None = None,
     ) -> None:
         self.elements = elements
-        self.fixed_pressures = dict(fixed_pressures)
-        self.free_nodes = list(free_nodes)
+        self.node_aliases = dict(node_aliases or {})
         self.tol = float(tol)
         self.max_iter = int(max_iter)
         self.flow_scale = float(flow_scale)
@@ -101,15 +101,55 @@ class HydraulicNetwork:
         self._last_x: Optional[np.ndarray] = None
         self._last_flows: dict[str, float] = {}
 
+        # Every stream name that appears anywhere.  Used to expand the solved
+        # canonical-node pressures back onto the individual streams.
+        stream_names: set[str] = set(self.node_aliases) | set(self.node_aliases.values())
+        for el in elements:
+            stream_names.add(el.inlet)
+            stream_names.add(el.outlet)
+        stream_names.update(fixed_pressures)
+        stream_names.update(free_nodes)
+        self._stream_names = sorted(stream_names)
+
+        # Merge aliased streams into a single canonical node and collapse the
+        # fixed pressures onto those nodes.  Junction units alias their extra
+        # inlets to the first inlet, so all of them share one node/unknown.
+        canonical_fixed: dict[str, float] = {}
+        for node, pressure in fixed_pressures.items():
+            canon = self._canonical(node)
+            if canon in canonical_fixed and not math.isclose(
+                canonical_fixed[canon], float(pressure), rel_tol=1e-9, abs_tol=1e-6
+            ):
+                raise HydraulicConfigError(
+                    "Junction stream pressure conflict: streams merged at a "
+                    f"common node carry {canonical_fixed[canon]!r} Pa and "
+                    f"{pressure!r} Pa."
+                )
+            canonical_fixed[canon] = float(pressure)
+        self.fixed_pressures = canonical_fixed
+        self.free_nodes = sorted(
+            {self._canonical(n) for n in free_nodes} - set(canonical_fixed)
+        )
+
         self._node_in: dict[str, list[int]] = {n: [] for n in self.free_nodes}
         self._node_out: dict[str, list[int]] = {n: [] for n in self.free_nodes}
         for idx, el in enumerate(self.elements):
-            if el.outlet in self._node_in:
-                self._node_in[el.outlet].append(idx)
-            if el.inlet in self._node_out:
-                self._node_out[el.inlet].append(idx)
+            outlet = self._canonical(el.outlet)
+            inlet = self._canonical(el.inlet)
+            if outlet in self._node_in:
+                self._node_in[outlet].append(idx)
+            if inlet in self._node_out:
+                self._node_out[inlet].append(idx)
 
         self._check_components_have_boundary()
+
+    def _canonical(self, node: str) -> str:
+        """Resolve a stream name to its junction-canonical node."""
+        seen: set[str] = set()
+        while node in self.node_aliases and node not in seen:
+            seen.add(node)
+            node = self.node_aliases[node]
+        return node
 
     # ------------------------------------------------------------------
     # Public API
@@ -152,17 +192,23 @@ class HydraulicNetwork:
 
     def inlet_flow(self, stream_names: list[str]) -> float:
         """Total flow [mol/s] into a set of streams (used for tank inlets)."""
+        targets = {self._canonical(s) for s in stream_names}
         total = 0.0
-        for el in self.elements:
-            if el.outlet in stream_names:
+        for idx, el in enumerate(self.elements):
+            if self._canonical(el.outlet) in targets:
                 total += self._last_flows.get(el.name, 0.0)
         return total
 
     def outlet_flow(self, stream_names: list[str]) -> float:
         """Total flow [mol/s] out of a set of streams (used for tank outlets)."""
+        targets = {self._canonical(s) for s in stream_names}
         total = 0.0
-        for el in self.elements:
-            if el.inlet in stream_names:
+        seen: set[int] = set()
+        for idx, el in enumerate(self.elements):
+            if idx in seen:
+                continue
+            if self._canonical(el.inlet) in targets:
+                seen.add(idx)
                 total += self._last_flows.get(el.name, 0.0)
         return total
 
@@ -174,8 +220,10 @@ class HydraulicNetwork:
         """Every connected component of stream nodes needs a pressure boundary."""
         adjacency: dict[str, set[str]] = {}
         for el in self.elements:
-            adjacency.setdefault(el.inlet, set()).add(el.outlet)
-            adjacency.setdefault(el.outlet, set()).add(el.inlet)
+            inlet = self._canonical(el.inlet)
+            outlet = self._canonical(el.outlet)
+            adjacency.setdefault(inlet, set()).add(outlet)
+            adjacency.setdefault(outlet, set()).add(inlet)
         for node in self.free_nodes:
             adjacency.setdefault(node, set())
 
@@ -237,8 +285,8 @@ class HydraulicNetwork:
                 # Estimate flow from the available pressure drop and the
                 # element's resistance law so the solver starts near the
                 # solution instead of at a generic 1e-3.
-                p_in = pressures.get(el.inlet, default_pressure)
-                p_out = pressures.get(el.outlet, default_pressure)
+                p_in = pressures.get(self._canonical(el.inlet), default_pressure)
+                p_out = pressures.get(self._canonical(el.outlet), default_pressure)
                 dp = abs(p_in - p_out)
                 if el.kind == "valve":
                     cv = el.params.get("cv", 1e-6)
@@ -294,34 +342,47 @@ class HydraulicNetwork:
         residual_norm = float(np.max(np.abs(result.fun))) if result.fun.size else 0.0
         if residual_norm > self.tol:
             raise HydraulicSolveError(
-                "Hydraulic network did not converge "
-                f"(scaled residual {residual_norm:.3e} > tol {self.tol:.3e}). "
-                "The flowsheet may be over-determined or missing a resistance "
-                "element between pressure boundaries."
+                self._failure_message(result, residual_norm, closed)
             )
 
-        pressures: dict[str, float] = {}
+        canonical_pressures: dict[str, float] = {}
         for i, node in enumerate(self.free_nodes):
-            pressures[node] = float(result.x[i])
-        for node, p in self.fixed_pressures.items():
-            pressures[node] = float(p)
+            canonical_pressures[node] = float(result.x[i])
+        canonical_pressures.update(self.fixed_pressures)
+
+        # Expand canonical-node pressures onto every individual stream so a
+        # junction's merged inlets all report the same pressure.
+        pressures: dict[str, float] = {}
+        for name in self._stream_names:
+            pressures[name] = float(canonical_pressures[self._canonical(name)])
 
         flows: dict[str, float] = {}
         for j, el in enumerate(self.elements):
             flows[el.name] = float(result.x[n_free + j])
         self._last_flows = flows
 
-        stream_flows: dict[str, float] = {}
         produced_by: dict[str, list[int]] = {}
         for j, el in enumerate(self.elements):
             produced_by.setdefault(el.outlet, []).append(j)
-        for node in set(list(pressures) + [el.inlet for el in self.elements]):
+        stream_flows: dict[str, float] = {}
+        for node in self._stream_names:
             if node in produced_by:
-                stream_flows[node] = sum(flows[self.elements[j].name] for j in produced_by[node])
-            else:
                 stream_flows[node] = sum(
-                    flows[el.name] for el in self.elements if el.inlet == node
+                    flows[self.elements[j].name] for j in produced_by[node]
                 )
+            else:
+                # A declared feed (or merged boundary) node: report the total
+                # flow leaving the node through its canonical edges.
+                target = self._canonical(node)
+                total = 0.0
+                seen: set[int] = set()
+                for j, el in enumerate(self.elements):
+                    if j in seen:
+                        continue
+                    if self._canonical(el.inlet) == target:
+                        seen.add(j)
+                        total += flows[el.name]
+                stream_flows[node] = total
 
         return HydraulicSolution(
             flows=flows,
@@ -329,6 +390,43 @@ class HydraulicNetwork:
             pressures=pressures,
             residual_norm=residual_norm,
             iterations=int(result.nfev),
+        )
+
+    def _equation_labels(self) -> list[str]:
+        """Human-readable labels aligned with the residual vector."""
+        labels = [f"mass balance at '{node}'" for node in self.free_nodes]
+        labels.extend(
+            f"{el.kind} '{el.name}' pressure-flow relation"
+            for el in self.elements
+        )
+        return labels
+
+    def _failure_message(
+        self,
+        result,
+        residual_norm: float,
+        closed: list[bool],
+    ) -> str:
+        """Build a diagnostic message for a non-converged hydraulic solve."""
+        labels = self._equation_labels()
+        worst = "unknown equation"
+        if result.fun.size:
+            worst_idx = int(np.argmax(np.abs(result.fun)))
+            if 0 <= worst_idx < len(labels):
+                worst = labels[worst_idx]
+        closed_names = [
+            el.name for i, el in enumerate(self.elements) if closed[i]
+        ]
+        active = (
+            f"closed: {closed_names}" if closed_names else "all elements open"
+        )
+        return (
+            "Hydraulic network did not converge "
+            f"(scaled residual {residual_norm:.3e} > tol {self.tol:.3e}; "
+            f"solver status {result.status}: {result.message}). "
+            f"Worst equation: {worst}. Valve/pump active set: {active}. "
+            "The flowsheet may be over-determined, missing a resistance element "
+            "between pressure boundaries, or a boundary stream may be unanchored."
         )
 
     def _residuals(self, x: np.ndarray, closed: list[bool]) -> np.ndarray:
@@ -358,8 +456,8 @@ class HydraulicNetwork:
                 residuals[idx] = flows[j] / self.flow_scale
                 continue
 
-            p_in = pressures[el.inlet]
-            p_out = pressures[el.outlet]
+            p_in = pressures[self._canonical(el.inlet)]
+            p_out = pressures[self._canonical(el.outlet)]
             f = float(flows[j])
 
             if el.kind == "valve":
@@ -556,7 +654,15 @@ def build_hydraulic_network(
             fixed_pressures[stream] = float(p)
         tank_outlet_streams[name] = list(get_outlets(cfg))
 
+    # Streams that feed a downstream unit (Tank inlets included).  Anything a
+    # unit produces but nobody consumes is a free discharge (drain/product)
+    # and must be anchored at a pressure.
+    consumed: set[str] = set()
+    for cfg in config.get("units", {}).values():
+        consumed.update(get_inlets(cfg))
+
     elements: list[HydraulicElement] = []
+    node_aliases: dict[str, str] = {}
     for name, cfg in config.get("units", {}).items():
         unit_type = cfg.get("type", "")
         if unit_type in ("Tank", "SolverUnit"):
@@ -574,17 +680,62 @@ def build_hydraulic_network(
 
         inlets = get_inlets(cfg)
         outlets = get_outlets(cfg)
-        if len(inlets) != 1 or len(outlets) != 1:
+        if not inlets:
             raise HydraulicConfigError(
-                f"Unit '{name}' must have exactly one inlet and one outlet "
-                "in hydraulic mode"
+                f"Unit '{name}' needs at least one inlet in hydraulic mode"
             )
+        if len(outlets) != 1:
+            raise HydraulicConfigError(
+                f"Unit '{name}' must have exactly one outlet in hydraulic mode"
+            )
+        if unit_type == "Pump" and len(inlets) != 1:
+            raise HydraulicConfigError(
+                f"Pump '{name}' must have exactly one inlet in hydraulic mode"
+            )
+
         inlet, outlet = inlets[0], outlets[0]
+        # Multiple inlets are a zero-volume junction: merge the extra inlet
+        # streams onto the first so the junction has one pressure unknown and
+        # the node mass balance sums every incoming branch.
+        for extra_inlet in inlets[1:]:
+            if extra_inlet != inlet:
+                node_aliases[extra_inlet] = inlet
+        if len(inlets) > 1:
+            logger.info(
+                f"Unit '{name}': merging inlets {inlets[1:]} into junction "
+                f"stream '{inlet}'"
+            )
+
+        # A produced stream that nothing consumes is a free discharge.  Anchor
+        # it at an explicit ``outlet_pressure``, a declared stream pressure, or
+        # atmospheric pressure.
+        if outlet not in consumed and outlet not in fixed_pressures:
+            discharge_p = cfg.get("outlet_pressure")
+            if discharge_p is None:
+                declared = config.get("streams", {}).get(outlet) or {}
+                discharge_p = declared.get("P")
+            if discharge_p is None:
+                discharge_p = 101325.0
+                logger.warning(
+                    f"Stream '{outlet}' from unit '{name}' is a free discharge "
+                    "with no 'outlet_pressure'; assuming atmospheric pressure "
+                    "(101325 Pa)."
+                )
+            fixed_pressures[outlet] = float(discharge_p)
+            logger.info(
+                f"Stream '{outlet}' from unit '{name}' is a terminal outlet; "
+                f"anchored at {float(discharge_p):.0f} Pa"
+            )
 
         state = initial_states.get(inlet) or {}
         props = resolve_hydraulic_props(units[name], state)
 
         if unit_type == "Valve":
+            if cfg.get("pressure_ratio") is not None:
+                logger.warning(
+                    f"Valve '{name}': 'pressure_ratio' is legacy and ignored in "
+                    "hydraulic mode; the flow is governed by 'Cv'."
+                )
             params = _preprocess_valve(cfg)
             nonreturn = bool(params["check_valve"])
         elif unit_type == "Pipes":
@@ -611,11 +762,35 @@ def build_hydraulic_network(
             )
         )
 
+    def _canonical(node: str) -> str:
+        seen: set[str] = set()
+        while node in node_aliases and node not in seen:
+            seen.add(node)
+            node = node_aliases[node]
+        return node
+
     all_nodes: set[str] = set(fixed_pressures)
     for el in elements:
-        all_nodes.add(el.inlet)
-        all_nodes.add(el.outlet)
-    free_nodes = sorted(all_nodes - set(fixed_pressures))
+        all_nodes.add(_canonical(el.inlet))
+        all_nodes.add(_canonical(el.outlet))
+    free_nodes = sorted(all_nodes - {_canonical(n) for n in fixed_pressures})
+
+    # Pick a flow scale that matches the flowsheet instead of the small water
+    # demo default.  An explicit ``flow_scale`` always wins.
+    if "flow_scale" in hydraulics_cfg:
+        flow_scale = float(hydraulics_cfg["flow_scale"])
+    else:
+        candidates = [
+            float(s.get("flowrate", 0.0))
+            for s in config.get("streams", {}).values()
+            if s.get("flowrate")
+        ]
+        candidates.extend(
+            float(cfg["design_flowrate"])
+            for cfg in config.get("units", {}).values()
+            if cfg.get("design_flowrate")
+        )
+        flow_scale = max(candidates, default=1e-3)
 
     network = HydraulicNetwork(
         elements=elements,
@@ -623,11 +798,13 @@ def build_hydraulic_network(
         free_nodes=free_nodes,
         tol=float(hydraulics_cfg.get("tol", 1e-8)),
         max_iter=int(hydraulics_cfg.get("max_iter", 50)),
-        flow_scale=float(hydraulics_cfg.get("flow_scale", 1e-3)),
+        flow_scale=flow_scale,
         pressure_scale=float(hydraulics_cfg.get("pressure_scale", 1e5)),
+        node_aliases=node_aliases,
     )
     logger.info(
         f"Hydraulic network built: {len(elements)} elements, "
-        f"{len(free_nodes)} free nodes, {len(fixed_pressures)} boundaries"
+        f"{len(network.free_nodes)} free nodes, "
+        f"{len(network.fixed_pressures)} boundaries"
     )
     return network, tank_outlet_streams

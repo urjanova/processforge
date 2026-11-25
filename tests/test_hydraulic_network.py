@@ -361,6 +361,124 @@ class TestCheckValve:
 
 
 # ---------------------------------------------------------------------------
+# Junction (multi-inlet) units and terminal outlets
+# ---------------------------------------------------------------------------
+
+def _valve_params(cv=1e-5, opening=1.0):
+    return {"cv": cv, "opening": opening, "valve_function": "linear", "alpha": 100.0}
+
+
+class TestJunctionsAndTerminals:
+    def test_parallel_branches_merge_at_a_junction(self):
+        """Two identical branches sharing a canonical node split the flow evenly."""
+        p1 = HydraulicElement(
+            "p1", "pipes", "feed", "branch_1",
+            {"delta_p": 1000.0, "design_flowrate": 1.0},
+        )
+        p2 = HydraulicElement(
+            "p2", "pipes", "feed", "branch_2",
+            {"delta_p": 1000.0, "design_flowrate": 1.0},
+        )
+        v = HydraulicElement("v", "valve", "branch_1", "sink", _valve_params())
+        net = HydraulicNetwork(
+            elements=[p1, p2, v],
+            fixed_pressures={"feed": 2e5, "sink": 1e5},
+            free_nodes=["branch_1", "branch_2"],
+            node_aliases={"branch_2": "branch_1"},
+        )
+        sol = net.solve()
+        assert sol.flow("p1") == pytest.approx(sol.flow("p2"), rel=1e-6)
+        assert sol.flow("v") == pytest.approx(
+            sol.flow("p1") + sol.flow("p2"), rel=1e-6
+        )
+        # The merged inlets share one pressure.
+        assert sol.pressure("branch_1") == pytest.approx(sol.pressure("branch_2"))
+
+    def test_conflicting_junction_pressures_raise(self):
+        """Merging streams anchored at different pressures is a config error."""
+        v = HydraulicElement("v", "valve", "a", "sink", _valve_params())
+        with pytest.raises(HydraulicConfigError, match="Junction stream pressure conflict"):
+            HydraulicNetwork(
+                elements=[v],
+                fixed_pressures={"a": 2e5, "b": 1e5, "sink": 1e5},
+                free_nodes=[],
+                node_aliases={"b": "a"},
+            )
+
+    def test_failure_message_names_the_worst_equation(self):
+        """A zero-resistance heater between fixed pressures is unsolvable."""
+        heater = HydraulicElement("h", "heater", "low", "high", {})
+        net = HydraulicNetwork(
+            elements=[heater],
+            fixed_pressures={"low": 1e5, "high": 2e5},
+            free_nodes=[],
+        )
+        with pytest.raises(HydraulicSolveError) as excinfo:
+            net.solve()
+        message = str(excinfo.value)
+        assert "did not converge" in message
+        assert "heater 'h'" in message
+        assert "active set" in message.lower()
+
+
+def _steady_valve_config(outlet_pressure=None):
+    units = {
+        "valve": {
+            "type": "Valve",
+            "in": "feed",
+            "out": "product",
+            "Cv": 1e-5,
+            "valve_opening": 1.0,
+            "valve_function": "linear",
+            "material": 1,
+        }
+    }
+    if outlet_pressure is not None:
+        units["valve"]["outlet_pressure"] = outlet_pressure
+    return {
+        "metadata": {"name": "steady hydraulic valve"},
+        "providers": {"coolprop": {"type": "coolprop"}},
+        "materials": {"Water": {"id": 1}},
+        "streams": {
+            "feed": {
+                "T": 298.15,
+                "P": 2e5,
+                "flowrate": 1.0,
+                "z": {"Water": 1.0},
+            }
+        },
+        "units": units,
+        "simulation": {
+            "mode": "steady",
+            "hydraulics": {"enabled": True, "tol": 1e-8},
+        },
+    }
+
+
+class TestSteadyHydraulic:
+    def test_terminal_outlet_defaults_to_atmosphere(self):
+        from processforge.flowsheet import Flowsheet
+
+        results = Flowsheet(_steady_valve_config()).run()
+        # A terminal (unconsumed) outlet is anchored at atmospheric pressure.
+        assert results["product"]["P"] == pytest.approx(101325.0)
+        expected = 1e-5 * math.sqrt(2e5 - 101325.0)
+        assert results["product"]["flowrate"] == pytest.approx(expected, rel=1e-6)
+        # The declared feed feeds an element, so its flow is network-determined.
+        assert results["feed"]["flowrate"] == pytest.approx(expected, rel=1e-6)
+
+    def test_terminal_outlet_pressure_override(self):
+        from processforge.flowsheet import Flowsheet
+
+        results = Flowsheet(
+            _steady_valve_config(outlet_pressure=1.5e5)
+        ).run()
+        assert results["product"]["P"] == pytest.approx(1.5e5)
+        expected = 1e-5 * math.sqrt(2e5 - 1.5e5)
+        assert results["product"]["flowrate"] == pytest.approx(expected, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
 # Tank outflow is network-determined (no outlet_flow fallback)
 # ---------------------------------------------------------------------------
 
@@ -608,3 +726,116 @@ class TestRepositoryFlowsheetHydraulics:
                 config = json.load(f)
             hyd = (config.get("simulation") or {}).get("hydraulics") or {}
             assert hyd.get("enabled") is True, f"{path} should enable hydraulics"
+
+    def test_steady_hydraulic_chain_enables_hydraulics(self):
+        """The steady hydraulic-chain demo solves through the native network."""
+        path = FLOWSHEETS_DIR / "hydraulic-chain.json"
+        with open(path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        assert config["simulation"]["mode"] == "steady"
+        hyd = (config.get("simulation") or {}).get("hydraulics") or {}
+        assert hyd.get("enabled") is True
+
+
+# ---------------------------------------------------------------------------
+# DOF analysis must understand hydraulic mode
+# ---------------------------------------------------------------------------
+
+class TestHydraulicDOF:
+    """``pf plan`` DOF analysis should accept hydraulic params, not require legacy ones."""
+
+    @staticmethod
+    def _config(units, hydraulics_enabled):
+        return {
+            "metadata": {"name": "dof test"},
+            "providers": {"coolprop": {"type": "coolprop"}},
+            "materials": {"Water": {"id": 1}},
+            "streams": {},
+            "units": units,
+            "simulation": {
+                "mode": "dynamic",
+                "t0": 0.0,
+                "tf": 5.0,
+                "dt": 1.0,
+                "hydraulics": {"enabled": hydraulics_enabled},
+            },
+        }
+
+    def test_hydraulic_valve_uses_cv_not_pressure_ratio(self):
+        from processforge.analysis.dof import analyze_dof
+
+        cfg = self._config(
+            {
+                "tank": {
+                    "type": "Tank", "in": [], "out": "t",
+                    "P": 101325, "initial_n": {"Water": 1.0},
+                    "initial_T": 298.15, "material": 1,
+                },
+                "v": {
+                    "type": "Valve", "in": "t", "out": "v_out",
+                    "Cv": 1e-6, "valve_opening": 0.5, "material": 1,
+                },
+                "p": {
+                    "type": "Pipes", "in": "v_out", "out": "p_out",
+                    "diameter": 0.05, "length": 1.0,
+                    "delta_p": 1000.0, "design_flowrate": 1.0, "material": 1,
+                },
+                "pump": {
+                    "type": "Pump", "in": "p_out", "out": "pump_out",
+                    "pump_curve": {"flow": [0.0, 1.0], "delta_p": [4e6, 2e6]},
+                    "material": 1,
+                },
+            },
+            hydraulics_enabled=True,
+        )
+        report = analyze_dof(cfg)
+        assert report.system_dof == 0, [r.issues for r in report.per_unit if r.issues]
+        by_type = {r.unit_type: r for r in report.per_unit}
+        assert by_type["Valve"].dof == 0
+        assert by_type["Pump"].dof == 0
+
+    def test_legacy_valve_still_requires_pressure_ratio(self):
+        from processforge.analysis.dof import analyze_dof
+
+        cfg = self._config(
+            {
+                "v": {
+                    "type": "Valve", "in": "a", "out": "b",
+                    "Cv": 1e-6, "valve_opening": 0.5, "material": 1,
+                },
+            },
+            hydraulics_enabled=False,
+        )
+        report = analyze_dof(cfg)
+        issues = report.per_unit[0].issues
+        assert any("pressure_ratio" in i for i in issues), issues
+
+    def test_legacy_valve_with_pressure_ratio_is_determined(self):
+        from processforge.analysis.dof import analyze_dof
+
+        cfg = self._config(
+            {
+                "v": {
+                    "type": "Valve", "in": "a", "out": "b",
+                    "pressure_ratio": 0.5, "material": 1,
+                },
+            },
+            hydraulics_enabled=False,
+        )
+        report = analyze_dof(cfg)
+        assert report.system_dof == 0
+
+    def test_repository_water_flowsheets_are_determined(self):
+        """The migrated water systems should report zero DOF under ``pf plan``."""
+        from processforge.analysis.dof import analyze_dof
+
+        for rel in (
+            "flowsheets/custom/crimson/simple_water_system_modified_b.json",
+            "flowsheets/custom/crimson/simple_water_system_modified.json",
+            "flowsheets/closed-loop-chain.json",
+            "flowsheets/hydraulic-chain.json",
+        ):
+            with open(PROJECT_DIR / rel, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            report = analyze_dof(cfg)
+            assert report.system_dof == 0, (rel, [r.issues for r in report.per_unit if r.issues])

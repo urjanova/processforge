@@ -364,8 +364,9 @@
               "minimum": 0.0,
               "description": "Fixed molar flow [mol/s] for a feed stream in hydraulic mode (optional pressure-flow boundary)."
             },
-            "delta_p": {
-              "type": "number"
+            "outlet_pressure": {
+              "type": "number",
+              "description": "Discharge pressure [Pa] for a terminal (unconsumed) outlet stream in hydraulic mode. Defaults to atmospheric pressure."
             },
             "diameter": {
               "type": "number"
