@@ -277,8 +277,10 @@ def fit_pump_curve(points: list[tuple[float, float]]) -> tuple[float, float, flo
         return (a, b, 1.0)
 
     # Three or more points: nonlinear power-law fit.
+    import warnings
+
     import numpy as np
-    from scipy.optimize import curve_fit
+    from scipy.optimize import OptimizeWarning, curve_fit
 
     q = np.array([p[0] for p in pts], dtype=float)
     h = np.array([p[1] for p in pts], dtype=float)
@@ -289,14 +291,37 @@ def fit_pump_curve(points: list[tuple[float, float]]) -> tuple[float, float, flo
     a0 = max(h.max(), 1.0)
     b0 = max((a0 - h.min()) / max(q.max(), 1e-12) ** 2, 1e-12)
     try:
-        popt, _ = curve_fit(
-            model,
-            q,
-            h,
-            p0=[a0, b0, 2.0],
-            bounds=([0.0, 0.0, 0.1], [np.inf, np.inf, 10.0]),
-            maxfev=20000,
-        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            popt, _ = curve_fit(
+                model,
+                q,
+                h,
+                p0=[a0, b0, 2.0],
+                bounds=([0.0, 0.0, 0.1], [np.inf, np.inf, 10.0]),
+                maxfev=20000,
+            )
+        # An exactly determined fit (three points, three parameters) has no
+        # residual degrees of freedom, so scipy cannot estimate a covariance.
+        # The coefficients are still valid; report it at debug level instead of
+        # letting the warning reach the console, and re-emit anything else.
+        covariance_suppressed = False
+        for warning in caught:
+            message = str(warning.message)
+            if (
+                issubclass(warning.category, OptimizeWarning)
+                and "Covariance of the parameters could not be estimated"
+                in message
+            ):
+                covariance_suppressed = True
+            else:
+                warnings.warn(message, warning.category, stacklevel=2)
+        if covariance_suppressed:
+            logger.debug(
+                "pump_curve fit: covariance could not be estimated "
+                f"({len(pts)} points, 3 parameters); coefficients are still "
+                "used"
+            )
         a, b, c = (float(v) for v in popt)
     except Exception as exc:  # noqa: BLE001 — fall back to a linear fit
         logger.warning(

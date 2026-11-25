@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -268,6 +269,47 @@ class TestNetworkSolver:
         assert sol.flow("p") == pytest.approx(sol.flow("v"), rel=1e-8)
         # after_pump pressure = tank + pump rise
         assert sol.pressure("after_pump") == pytest.approx(p_tank + 2e5, rel=1.0)
+
+    def test_solve_emits_no_scipy_tolerance_warnings(self):
+        """The solver must not disable scipy tolerances in a way that warns.
+
+        Passing ``xtol=0``/``gtol=0`` makes scipy warn and keeps iterating to
+        ``max_nfev`` after convergence, which also triggers an internal
+        divide-by-zero warning in the trust-region routine.
+        """
+        pump = HydraulicElement(
+            "p", "pump", "tank_out", "after_pump", {"delta_p": 2e5}
+        )
+        valve = HydraulicElement(
+            "v",
+            "valve",
+            "after_pump",
+            "return",
+            {"cv": 2e-6, "opening": 1.0, "valve_function": "linear", "alpha": 100.0},
+        )
+        net = HydraulicNetwork(
+            elements=[pump, valve],
+            fixed_pressures={"tank_out": 1e5, "return": 1e5},
+            free_nodes=["after_pump"],
+        )
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            sol = net.solve()
+
+        scipy_warnings = [
+            w
+            for w in caught
+            if issubclass(w.category, (UserWarning, RuntimeWarning))
+            and (
+                "effectively disables the corresponding termination condition"
+                in str(w.message)
+                or "invalid value encountered in scalar divide" in str(w.message)
+            )
+        ]
+        assert not scipy_warnings, [str(w.message) for w in scipy_warnings]
+        # A converged 2-element network should not need thousands of
+        # evaluations to reach the solution.
+        assert sol.iterations < 200
 
     def test_no_boundary_raises(self):
         """A component with no pressure boundary should raise."""

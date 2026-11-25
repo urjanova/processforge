@@ -328,13 +328,21 @@ class HydraulicNetwork:
         x_scale[:n_free] = self.pressure_scale
         x_scale[n_free:] = self.flow_scale
 
+        # Terminate on the scaled cost or gradient.  Disabling xtol/gtol (e.g.
+        # ``xtol=0.0``) makes scipy warn and, more importantly, keeps iterating
+        # past an already-converged point until ``max_nfev``: near the solution
+        # the gradient vanishes and scipy's trust-region routine divides by zero
+        # ("invalid value encountered in scalar divide").  ``None`` disables a
+        # condition without the warning.  xtol is left disabled because a small
+        # step can still leave a large residual on badly scaled networks; the
+        # residual is checked explicitly below instead.
         result = least_squares(
             lambda x: self._residuals(x, closed),
             x0,
             x_scale=x_scale,
             ftol=self.tol,
-            xtol=0.0,
-            gtol=0.0,
+            xtol=None,
+            gtol=self.tol,
             max_nfev=max(500, self.max_iter * 20),
         )
         self._last_x = result.x.copy()

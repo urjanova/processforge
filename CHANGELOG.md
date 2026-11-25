@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.6] - 2026-11-25
+
+### Fixed
+- **Hydraulic solver noise:** `least_squares` no longer disables `xtol`/`gtol`, which made SciPy warn and keep iterating past an already-converged solution — triggering an internal divide-by-zero warning and thousands of extra evaluations per solve. Hydraulic solves now terminate on the scaled gradient.
+- **Pump-curve fit noise:** suppressed the benign `Covariance of the parameters could not be estimated` warning from exactly-3-point pump-curve fits; it is now logged at debug level instead.
+
 ## [0.7.5] - 2026-11-24
 
 ### Added
